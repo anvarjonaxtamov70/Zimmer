@@ -28,8 +28,8 @@ aiogram 3 + SQLite asosida yozilgan, qo'shimcha server yoki baza o'rnatish shart
 ## O'rnatish
 
 ```bash
-git clone https://github.com/anvarjonaxtamov70/zimmer.git
-cd zimmer
+git clone https://github.com/anvarjonaxtamov70/Zimmer.git
+cd Zimmer
 
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
