@@ -35,6 +35,18 @@ async def update_phone(user_id: int, phone: str) -> None:
     await db.commit()
 
 
+async def get_user_with_car(user_id: int) -> aiosqlite.Row | None:
+    """Foydalanuvchi + tanlagan mashinasi nomi bilan."""
+    db = get_db()
+    async with db.execute(
+        "SELECT u.*, c.name AS car_name, c.slug AS car_slug, c.years AS car_years"
+        " FROM users u LEFT JOIN cars c ON c.id = u.car_id"
+        " WHERE u.user_id = ?",
+        (user_id,),
+    ) as cur:
+        return await cur.fetchone()
+
+
 async def get_all_user_ids() -> list[int]:
     db = get_db()
     async with db.execute("SELECT user_id FROM users WHERE is_blocked = 0") as cur:
@@ -192,13 +204,22 @@ async def add_category(name: str) -> int:
 # -------------------------------------------------------------------- mahsulotlar
 
 
-async def get_products(category_id: int, active_only: bool = True) -> list[aiosqlite.Row]:
+async def get_products(
+    category_id: int,
+    active_only: bool = True,
+    car_id: int | None = None,
+) -> list[aiosqlite.Row]:
+    """Kategoriya mahsulotlari. car_id berilsa — shu mashinaga mos + universal."""
     db = get_db()
     sql = "SELECT * FROM products WHERE category_id = ?"
+    params: list[Any] = [category_id]
     if active_only:
         sql += " AND is_active = 1"
-    sql += " ORDER BY id"
-    async with db.execute(sql, (category_id,)) as cur:
+    if car_id is not None:
+        sql += " AND (car_id IS NULL OR car_id = ?)"
+        params.append(car_id)
+    sql += " ORDER BY (car_id IS NULL), id"
+    async with db.execute(sql, params) as cur:
         return await cur.fetchall()
 
 
@@ -399,6 +420,12 @@ async def get_stats(today: str) -> dict[str, int]:
             (),
         ),
         "products": ("SELECT COUNT(*) FROM products WHERE is_active = 1", ()),
+        "biled_total": ("SELECT COUNT(*) FROM biled_orders", ()),
+        "biled_new": ("SELECT COUNT(*) FROM biled_orders WHERE status = 'new'", ()),
+        "biled_revenue": (
+            "SELECT COALESCE(SUM(total), 0) FROM biled_orders WHERE status != 'cancelled'",
+            (),
+        ),
     }
     stats: dict[str, int] = {}
     for key, (sql, params) in queries.items():
@@ -412,27 +439,38 @@ async def get_stats(today: str) -> dict[str, int]:
 # --------------------------------------------------------- Mini App uchun qo'shimcha
 
 
-async def get_catalog() -> list[dict[str, Any]]:
-    """Kategoriyalar va ularning mahsulotlari — Mini App uchun bitta ro'yxatda."""
+def product_json(product: aiosqlite.Row) -> dict[str, Any]:
+    keys = product.keys()
+    return {
+        "id": product["id"],
+        "name": product["name"],
+        "description": product["description"],
+        "price": int(product["price"]),
+        "old_price": int(product["old_price"])
+        if "old_price" in keys and product["old_price"]
+        else None,
+        "badge": product["badge"] if "badge" in keys else None,
+        "stock": int(product["stock"]),
+        "car_id": product["car_id"] if "car_id" in keys else None,
+        "has_photo": bool(product["photo_id"]),
+    }
+
+
+async def get_catalog(car_id: int | None = None) -> list[dict[str, Any]]:
+    """Kategoriyalar va mahsulotlar — Mini App uchun (mashinaga qarab filtrlangan)."""
     categories = await get_categories()
     catalog: list[dict[str, Any]] = []
     for category in categories:
-        products = await get_products(category["id"])
+        products = await get_products(category["id"], car_id=car_id)
+        if not products:
+            continue
+        keys = category.keys()
         catalog.append(
             {
                 "id": category["id"],
                 "name": category["name"],
-                "products": [
-                    {
-                        "id": product["id"],
-                        "name": product["name"],
-                        "description": product["description"],
-                        "price": int(product["price"]),
-                        "stock": int(product["stock"]),
-                        "has_photo": bool(product["photo_id"]),
-                    }
-                    for product in products
-                ],
+                "icon": category["icon"] if "icon" in keys else None,
+                "products": [product_json(product) for product in products],
             }
         )
     return catalog
@@ -498,3 +536,238 @@ async def create_order_from_items(
         )
     await db.commit()
     return order_id, []
+
+
+
+# ========================================================================
+#                        Bi-LED TUNING (asosiy yo'nalish)
+# ========================================================================
+
+# ------------------------------------------------------------------ mashinalar
+
+
+async def get_cars(active_only: bool = True) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = "SELECT * FROM cars"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql) as cur:
+        return await cur.fetchall()
+
+
+async def get_car(car_id: int) -> aiosqlite.Row | None:
+    db = get_db()
+    async with db.execute("SELECT * FROM cars WHERE id = ?", (car_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def add_car(name: str, slug: str, years: str | None, note: str | None) -> int:
+    db = get_db()
+    cur = await db.execute(
+        "INSERT INTO cars (name, slug, years, note) VALUES (?, ?, ?, ?)",
+        (name, slug, years, note),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+async def set_user_car(user_id: int, car_id: int) -> None:
+    db = get_db()
+    await db.execute("UPDATE users SET car_id = ? WHERE user_id = ?", (car_id, user_id))
+    await db.commit()
+
+
+# ------------------------------------------------------- konfigurator variantlari
+
+
+async def get_biled_types(active_only: bool = True) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = "SELECT * FROM biled_types"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql) as cur:
+        return await cur.fetchall()
+
+
+async def get_biled_type(biled_id: int) -> aiosqlite.Row | None:
+    db = get_db()
+    async with db.execute("SELECT * FROM biled_types WHERE id = ?", (biled_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def get_shrouds(active_only: bool = True) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = "SELECT * FROM shrouds"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql) as cur:
+        return await cur.fetchall()
+
+
+async def get_shroud(shroud_id: int) -> aiosqlite.Row | None:
+    db = get_db()
+    async with db.execute("SELECT * FROM shrouds WHERE id = ?", (shroud_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def get_optic_colors(active_only: bool = True) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = "SELECT * FROM optic_colors"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql) as cur:
+        return await cur.fetchall()
+
+
+async def get_optic_color(color_id: int) -> aiosqlite.Row | None:
+    db = get_db()
+    async with db.execute(
+        "SELECT * FROM optic_colors WHERE id = ?", (color_id,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+# ------------------------------------------------------- Bi-LED buyurtmalari
+
+
+async def create_biled_order(
+    user_id: int,
+    car_id: int,
+    biled_id: int,
+    shroud_id: int | None,
+    color_id: int | None,
+    phone: str,
+    comment: str | None,
+) -> tuple[int | None, int]:
+    """Konfiguratsiya buyurtmasini yaratadi. Qaytaradi: (order_id, total)."""
+    biled = await get_biled_type(biled_id)
+    if not biled or not biled["is_active"]:
+        return None, 0
+
+    total = int(biled["price"])
+    if shroud_id:
+        shroud = await get_shroud(shroud_id)
+        if shroud:
+            total += int(shroud["price"])
+    if color_id:
+        color = await get_optic_color(color_id)
+        if color:
+            total += int(color["price"])
+
+    db = get_db()
+    cur = await db.execute(
+        "INSERT INTO biled_orders (user_id, car_id, biled_id, shroud_id, color_id,"
+        " total, phone, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, car_id, biled_id, shroud_id, color_id, total, phone, comment),
+    )
+    await db.commit()
+    return int(cur.lastrowid), total
+
+
+BILED_ORDER_SELECT = """
+SELECT b.*, c.name AS car_name, c.years AS car_years,
+       t.name AS biled_name, t.brand AS biled_brand, t.price AS biled_price,
+       s.name AS shroud_name, s.price AS shroud_price,
+       o.name AS color_name, o.price AS color_price,
+       u.full_name, u.username
+  FROM biled_orders b
+  JOIN cars c        ON c.id = b.car_id
+  JOIN biled_types t ON t.id = b.biled_id
+  LEFT JOIN shrouds s      ON s.id = b.shroud_id
+  LEFT JOIN optic_colors o ON o.id = b.color_id
+  JOIN users u       ON u.user_id = b.user_id
+"""
+
+
+async def get_biled_order(order_id: int) -> aiosqlite.Row | None:
+    db = get_db()
+    async with db.execute(BILED_ORDER_SELECT + " WHERE b.id = ?", (order_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def get_user_biled_orders(user_id: int, limit: int = 20) -> list[aiosqlite.Row]:
+    db = get_db()
+    async with db.execute(
+        BILED_ORDER_SELECT + " WHERE b.user_id = ? ORDER BY b.id DESC LIMIT ?",
+        (user_id, limit),
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def get_biled_orders(status: str | None = None, limit: int = 15) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = BILED_ORDER_SELECT
+    params: list[Any] = []
+    if status:
+        sql += " WHERE b.status = ?"
+        params.append(status)
+    sql += " ORDER BY b.id DESC LIMIT ?"
+    params.append(limit)
+    async with db.execute(sql, params) as cur:
+        return await cur.fetchall()
+
+
+async def set_biled_order_status(order_id: int, status: str) -> None:
+    db = get_db()
+    await db.execute("UPDATE biled_orders SET status = ? WHERE id = ?", (status, order_id))
+    await db.commit()
+
+
+# ------------------------------------------------ kontent: banner, story, aksiya
+
+
+async def get_banners(car_id: int | None = None) -> list[aiosqlite.Row]:
+    db = get_db()
+    sql = "SELECT * FROM banners WHERE is_active = 1"
+    params: list[Any] = []
+    if car_id is not None:
+        sql += " AND (car_id IS NULL OR car_id = ?)"
+        params.append(car_id)
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql, params) as cur:
+        return await cur.fetchall()
+
+
+async def get_stories() -> list[aiosqlite.Row]:
+    db = get_db()
+    async with db.execute(
+        "SELECT * FROM stories WHERE is_active = 1 ORDER BY sort, id"
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def get_promos() -> list[aiosqlite.Row]:
+    db = get_db()
+    async with db.execute(
+        "SELECT * FROM promos WHERE is_active = 1 ORDER BY sort, id"
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def add_banner(
+    title: str, subtitle: str | None, tag: str | None, photo_id: str | None
+) -> int:
+    db = get_db()
+    cur = await db.execute(
+        "INSERT INTO banners (title, subtitle, tag, photo_id) VALUES (?, ?, ?, ?)",
+        (title, subtitle, tag, photo_id),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+async def add_story(
+    title: str, emoji: str, heading: str | None, body: str | None, photo_id: str | None
+) -> int:
+    db = get_db()
+    cur = await db.execute(
+        "INSERT INTO stories (title, emoji, heading, body, photo_id)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (title, emoji, heading, body, photo_id),
+    )
+    await db.commit()
+    return int(cur.lastrowid)

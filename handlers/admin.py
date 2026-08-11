@@ -12,6 +12,8 @@ from config import config
 from database import queries as q
 from keyboards.inline import (
     admin_back_kb,
+    admin_biled_actions_kb,
+    admin_biled_orders_kb,
     admin_booking_actions_kb,
     admin_bookings_kb,
     admin_menu_kb,
@@ -24,6 +26,7 @@ from keyboards.reply import cancel_kb, main_menu
 from states import AddCategory, AddProduct, AddService, Broadcast
 from utils.helpers import available_dates, date_label, fmt_price, today_iso, user_link
 from utils.texts import (
+    BILED_STATUS,
     BOOKING_STATUS,
     BTN_ADMIN,
     BTN_CANCEL,
@@ -72,13 +75,17 @@ async def admin_stats(callback: CallbackQuery) -> None:
     text = (
         "📊 <b>Statistika</b>\n\n"
         f"👥 Foydalanuvchilar: <b>{stats['users']}</b>\n\n"
-        f"🗓 Navbatlar (jami): <b>{stats['bookings_total']}</b>\n"
-        f"📅 Bugungi navbatlar: <b>{stats['bookings_today']}</b>\n"
-        f"🆕 Tasdiqlanmagan navbatlar: <b>{stats['bookings_new']}</b>\n\n"
-        f"📦 Buyurtmalar (jami): <b>{stats['orders_total']}</b>\n"
-        f"🆕 Yangi buyurtmalar: <b>{stats['orders_new']}</b>\n"
-        f"🛍 Faol mahsulotlar: <b>{stats['products']}</b>\n"
-        f"💰 Umumiy savdo: <b>{fmt_price(stats['revenue'])}</b>"
+        "🔥 <b>Bi-LED buyurtmalar</b>\n"
+        f"   Jami: <b>{stats['biled_total']}</b> · Yangi: <b>{stats['biled_new']}</b>\n"
+        f"   Summa: <b>{fmt_price(stats['biled_revenue'])}</b>\n\n"
+        "🗓 <b>O'rnatish navbatlari</b>\n"
+        f"   Jami: <b>{stats['bookings_total']}</b> · Bugun: <b>{stats['bookings_today']}</b>\n"
+        f"   Tasdiqlanmagan: <b>{stats['bookings_new']}</b>\n\n"
+        "📦 <b>Do'kon</b>\n"
+        f"   Buyurtmalar: <b>{stats['orders_total']}</b> · Yangi: <b>{stats['orders_new']}</b>\n"
+        f"   Faol mahsulot: <b>{stats['products']}</b>\n"
+        f"   Savdo: <b>{fmt_price(stats['revenue'])}</b>\n\n"
+        f"💰 <b>Umumiy: {fmt_price(stats['revenue'] + stats['biled_revenue'])}</b>"
     )
     await edit_or_send(callback.message, text, admin_back_kb())
     await callback.answer()
@@ -128,9 +135,7 @@ async def admin_booking_detail(callback: CallbackQuery) -> None:
         f"📌 Holat: {BOOKING_STATUS.get(bk['status'], bk['status'])}\n"
         f"🕓 Yaratilgan: {bk['created_at']}"
     )
-    await edit_or_send(
-        callback.message, text, admin_booking_actions_kb(booking_id, bk["date"])
-    )
+    await edit_or_send(callback.message, text, admin_booking_actions_kb(booking_id, bk["date"]))
     await callback.answer()
 
 
@@ -183,6 +188,111 @@ async def admin_booking_status(callback: CallbackQuery, bot: Bot) -> None:
     )
 
 
+# ------------------------------------------------------- Bi-LED buyurtmalari
+
+
+def _biled_detail_text(order) -> str:
+    lines = [
+        f"🔥 <b>Bi-LED buyurtma #{order['id']}</b>\n",
+        f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
+        f"📞 {order['phone'] or '-'}",
+        f"🚗 Mashina: <b>{order['car_name']}</b> ({order['car_years'] or '-'})",
+        f"💡 Linza: <b>{order['biled_name']}</b> — {fmt_price(order['biled_price'])}",
+    ]
+    if order["shroud_name"]:
+        lines.append(f"🕶 Ochki: <b>{order['shroud_name']}</b> — {fmt_price(order['shroud_price'])}")
+    if order["color_name"]:
+        lines.append(f"🎨 Optika: <b>{order['color_name']}</b> — {fmt_price(order['color_price'])}")
+    if order["comment"]:
+        lines.append(f"📝 Izoh: {order['comment']}")
+    lines.append(f"\n📌 Holat: {BILED_STATUS.get(order['status'], order['status'])}")
+    lines.append(f"🕓 {order['created_at']}")
+    lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data.startswith("adm:bileds:"))
+async def admin_biled_orders(callback: CallbackQuery) -> None:
+    status = callback.data.split(":")[2]
+    orders = await q.get_biled_orders(None if status == "all" else status)
+
+    if orders:
+        lines = [f"🔥 <b>Bi-LED buyurtmalar</b> ({BILED_STATUS.get(status, 'Hammasi')})\n"]
+        for order in orders:
+            lines.append(
+                f"🆔 <b>#{order['id']}</b> · {order['car_name']} · {fmt_price(order['total'])}\n"
+                f"    💡 {order['biled_name']}\n"
+                f"    👤 {order['full_name']} · 📞 {order['phone'] or '-'}\n"
+                f"    {BILED_STATUS.get(order['status'], order['status'])} · {order['created_at']}"
+            )
+        text = "\n".join(lines)
+    else:
+        text = "🔥 <b>Bi-LED buyurtmalar</b>\n\nBu holatda buyurtma yo'q."
+
+    await edit_or_send(callback.message, text, admin_biled_orders_kb(orders, status))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:bil:"))
+async def admin_biled_detail(callback: CallbackQuery) -> None:
+    order_id = int(callback.data.split(":")[2])
+    order = await q.get_biled_order(order_id)
+    if not order:
+        await callback.answer("Buyurtma topilmadi", show_alert=True)
+        return
+    await edit_or_send(
+        callback.message,
+        _biled_detail_text(order),
+        admin_biled_actions_kb(order_id, order["status"]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:bilst:"))
+async def admin_biled_status(callback: CallbackQuery, bot: Bot) -> None:
+    _, _, raw_id, status = callback.data.split(":")
+    order_id = int(raw_id)
+    order = await q.get_biled_order(order_id)
+    if not order:
+        await callback.answer("Buyurtma topilmadi", show_alert=True)
+        return
+
+    await q.set_biled_order_status(order_id, status)
+    messages = {
+        "accepted": (
+            f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\n\n"
+            f"🚗 {order['car_name']} · 💡 {order['biled_name']}\n\n"
+            "Mutaxassisimiz o'rnatish vaqtini kelishish uchun bog'lanadi. 🔧"
+        ),
+        "in_work": (
+            f"🔧 Buyurtmangiz <b>#{order_id}</b> ish jarayonida.\n\n"
+            "Faralar ochilib, linzalar o'rnatilmoqda. Tayyor bo'lganda xabar beramiz."
+        ),
+        "done": (
+            f"✨ Buyurtmangiz <b>#{order_id}</b> tayyor!\n\n"
+            f"🚗 {order['car_name']} · 💡 {order['biled_name']}\n\n"
+            "Bizni tanlaganingiz uchun rahmat! Kafolat kuchda. 🛡"
+        ),
+        "cancelled": (
+            f"❌ Buyurtmangiz <b>#{order_id}</b> bekor qilindi.\n\n"
+            "Savollaringiz bo'lsa, bizga yozing."
+        ),
+    }
+    if status in messages:
+        try:
+            await bot.send_message(order["user_id"], messages[status])
+        except Exception as error:
+            logger.warning("Foydalanuvchiga xabar yuborilmadi: %s", error)
+
+    await callback.answer(f"Holat: {BILED_STATUS.get(status, status)}")
+    updated = await q.get_biled_order(order_id)
+    await edit_or_send(
+        callback.message,
+        _biled_detail_text(updated),
+        admin_biled_actions_kb(order_id, updated["status"]),
+    )
+
+
 # ------------------------------------------------------------------ buyurtmalar
 
 
@@ -225,9 +335,7 @@ async def admin_order_detail(callback: CallbackQuery) -> None:
         f"🕓 {order['created_at']}\n",
     ]
     for item in items:
-        lines.append(
-            f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}"
-        )
+        lines.append(f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}")
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
 
     await edit_or_send(
@@ -248,12 +356,10 @@ async def admin_order_status(callback: CallbackQuery, bot: Bot) -> None:
     await q.set_order_status(order_id, status)
     messages = {
         "accepted": (
-            f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\n"
-            "Tez orada yetkazib beramiz. 🚚"
+            f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\nTez orada yetkazib beramiz. 🚚"
         ),
         "delivered": (
-            f"🚚 Buyurtmangiz <b>#{order_id}</b> yetkazildi.\n"
-            "Xaridingiz uchun rahmat! 🎉"
+            f"🚚 Buyurtmangiz <b>#{order_id}</b> yetkazildi.\nXaridingiz uchun rahmat! 🎉"
         ),
         "cancelled": (
             f"❌ Buyurtmangiz <b>#{order_id}</b> bekor qilindi.\n"
@@ -281,9 +387,7 @@ async def admin_order_detail_refresh(callback: CallbackQuery, order_id: int) -> 
         f"📌 Holat: {ORDER_STATUS.get(order['status'], order['status'])}\n",
     ]
     for item in items:
-        lines.append(
-            f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}"
-        )
+        lines.append(f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}")
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
     await edit_or_send(
         callback.message, "\n".join(lines), admin_order_actions_kb(order_id, order["status"])
@@ -409,9 +513,7 @@ async def add_category_name(message: Message, state: FSMContext) -> None:
 async def add_product_start(callback: CallbackQuery, state: FSMContext) -> None:
     categories = await q.get_categories(active_only=False)
     if not categories:
-        await callback.answer(
-            "Avval kategoriya qo'shing (🗂 Kategoriya qo'shish)", show_alert=True
-        )
+        await callback.answer("Avval kategoriya qo'shing (🗂 Kategoriya qo'shish)", show_alert=True)
         return
     await state.set_state(AddProduct.category)
     await edit_or_send(
@@ -427,9 +529,7 @@ async def add_product_category(callback: CallbackQuery, state: FSMContext) -> No
     category_id = int(callback.data.split(":")[2])
     await state.update_data(category_id=category_id)
     await state.set_state(AddProduct.name)
-    await callback.message.answer(
-        "2/6. Mahsulot nomini yozing:", reply_markup=cancel_kb()
-    )
+    await callback.message.answer("2/6. Mahsulot nomini yozing:", reply_markup=cancel_kb())
     await callback.answer()
 
 
@@ -563,9 +663,7 @@ async def broadcast_send(message: Message, state: FSMContext, bot: Bot) -> None:
                 pass
         await asyncio.sleep(0.05)
 
-    await status.edit_text(
-        f"✅ Yuborildi: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>"
-    )
+    await status.edit_text(f"✅ Yuborildi: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>")
     await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
 
 
