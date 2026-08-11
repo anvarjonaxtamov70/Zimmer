@@ -120,16 +120,46 @@ bepul **GitHub Pages**da turadi (Avto_A1'dagi kabi).
 
 ## 1. GitHub Pages'ni yoqish
 
-1. Repo → **Settings** → chap menyuda **Pages**
-2. **Source**: `Deploy from a branch`
-3. **Branch**: `main`, papka: **`/docs`** → **Save**
-4. 1-2 daqiqadan keyin sahifa tayyor bo'ladi:
+### Usul A — avtomatik (tavsiya etiladi)
+
+Repoda `.github/workflows/deploy-pages.yml` workflow'i bor: u Pages'ni
+**o'zi yoqadi** va `docs/` papkasini saytga chiqaradi.
+
+1. GitHub repo → **Actions**
+   (agar "workflows are disabled" chiqsa → **I understand my workflows, go ahead and enable them**)
+2. Chapdan **Deploy Mini App (GitHub Pages)** → **Run workflow** → **Run**
+3. 1-2 daqiqa kutamiz. Yashil ✅ bo'lganda oxirgi qadamda manzil chiqadi:
 
 ```
 https://anvarjonaxtamov70.github.io/Zimmer/
 ```
 
-> Tekshirish: shu manzilni brauzerda ochsangiz, "Ilovani Telegram ichidan
+Bundan keyin `docs/` ichida biror narsa o'zgarsa, sayt **avtomatik**
+yangilanadi — hech narsa bosish kerak emas.
+
+### Usul B — qo'lda (agar A ishlamasa)
+
+1. Repo → **Settings** → chap menyuda **Pages**
+2. **Source**: `Deploy from a branch`
+3. **Branch**: `main`, papka: **`/docs`** → **Save**
+4. 1-2 daqiqadan keyin sayt tayyor
+
+> Repo ildizida zaxira `index.html` ham bor: papka sifatida `/docs` emas,
+> `/(root)` tanlangan bo'lsa ham foydalanuvchi ilovaga yo'naltiriladi
+> (Telegram'ning `#tgWebAppData` qismi saqlanib qoladi).
+
+### ⚠️ Manzildagi katta harf muhim
+
+GitHub Pages manzili **harf registriga sezgir**. Repo nomi `Zimmer`
+bo'lgani uchun faqat shu ko'rinish ishlaydi:
+
+| ✅ To'g'ri | ❌ 404 beradi |
+|---|---|
+| `https://anvarjonaxtamov70.github.io/Zimmer/` | `.../zimmer/` (kichik z) |
+
+Oxiridagi `/` ni ham qo'shib yozing.
+
+> Tekshirish: manzilni brauzerda ochsangiz, "Ilovani Telegram ichidan
 > oching" degan xabar chiqadi — bu **to'g'ri** ishlayotganini bildiradi.
 
 ## 2. BotFather'ga URL'ni berish
@@ -194,6 +224,16 @@ tekshiring.
 **"Ro'yxatdan o'tish kerak" chiqadi**
 Bu odam botda ism/telefon qoldirmagan. Botga `/start` yuborib ro'yxatdan
 o'tsa, ilova ochiladi.
+
+**Sayt 404 beradi**
+Uchta sabab bo'lishi mumkin, shu tartibda tekshiring:
+
+1. **Pages yoqilmagan** — eng ko'p uchraydigan sabab. Actions →
+   *Deploy Mini App (GitHub Pages)* → **Run workflow** (Usul A).
+   Yoki Settings → Pages bo'limida `main` / `/docs` tanlangan bo'lishi kerak.
+2. **Manzilda kichik harf** — `/zimmer/` emas, `/Zimmer/` bo'lishi shart.
+3. **Deploy hali tugamagan** — Actions'da workflow yashil ✅ bo'lishini kutin
+   (birinchi marta 1-2 daqiqa).
 
 **Sahifa oq / eski versiya ko'rinadi**
 GitHub Pages keshi. Telegram'da: Sozlamalar → Ma'lumot va xotira →
