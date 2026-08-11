@@ -13,6 +13,7 @@ from api.server import start_api_server
 from config import config
 from database.db import close_db, init_db
 from handlers import get_routers
+from services import firebase, sync
 from utils.commands import set_default_commands, set_menu_button
 
 logger = logging.getLogger("zimmer")
@@ -47,6 +48,20 @@ async def main() -> None:
     for router in get_routers():
         dispatcher.include_router(router)
 
+    # Firebase (ixtiyoriy): mijozlar va tovarlar doimiy saqlanadi
+    firebase_task = None
+    if config.has_firebase:
+        await firebase.refresh_token()
+        if firebase.is_enabled():
+            logger.info("Firebase ulandi: %s/%s", config.firebase_db_url, config.firebase_root)
+            await sync.initial_sync()
+            firebase_task = asyncio.create_task(firebase.token_refresher())
+        else:
+            logger.warning(
+                "FIREBASE_DB_URL berilgan, lekin token olinmadi — "
+                "SERVICE_ACCOUNT_JSON to'g'riligini tekshiring."
+            )
+
     api_runner = None
     try:
         me = await bot.get_me()
@@ -60,6 +75,9 @@ async def main() -> None:
             logger.info("Mini App manzili: %s", config.mini_app_url)
         await dispatcher.start_polling(bot)
     finally:
+        if firebase_task is not None:
+            firebase_task.cancel()
+        await firebase.close()
         if api_runner is not None:
             await api_runner.cleanup()
         await close_db()

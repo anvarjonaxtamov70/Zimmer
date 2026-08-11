@@ -257,3 +257,95 @@ Keshni tozalash. Yoki `?v=2` qo'shib oching.
 Mahsulot rasmi Telegram serverida saqlanadi va `/api/photo/<id>` orqali
 uzatiladi. Bot uxlagan bo'lsa rasm kelmaydi — keep-alive workflow yoqilganini
 tekshiring.
+
+
+---
+
+# 🔥 Firebase: mijozlar va tovarlarni doimiy saqlash
+
+## Nima uchun kerak
+
+Render'ning bepul tarifida disk saqlanmaydi — qayta deployda `zimmer.db`
+tozalanadi. Firebase ulangan bo'lsa:
+
+- ro'yxatdan o'tgan **mijozlar Firebase'ga yoziladi** va bot qayta ishga
+  tushganda **o'zi tiklab oladi** → foydalanuvchi qaytadan ro'yxatdan
+  o'tmaydi ("bir umrlik" baza);
+- **tovarlar rasm URL'lari bilan** Firebase'dan import qilinadi → mahsulot va
+  rasmlarni saytdan boshqarish mumkin;
+- har bir buyurtma nusxasi Firebase'da qoladi (tarix yo'qolmaydi).
+
+Avto_A1 bilan **bir xil usul**: service-account → OAuth token → RTDB REST.
+
+## Sozlash (5 daqiqa)
+
+1. [Firebase Console](https://console.firebase.google.com) → loyihani tanlang
+   (Avto_A1 uchun: `avtoa1shop`)
+2. **⚙️ Project settings → Service accounts → Generate new private key**
+3. Yuklab olingan JSON faylni ochib, **butun matnini** nusxalang
+4. Render panel → xizmat → **Environment** → quyidagilarni qo'shing:
+
+| Kalit | Qiymat |
+|---|---|
+| `SERVICE_ACCOUNT_JSON` | JSON'ning butun matni (yoki base64) |
+| `FIREBASE_DB_URL` | `https://avtoa1shop-default-rtdb.firebaseio.com` |
+| `FIREBASE_ROOT` | `zimmer` |
+
+5. **Save** → xizmat qayta ishga tushadi. Logda ko'rinadi:
+
+```
+Firebase ulandi: https://avtoa1shop-default-rtdb.firebaseio.com/zimmer
+Firebase'dan N mijoz qaytarildi
+Firebase'dan M tovar import qilindi
+```
+
+> `FIREBASE_ROOT=zimmer` — Zimmer ma'lumotlari **alohida tugunda** turadi,
+> Avto_A1 ma'lumotlariga tegmaydi. Bir xil bazani bo'lishmoqchi bo'lsangiz
+> `FIREBASE_ROOT` ni bo'sh qoldiring.
+
+## Ma'lumot tuzilishi
+
+```
+zimmer/
+├── users/<user_id>/profile   { uid, name, phone, username, carId, carName }
+├── products/<key>            { name, desc, price, oldPrice, stock, img,
+│                               category, car, badge, active }
+├── biled_orders/<id>         { uid, car, biled, shroud, color, total, status }
+├── orders/<id>               { uid, items[], total, address, status }
+└── bookings/<id>             { uid, service, date, time, status }
+```
+
+## Tovar qo'shish (rasm bilan)
+
+`zimmer/products` tuguniga yozing:
+
+```json
+{
+  "lens-a5": {
+    "name": "Aozoom A5+ 3.0",
+    "desc": "11 000 lm, 1 yil kafolat",
+    "price": 1900000,
+    "oldPrice": 2100000,
+    "stock": 8,
+    "img": "https://.../lens-a5.jpg",
+    "category": "Lampalar",
+    "car": "gentra",
+    "badge": "TOP",
+    "active": true
+  }
+}
+```
+
+- `img` — rasm to'g'ridan-to'g'ri shu manzildan ko'rsatiladi (Firebase Storage,
+  sayt yoki CDN — farqi yo'q);
+- `car` — mashina **slug**'i (`gentra`, `nexia2`) yoki bo'sh (barcha uchun);
+- `category` — nomi mos kelmasa yangi kategoriya avtomatik yaratiladi.
+
+O'zgarishlar bot qayta ishga tushganda import qilinadi (Render'da
+**Manual Deploy → Restart** yoki keyingi deployda).
+
+## Firebase ulanmasa nima bo'ladi?
+
+Hech narsa buzilmaydi: bot va ilova SQLite bilan ishlaydi, logda shunchaki
+`Firebase sozlanmagan` deb yoziladi. Buyurtmalar, navbatlar — hammasi
+ishlaydi, faqat qayta deployda mahalliy baza tozalanadi.

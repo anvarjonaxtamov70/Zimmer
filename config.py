@@ -38,10 +38,17 @@ class Config:
     booking_days_ahead: int
     currency: str
     mini_app_url: str
+    firebase_db_url: str
+    firebase_root: str
+    service_account_file: str
 
     @property
     def has_mini_app(self) -> bool:
         return self.mini_app_url.startswith("https://")
+
+    @property
+    def has_firebase(self) -> bool:
+        return bool(self.firebase_db_url)
 
 
 def _db_path() -> str:
@@ -65,6 +72,12 @@ config = Config(
     currency=os.getenv("CURRENCY", "so'm").strip(),
     mini_app_url=os.getenv(
         "MINI_APP_URL", "https://anvarjonaxtamov70.github.io/Zimmer/"
+    ).strip(),
+    # Firebase Realtime Database — mijozlar va tovarlarni doimiy saqlash uchun
+    firebase_db_url=os.getenv("FIREBASE_DB_URL", "").strip().rstrip("/"),
+    firebase_root=os.getenv("FIREBASE_ROOT", "zimmer").strip(),
+    service_account_file=os.getenv(
+        "SERVICE_ACCOUNT_FILE", str(BASE_DIR / "serviceAccount.json")
     ).strip(),
 )
 

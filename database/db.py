@@ -142,7 +142,9 @@ CREATE TABLE IF NOT EXISTS products (
     price       INTEGER NOT NULL DEFAULT 0,
     old_price   INTEGER,
     stock       INTEGER NOT NULL DEFAULT 0,
-    photo_id    TEXT,
+    photo_id    TEXT,                          -- Telegram rasm file_id
+    photo_url   TEXT,                          -- tashqi rasm manzili (Firebase/sayt)
+    external_id TEXT UNIQUE,                   -- Firebase kaliti (import uchun)
     badge       TEXT,
     is_active   INTEGER NOT NULL DEFAULT 1
 );
@@ -549,8 +551,12 @@ async def _migrate() -> None:
             ("car_id", "INTEGER"),
             ("old_price", "INTEGER"),
             ("badge", "TEXT"),
+            ("photo_url", "TEXT"),
+            ("external_id", "TEXT"),
         ],
         "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
+        "banners": [("photo_url", "TEXT")],
+        "stories": [("photo_url", "TEXT")],
     }
     for table, columns in additions.items():
         existing = await _columns(table)
@@ -558,6 +564,12 @@ async def _migrate() -> None:
             if column not in existing:
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
                 logger.info("Migratsiya: %s.%s qo'shildi", table, column)
+
+    # external_id bo'yicha yagona indeks (ALTER bilan UNIQUE qo'shilmaydi)
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_external"
+        " ON products(external_id) WHERE external_id IS NOT NULL"
+    )
     await db.commit()
 
 

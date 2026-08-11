@@ -453,6 +453,8 @@ def product_json(product: aiosqlite.Row) -> dict[str, Any]:
         "stock": int(product["stock"]),
         "car_id": product["car_id"] if "car_id" in keys else None,
         "has_photo": bool(product["photo_id"]),
+        # tashqi rasm (Firebase / sayt) — bo'lsa to'g'ridan-to'g'ri ishlatiladi
+        "photo_url": product["photo_url"] if "photo_url" in keys else None,
     }
 
 
@@ -768,6 +770,74 @@ async def add_story(
         "INSERT INTO stories (title, emoji, heading, body, photo_id)"
         " VALUES (?, ?, ?, ?, ?)",
         (title, emoji, heading, body, photo_id),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+
+# --------------------------------------------------- Firebase'dan import qilish
+
+
+async def upsert_external_product(
+    external_id: str,
+    category_id: int,
+    car_id: int | None,
+    name: str,
+    description: str | None,
+    price: int,
+    old_price: int | None,
+    stock: int,
+    photo_url: str | None,
+    badge: str | None,
+    is_active: int = 1,
+) -> int:
+    """Firebase'dagi tovarni mahalliy bazaga yozadi (bor bo'lsa yangilaydi)."""
+    db = get_db()
+    async with db.execute(
+        "SELECT id FROM products WHERE external_id = ?", (external_id,)
+    ) as cur:
+        row = await cur.fetchone()
+
+    if row:
+        await db.execute(
+            "UPDATE products SET category_id = ?, car_id = ?, name = ?, description = ?,"
+            " price = ?, old_price = ?, stock = ?, photo_url = ?, badge = ?, is_active = ?"
+            " WHERE id = ?",
+            (
+                category_id,
+                car_id,
+                name,
+                description,
+                price,
+                old_price,
+                stock,
+                photo_url,
+                badge,
+                is_active,
+                row["id"],
+            ),
+        )
+        await db.commit()
+        return int(row["id"])
+
+    cur = await db.execute(
+        "INSERT INTO products (category_id, car_id, name, description, price, old_price,"
+        " stock, photo_url, badge, is_active, external_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            category_id,
+            car_id,
+            name,
+            description,
+            price,
+            old_price,
+            stock,
+            photo_url,
+            badge,
+            is_active,
+            external_id,
+        ),
     )
     await db.commit()
     return int(cur.lastrowid)

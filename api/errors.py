@@ -28,11 +28,12 @@ def unauthorized() -> ApiError:
     )
 
 
-def not_registered() -> ApiError:
+def phone_required() -> ApiError:
+    """Ilovaga kirish uchun emas — faqat buyurtma berish uchun telefon kerak."""
     return ApiError(
-        403,
-        "not_registered",
-        "Avval botda ro'yxatdan o'tishingiz kerak.",
+        428,
+        "phone_required",
+        "Buyurtmani rasmiylashtirish uchun telefon raqamingizni qoldiring.",
     )
 
 
