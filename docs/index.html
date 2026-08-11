@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#2481cc">
+  <title>Zimmer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+<!-- ============ Yuklanish ============ -->
+<div id="loader" class="loader">
+  <div class="spinner"></div>
+  <p>Yuklanmoqda...</p>
+</div>
+
+<!-- ============ Ro'yxatdan o'tmagan ============ -->
+<div id="gate" class="gate hidden">
+  <div class="gate-icon">🔐</div>
+  <h2>Ro'yxatdan o'tish kerak</h2>
+  <p id="gate-text">Ilovadan foydalanish uchun avval botda ism va telefon raqamingizni qoldiring.</p>
+  <button class="btn btn-primary" id="gate-close">Botga qaytish</button>
+  <button class="btn btn-ghost" id="gate-retry">Qayta tekshirish</button>
+</div>
+
+<!-- ============ Asosiy ============ -->
+<div id="app" class="app hidden">
+
+  <header class="header">
+    <div>
+      <div class="header-title" id="shop-name">Zimmer</div>
+      <div class="header-sub" id="user-name">—</div>
+    </div>
+    <div class="header-badge" id="work-hours">09:00–18:00</div>
+  </header>
+
+  <!-- ---------- Navbat ---------- -->
+  <section class="screen" id="screen-book">
+    <div class="step" id="step-service">
+      <h3 class="section-title">🗓 Qaysi xizmat uchun navbat olasiz?</h3>
+      <div id="services" class="list"></div>
+    </div>
+
+    <div class="step hidden" id="step-date">
+      <div class="chosen" id="chosen-service"></div>
+      <h3 class="section-title">📅 Kunni tanlang</h3>
+      <div id="dates" class="chips"></div>
+    </div>
+
+    <div class="step hidden" id="step-time">
+      <div class="chosen" id="chosen-date"></div>
+      <h3 class="section-title">🕐 Bo'sh vaqtni tanlang</h3>
+      <div id="slots" class="chips slots"></div>
+      <p class="empty hidden" id="slots-empty">Bu kunda bo'sh vaqt qolmadi. Boshqa kunni tanlang.</p>
+    </div>
+  </section>
+
+  <!-- ---------- Do'kon ---------- -->
+  <section class="screen hidden" id="screen-shop">
+    <div id="categories" class="chips"></div>
+    <div id="products" class="grid"></div>
+    <p class="empty hidden" id="products-empty">Hozircha mahsulot yo'q.</p>
+  </section>
+
+  <!-- ---------- Savatcha ---------- -->
+  <section class="screen hidden" id="screen-cart">
+    <h3 class="section-title">🧺 Savatcha</h3>
+    <div id="cart-items" class="list"></div>
+    <p class="empty hidden" id="cart-empty">Savatchangiz bo'sh. «Do'kon» bo'limidan mahsulot tanlang.</p>
+
+    <div id="cart-checkout" class="card hidden">
+      <div class="total-row">
+        <span>Jami</span>
+        <b id="cart-total">0</b>
+      </div>
+      <label class="field">
+        <span>📍 Yetkazib berish manzili</span>
+        <textarea id="order-address" rows="2" placeholder="Masalan: Toshkent, Chilonzor 9-kvartal, 25-uy"></textarea>
+      </label>
+      <label class="field">
+        <span>📞 Telefon</span>
+        <input id="order-phone" type="tel" inputmode="tel" placeholder="+998901234567">
+      </label>
+      <button class="btn btn-primary" id="order-submit">Buyurtma berish</button>
+    </div>
+  </section>
+
+  <!-- ---------- Kabinet ---------- -->
+  <section class="screen hidden" id="screen-profile">
+    <h3 class="section-title">📅 Navbatlarim</h3>
+    <div id="my-bookings" class="list"></div>
+    <p class="empty hidden" id="bookings-empty">Navbatlaringiz yo'q.</p>
+
+    <h3 class="section-title">📦 Buyurtmalarim</h3>
+    <div id="my-orders" class="list"></div>
+    <p class="empty hidden" id="orders-empty">Buyurtmalaringiz yo'q.</p>
+
+    <div class="card profile-card">
+      <div class="row"><span>Ism</span><b id="profile-name">—</b></div>
+      <div class="row"><span>Telefon</span><b id="profile-phone">—</b></div>
+      <p class="hint">Ma'lumotni o'zgartirish uchun botga /start yuboring.</p>
+    </div>
+  </section>
+
+  <!-- ---------- Pastdagi navigatsiya ---------- -->
+  <nav class="tabbar">
+    <button class="tab active" data-tab="book"><span>🗓</span>Navbat</button>
+    <button class="tab" data-tab="shop"><span>🛍</span>Do'kon</button>
+    <button class="tab" data-tab="cart">
+      <span>🧺<i class="badge hidden" id="cart-badge">0</i></span>Savatcha
+    </button>
+    <button class="tab" data-tab="profile"><span>👤</span>Kabinet</button>
+  </nav>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

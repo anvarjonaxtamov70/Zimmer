@@ -5,11 +5,13 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
+from config import config
 from database import queries as q
+from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
 from states import Register
 from utils.helpers import normalize_phone
-from utils.texts import BTN_CANCEL, BTN_CONTACT, CONTACT_TEXT, greeting
+from utils.texts import APP_INTRO, BTN_CANCEL, BTN_CONTACT, CONTACT_TEXT, greeting
 
 router = Router(name="start")
 
@@ -22,6 +24,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         await message.answer(
             greeting(user["full_name"]), reply_markup=main_menu(message.from_user.id)
         )
+        await _send_app_button(message)
         return
 
     await message.answer(
@@ -82,7 +85,31 @@ async def _finish_registration(message: Message, state: FSMContext, raw_phone: s
         f"✅ Ro'yxatdan o'tdingiz!\n📞 Raqam: <b>{phone}</b>",
         reply_markup=main_menu(message.from_user.id),
     )
-    await message.answer(greeting(full_name), reply_markup=main_menu(message.from_user.id))
+    await message.answer(greeting(full_name))
+    await _send_app_button(message)
+
+
+async def _send_app_button(message: Message) -> None:
+    """Mini App'ni ochish taklifi. Ilova sozlanmagan bo'lsa — buyruqlarni eslatadi."""
+    if config.has_mini_app:
+        await message.answer(
+            APP_INTRO.format(shop=config.shop_name), reply_markup=open_app_kb()
+        )
+        return
+    await message.answer(
+        "⚠️ Ilova manzili sozlanmagan (<code>MINI_APP_URL</code>).\n"
+        "Shu vaqtda /navbat va /dokon buyruqlaridan foydalanishingiz mumkin."
+    )
+
+
+@router.message(Command("app"))
+async def cmd_app(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user = await q.get_user(message.from_user.id)
+    if not user or not user["phone"]:
+        await message.answer("Avval ro'yxatdan o'tishingiz kerak. /start yuboring.")
+        return
+    await _send_app_button(message)
 
 
 @router.message(Command("menu"))

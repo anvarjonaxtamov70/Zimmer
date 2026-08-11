@@ -9,11 +9,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
+from api.server import start_api_server
 from config import config
 from database.db import close_db, init_db
 from handlers import get_routers
-from utils.commands import set_default_commands
-from utils.health import start_health_server
+from utils.commands import set_default_commands, set_menu_button
 
 logger = logging.getLogger("zimmer")
 
@@ -47,18 +47,21 @@ async def main() -> None:
     for router in get_routers():
         dispatcher.include_router(router)
 
-    health_runner = None
+    api_runner = None
     try:
         me = await bot.get_me()
-        # Render.com'da PORT beriladi — shunda /health serveri ham yoqiladi
-        health_runner = await start_health_server(me.username)
+        # Render'da PORT beriladi — shunda /health va Mini App API'si yoqiladi
+        api_runner = await start_api_server(bot, me.username)
         await set_default_commands(bot)
+        await set_menu_button(bot)
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("Bot ishga tushdi: @%s (%s)", me.username, me.id)
+        if config.has_mini_app:
+            logger.info("Mini App manzili: %s", config.mini_app_url)
         await dispatcher.start_polling(bot)
     finally:
-        if health_runner is not None:
-            await health_runner.cleanup()
+        if api_runner is not None:
+            await api_runner.cleanup()
         await close_db()
         await bot.session.close()
         logger.info("Bot to'xtatildi")

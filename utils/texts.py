@@ -3,6 +3,7 @@
 from config import config
 
 # --- asosiy menyu tugmalari
+BTN_APP = "🚀 Ilovani ochish"
 BTN_QUEUE = "🗓 Navbat olish"
 BTN_SHOP = "🛍 Do'kon"
 BTN_MY_QUEUE = "📅 Mening navbatlarim"
@@ -58,12 +59,21 @@ MONTHS = [
 def greeting(name: str) -> str:
     return (
         f"Assalomu alaykum, <b>{name}</b>! 👋\n\n"
-        f"<b>{config.shop_name}</b> botiga xush kelibsiz.\n\n"
-        "Bu yerda siz:\n"
-        "• 🗓 <b>Navbat olishingiz</b> — qulay kun va vaqtni tanlab\n"
-        "• 🛍 <b>Mahsulot sotib olishingiz</b> mumkin\n\n"
-        "Kerakli bo'limni tanlang 👇"
+        f"<b>{config.shop_name}</b> ga xush kelibsiz.\n\n"
+        "Barcha ishlar <b>ilova</b> ichida bajariladi:\n"
+        "• 🗓 <b>Navbat olish</b> — kun va bo'sh vaqtni tanlab\n"
+        "• 🛍 <b>Mahsulot xarid qilish</b>\n"
+        "• 📅 Navbat va buyurtmalaringizni kuzatish\n\n"
+        "Pastdagi <b>🚀 Ilovani ochish</b> tugmasini bosing 👇"
     )
+
+
+APP_INTRO = (
+    "🚀 <b>{shop}</b> ilovasi\n\n"
+    "Navbat olish, mahsulot xarid qilish va buyurtmalarni kuzatish — "
+    "hammasi ilova ichida.\n\n"
+    "Ilovani ochish uchun tugmani bosing:"
+)
 
 
 CONTACT_TEXT = (

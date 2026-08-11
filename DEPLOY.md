@@ -109,3 +109,97 @@ bo'lsa, bu deyarli bo'lmaydi.
 **Admin panel ochilmayapti**
 `ADMINS` ichida sizning ID borligini tekshiring, o'zgartirgandan keyin
 Render xizmatni qayta ishga tushiradi.
+
+
+---
+
+# 📱 Mini App'ni yoqish (GitHub Pages)
+
+Mini App — bu Telegram ichida ochiladigan ilova. Kodi `docs/` papkasida,
+bepul **GitHub Pages**da turadi (Avto_A1'dagi kabi).
+
+## 1. GitHub Pages'ni yoqish
+
+1. Repo → **Settings** → chap menyuda **Pages**
+2. **Source**: `Deploy from a branch`
+3. **Branch**: `main`, papka: **`/docs`** → **Save**
+4. 1-2 daqiqadan keyin sahifa tayyor bo'ladi:
+
+```
+https://anvarjonaxtamov70.github.io/Zimmer/
+```
+
+> Tekshirish: shu manzilni brauzerda ochsangiz, "Ilovani Telegram ichidan
+> oching" degan xabar chiqadi — bu **to'g'ri** ishlayotganini bildiradi.
+
+## 2. BotFather'ga URL'ni berish
+
+Telegram'da [@BotFather](https://t.me/BotFather):
+
+1. `/mybots` → botingizni tanlang
+2. **Bot Settings** → **Menu Button** → **Configure menu button**
+3. URL sifatida yuboring:
+
+```
+https://anvarjonaxtamov70.github.io/Zimmer/
+```
+
+4. Tugma nomi: `Ilova`
+
+> Bot ishga tushganda menyu tugmasini **o'zi ham** o'rnatadi
+> (`set_menu_button`), lekin BotFather'da qo'lda qo'yish ham foydali.
+
+## 3. Server manzilini moslash
+
+Mini App ma'lumotlarni bot ichidagi API'dan oladi. Manzil `docs/config.js`
+da yozilgan:
+
+```js
+window.ZIMMER_CONFIG = { API_BASE: "https://zimmer-bot.onrender.com" };
+```
+
+Render'dagi manzilingiz boshqacha bo'lsa, shu qatorni to'g'rilang.
+Sinash uchun vaqtincha URL orqali ham berish mumkin:
+
+```
+https://anvarjonaxtamov70.github.io/Zimmer/?api=https://boshqa-nom.onrender.com
+```
+
+Render panelida esa `MINI_APP_URL` o'zgaruvchisi Pages manziliga
+to'g'ri kelishini tekshiring (bot shu URL bilan tugma yasaydi).
+
+## 4. Xavfsizlik qanday ishlaydi
+
+Mini App har so'rovda Telegram bergan `initData` ni yuboradi:
+
+```
+Authorization: tma <initData>
+```
+
+Server uni bot tokeni bilan HMAC-SHA256 orqali tekshiradi
+(`api/auth.py`). Ya'ni:
+
+- foydalanuvchi o'z ID'sini almashtirib **boshqa odam nomidan**
+  navbat yoki buyurtma bera olmaydi;
+- imzosi yo'q yoki 24 soatdan oshgan so'rov qabul qilinmaydi;
+- botda ro'yxatdan o'tmagan odam API'ga kira olmaydi (`403 not_registered`).
+
+## 5. Mini App muammolari
+
+**"Server javob bermadi" chiqadi**
+`docs/config.js` dagi `API_BASE` Render manziliga to'g'ri kelmayapti yoki
+xizmat uxlagan. `https://zimmer-bot.onrender.com/health` ni brauzerda
+tekshiring.
+
+**"Ro'yxatdan o'tish kerak" chiqadi**
+Bu odam botda ism/telefon qoldirmagan. Botga `/start` yuborib ro'yxatdan
+o'tsa, ilova ochiladi.
+
+**Sahifa oq / eski versiya ko'rinadi**
+GitHub Pages keshi. Telegram'da: Sozlamalar → Ma'lumot va xotira →
+Keshni tozalash. Yoki `?v=2` qo'shib oching.
+
+**Rasm ko'rinmaydi**
+Mahsulot rasmi Telegram serverida saqlanadi va `/api/photo/<id>` orqali
+uzatiladi. Bot uxlagan bo'lsa rasm kelmaydi — keep-alive workflow yoqilganini
+tekshiring.

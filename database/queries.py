@@ -406,3 +406,95 @@ async def get_stats(today: str) -> dict[str, int]:
             row = await cur.fetchone()
         stats[key] = int(row[0])
     return stats
+
+
+
+# --------------------------------------------------------- Mini App uchun qo'shimcha
+
+
+async def get_catalog() -> list[dict[str, Any]]:
+    """Kategoriyalar va ularning mahsulotlari — Mini App uchun bitta ro'yxatda."""
+    categories = await get_categories()
+    catalog: list[dict[str, Any]] = []
+    for category in categories:
+        products = await get_products(category["id"])
+        catalog.append(
+            {
+                "id": category["id"],
+                "name": category["name"],
+                "products": [
+                    {
+                        "id": product["id"],
+                        "name": product["name"],
+                        "description": product["description"],
+                        "price": int(product["price"]),
+                        "stock": int(product["stock"]),
+                        "has_photo": bool(product["photo_id"]),
+                    }
+                    for product in products
+                ],
+            }
+        )
+    return catalog
+
+
+async def create_order_from_items(
+    user_id: int,
+    items: list[tuple[int, int]],
+    address: str,
+    phone: str,
+) -> tuple[int | None, list[dict[str, Any]]]:
+    """Mini App'dan kelgan ro'yxat asosida buyurtma yaratadi.
+
+    items -- [(product_id, qty), ...]
+    Qaytaradi: (order_id, muammolar). Muammo bo'lsa order_id = None.
+    """
+    problems: list[dict[str, Any]] = []
+    prepared: list[tuple[aiosqlite.Row, int]] = []
+
+    for product_id, qty in items:
+        product = await get_product(product_id)
+        if not product or not product["is_active"]:
+            problems.append({"product_id": product_id, "reason": "not_found"})
+            continue
+        if qty < 1:
+            problems.append({"product_id": product_id, "reason": "bad_qty"})
+            continue
+        if qty > int(product["stock"]):
+            problems.append(
+                {
+                    "product_id": product_id,
+                    "name": product["name"],
+                    "reason": "out_of_stock",
+                    "available": int(product["stock"]),
+                }
+            )
+            continue
+        prepared.append((product, qty))
+
+    if problems or not prepared:
+        return None, problems
+
+    db = get_db()
+    total = sum(int(product["price"]) * qty for product, qty in prepared)
+    cur = await db.execute(
+        "INSERT INTO orders (user_id, total, address, phone) VALUES (?, ?, ?, ?)",
+        (user_id, total, address, phone),
+    )
+    order_id = int(cur.lastrowid)
+
+    await db.executemany(
+        "INSERT INTO order_items (order_id, product_id, name, price, qty)"
+        " VALUES (?, ?, ?, ?, ?)",
+        [
+            (order_id, product["id"], product["name"], int(product["price"]), qty)
+            for product, qty in prepared
+        ],
+    )
+    for product, qty in prepared:
+        await db.execute(
+            "UPDATE products SET stock = MAX(stock - ?, 0) WHERE id = ?",
+            (qty, product["id"]),
+        )
+    await db.commit()
+    return order_id, []
