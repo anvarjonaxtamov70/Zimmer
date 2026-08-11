@@ -24,6 +24,7 @@ USER_COMMANDS = [
 
 ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin", description="Admin panel"),
+    BotCommand(command="katalog", description="Katalogni boshqarish"),
     BotCommand(command="id", description="Telegram ID'ni bilish"),
 ]
 

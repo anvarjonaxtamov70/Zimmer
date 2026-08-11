@@ -349,3 +349,48 @@ O'zgarishlar bot qayta ishga tushganda import qilinadi (Render'da
 Hech narsa buzilmaydi: bot va ilova SQLite bilan ishlaydi, logda shunchaki
 `Firebase sozlanmagan` deb yoziladi. Buyurtmalar, navbatlar — hammasi
 ishlaydi, faqat qayta deployda mahalliy baza tozalanadi.
+
+
+---
+
+# 🖼 Rasm va video qo'shish
+
+Har bir element (Bi-LED linza, ochki, rang, mashina, mahsulot, banner, story)
+rasm va video bilan bo'lishi mumkin. Ikki usul:
+
+## 1. Telegram orqali (eng oson)
+
+Botda: `/katalog` → bo'limni tanlang → elementni bosing →
+**🖼 Rasm qo'shish** yoki **🎬 Video qo'shish** → faylni yuboring.
+
+- Rasm: oddiy rasm sifatida yuboring
+- Video: video yoki GIF sifatida yuboring
+- Chegara: Telegram botlari **20 MB** gacha faylni o'qiy oladi
+
+Fayl Telegram serverida qoladi, bot esa uni ilovaga oqim (stream) bilan
+uzatadi — server diskida joy egallamaydi.
+
+## 2. Tashqi URL orqali (katta videolar uchun)
+
+Xuddi shu tugmani bosib, fayl o'rniga **manzil** yozing:
+
+```
+https://cdn.example.com/videos/aozoom-a5.mp4
+```
+
+Bu holda ilova faylni to'g'ridan-to'g'ri o'sha manzildan oladi — Render
+serveriga umuman yuk tushmaydi. Firebase Storage, o'z saytingiz yoki
+istalgan CDN bo'lishi mumkin.
+
+> Katta videolar (20 MB dan ortiq) uchun **shu usul tavsiya etiladi**.
+
+## Ilovada qanday ko'rinadi
+
+- Konfiguratorda jonli ko'rinish ustida tablar chiqadi:
+  **◐ Chizma · 🖼 Rasm · 🎬 Video** — faqat mavjud bo'lganlari
+- Variant qatorida kichik rasm (thumbnail) va videosi borligi 🎬 belgisi bilan
+- Mahsulot kartochkasida ▶ belgisi — bosilsa video ochiladi
+- Banner va story'da rasm fon sifatida ishlatiladi
+
+Video **avtomatik yuklanmaydi** (`preload="none"`) — foydalanuvchi bosgandan
+keyin yuklanadi, shuning uchun trafik va batareya tejaladi.

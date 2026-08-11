@@ -10,6 +10,7 @@ from aiohttp import web
 
 from api.auth import extract_init_data, validate_init_data
 from api.errors import ApiError, bad_request, not_found, phone_required, unauthorized
+from api.media import media_fields
 from config import config
 from database import queries as q
 from keyboards.inline import (
@@ -85,29 +86,43 @@ async def _taken_slots(date_iso: str) -> list[tuple[str, int]]:
     return [(row["time"], int(row["duration_min"])) for row in rows]
 
 
-def _decorate_catalog(catalog: list[dict]) -> None:
-    """Narx yozuvlari va rasm manzilini to'ldiradi.
+def _media_from_raw(table: str, row_id: int, raw_url, has_file: bool, kind: str) -> tuple:
+    """(manzil, tashqimi): tashqi URL bo'lsa o'zi, aks holda media proksisi."""
+    external = (raw_url or "").strip()
+    if external.startswith("http"):
+        return external, True
+    if has_file:
+        return f"/api/media/{table}/{row_id}/{kind}", False
+    return None, False
 
-    Rasm ikki manbadan bo'lishi mumkin:
-      • tashqi URL (Firebase/sayt) — to'g'ridan-to'g'ri ishlatiladi;
-      • Telegram file_id — `/api/photo/<id>` orqali uzatiladi.
-    """
+
+def _decorate_catalog(catalog: list[dict]) -> None:
+    """Narx yozuvlari, rasm va video manzillarini to'ldiradi."""
     for category in catalog:
         for product in category["products"]:
             product["price_label"] = fmt_price(product["price"])
             product["old_price_label"] = (
                 fmt_price(product["old_price"]) if product["old_price"] else None
             )
-            external = (product.get("photo_url") or "").strip()
-            if external.startswith("http"):
-                product["photo_url"] = external
-                product["photo_external"] = True
-            elif product["has_photo"]:
-                product["photo_url"] = f"/api/photo/{product['id']}"
-                product["photo_external"] = False
-            else:
-                product["photo_url"] = None
-                product["photo_external"] = False
+            photo, photo_ext = _media_from_raw(
+                "products",
+                product["id"],
+                product.pop("photo_url_raw", None),
+                product.pop("has_photo", False),
+                "photo",
+            )
+            video, video_ext = _media_from_raw(
+                "products",
+                product["id"],
+                product.pop("video_url_raw", None),
+                product.pop("has_video", False),
+                "video",
+            )
+            product["photo_url"] = photo
+            product["photo_external"] = photo_ext
+            product["video_url"] = video
+            product["video_external"] = video_ext
+            product["has_media"] = bool(photo or video)
 
 
 def _booking_json(row) -> dict:
@@ -299,6 +314,7 @@ async def api_tuning(request: web.Request) -> web.Response:
                     "price_label": fmt_price(row["price"]),
                     "badge": row["badge"],
                     "glow": row["glow"],
+                    **media_fields("biled_types", row),
                 }
                 for row in biled
             ],
@@ -311,6 +327,7 @@ async def api_tuning(request: web.Request) -> web.Response:
                     "description": row["description"],
                     "price": int(row["price"]),
                     "price_label": fmt_price(row["price"]),
+                    **media_fields("shrouds", row),
                 }
                 for row in shrouds
             ],
@@ -323,6 +340,7 @@ async def api_tuning(request: web.Request) -> web.Response:
                     "description": row["description"],
                     "price": int(row["price"]),
                     "price_label": fmt_price(row["price"]),
+                    **media_fields("optic_colors", row),
                 }
                 for row in colors
             ],
@@ -473,6 +491,7 @@ async def api_home(request: web.Request) -> web.Response:
                     "tag": b["tag"],
                     "color_from": b["color_from"],
                     "color_to": b["color_to"],
+                    **media_fields("banners", b),
                 }
                 for b in banners
             ],
@@ -485,6 +504,7 @@ async def api_home(request: web.Request) -> web.Response:
                     "body": s["body"],
                     "color_from": s["color_from"],
                     "color_to": s["color_to"],
+                    **media_fields("stories", s),
                 }
                 for s in stories
             ],
@@ -688,29 +708,12 @@ async def api_catalog(request: web.Request) -> web.Response:
 
 @routes.get("/api/photo/{product_id}")
 async def api_photo(request: web.Request) -> web.Response:
-    """Mahsulot rasmini Telegram serveridan olib beradi (file_id brauzerda ochilmaydi)."""
+    """Eski manzil — yangi media proksisiga yo'naltiradi (kesh uchun mos)."""
     try:
         product_id = int(request.match_info["product_id"])
     except ValueError as error:
         raise bad_request("Noto'g'ri id") from error
-
-    product = await q.get_product(product_id)
-    if not product or not product["photo_id"]:
-        raise not_found("Rasm yo'q")
-
-    bot = request.app["bot"]
-    try:
-        buffer = await bot.download(product["photo_id"])
-        data = buffer.read()
-    except Exception as error:
-        logger.warning("Rasm yuklanmadi (%s): %s", product_id, error)
-        raise not_found("Rasm yuklanmadi") from error
-
-    return web.Response(
-        body=data,
-        content_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    raise web.HTTPFound(location=f"/api/media/products/{product_id}/photo")
 
 
 @routes.post("/api/orders")
