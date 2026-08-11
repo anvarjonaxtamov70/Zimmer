@@ -1,0 +1,102 @@
+name: Keep Alive (botni uyg'oq tutish)
+
+# =====================================================================
+#  NEGA BU KERAK?
+#  Render.com bepul "web service" 15 daqiqa davomida kiruvchi so'rov
+#  bo'lmasa uxlab qoladi — konteyner to'xtaydi va bot javob bermaydi.
+#  Bot ichidan o'ziga ping yuborish yordam bermaydi, chunki bot ham
+#  o'chgan bo'ladi. Shu sababli TASHQARIDAN ping kerak.
+#
+#  Bu workflow har 10 daqiqada /health manziliga GET yuboradi.
+#
+#  MANZILNI O'ZGARTIRISH: repo -> Settings -> Secrets and variables ->
+#  Actions -> Variables -> New variable:
+#     Name:  KEEP_ALIVE_URLS
+#     Value: https://zimmer-bot.onrender.com
+#  (bir nechta bo'lsa bo'sh joy bilan ajratib yozing)
+# =====================================================================
+on:
+  schedule:
+    # Har 10 daqiqada. GitHub cron'ni band paytlarda kechiktirishi mumkin —
+    # bu normal, 15 daqiqalik limitga yetadi.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Faqat shu manzilni ping qilish (bo'sh qoldirsangiz — standart)"
+        required: false
+        default: ''
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Botga ping yuborish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Ping
+        env:
+          URLS_VAR: ${{ vars.KEEP_ALIVE_URLS }}
+          URL_INPUT: ${{ github.event.inputs.url }}
+        run: |
+          set -u
+
+          # render.yaml dagi xizmat nomi asosidagi standart manzil
+          DEFAULT_URLS="https://zimmer-bot.onrender.com"
+
+          if [ -n "${URL_INPUT// /}" ]; then
+            URLS="$URL_INPUT"
+            echo "Qo'lda kiritilgan manzil ishlatilyapti."
+          elif [ -n "${URLS_VAR// /}" ]; then
+            URLS="$URLS_VAR"
+            echo "KEEP_ALIVE_URLS repo variable'i ishlatilyapti."
+          else
+            URLS="$DEFAULT_URLS"
+            echo "Standart manzil ishlatilyapti."
+          fi
+
+          ok=0
+          fail=0
+
+          for raw in $URLS; do
+            base="${raw%/}"
+            [ -z "$base" ] && continue
+            url="$base/health"
+
+            code=""
+            # Uxlagan xizmat "sovuq start" uchun 60 soniyagacha vaqt oladi
+            for attempt in 1 2 3; do
+              code=$(curl -sS -o /dev/null -L \
+                       -w '%{http_code}' \
+                       --max-time 120 \
+                       -H 'User-Agent: github-actions-keep-alive' \
+                       "$url" 2>/dev/null || echo "000")
+              case "$code" in
+                2*|3*) break ;;
+              esac
+              echo "  urinish $attempt: $code — 15s dan keyin qayta..."
+              sleep 15
+            done
+
+            case "$code" in
+              2*|3*)
+                echo "✅ $url -> $code"
+                ok=$((ok + 1))
+                ;;
+              *)
+                echo "::warning title=Ping muvaffaqiyatsiz::$url -> $code (manzil to'g'rimi? Render'da xizmat yaratilganmi?)"
+                fail=$((fail + 1))
+                ;;
+            esac
+          done
+
+          echo ""
+          echo "Natija: $ok ta uyg'oq, $fail ta javob bermadi."
+
+          if [ "$ok" -eq 0 ]; then
+            echo "::error title=Bot javob bermadi::KEEP_ALIVE_URLS variable'ini yoki Render paneldagi xizmat holatini tekshiring."
+            exit 1
+          fi

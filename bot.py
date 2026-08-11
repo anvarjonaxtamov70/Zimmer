@@ -13,6 +13,7 @@ from config import config
 from database.db import close_db, init_db
 from handlers import get_routers
 from utils.commands import set_default_commands
+from utils.health import start_health_server
 
 logger = logging.getLogger("zimmer")
 
@@ -46,13 +47,18 @@ async def main() -> None:
     for router in get_routers():
         dispatcher.include_router(router)
 
+    health_runner = None
     try:
         me = await bot.get_me()
+        # Render.com'da PORT beriladi — shunda /health serveri ham yoqiladi
+        health_runner = await start_health_server(me.username)
         await set_default_commands(bot)
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("Bot ishga tushdi: @%s (%s)", me.username, me.id)
         await dispatcher.start_polling(bot)
     finally:
+        if health_runner is not None:
+            await health_runner.cleanup()
         await close_db()
         await bot.session.close()
         logger.info("Bot to'xtatildi")

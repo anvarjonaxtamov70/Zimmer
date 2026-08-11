@@ -72,12 +72,29 @@ namuna xizmatlar/mahsulotlar qo'shiladi (keyin admin panelda o'zgartirasiz).
 | `BOOKING_DAYS_AHEAD` | Necha kun oldinga navbat | `7` |
 | `CURRENCY` | Valyuta yozuvi | `so'm` |
 
+## ☁️ Bulutga joylash (24/7 ishlashi uchun)
+
+Bot Render.com'ning bepul tarifida ishlashga tayyor: repo ildizida
+`render.yaml` blueprint, `/health` endpoint va har 10 daqiqada ping
+yuboradigan GitHub Actions workflow bor.
+
+Qisqacha: Render → New → Blueprint → `Zimmer` repo → `BOT_TOKEN` va
+`ADMINS` ni kiritish → Deploy.
+
+To'liq qo'llanma va muammolar yechimi: **[DEPLOY.md](DEPLOY.md)**
+
+> ⚠️ Bepul tarifda disk saqlanmaydi — qayta deployda SQLite bazasi
+> tozalanadi. Doimiy saqlash variantlari DEPLOY.md da yozilgan.
+
 ## Loyiha tuzilishi
 
 ```
 zimmer/
 ├── bot.py                # kirish nuqtasi (polling)
 ├── config.py             # .env sozlamalari
+├── render.yaml           # Render.com deploy blueprint
+├── DEPLOY.md             # bulutga joylash qo'llanmasi
+├── .github/workflows/    # keep-alive ping (botni uyg'oq tutadi)
 ├── database/
 │   ├── db.py             # ulanish, jadvallar, namuna ma'lumot
 │   └── queries.py        # barcha SQL so'rovlar
@@ -91,7 +108,7 @@ zimmer/
 │   └── fallback.py       # tushunarsiz xabarlar
 ├── keyboards/            # reply va inline tugmalar
 ├── states/               # FSM holatlar
-└── utils/                # vaqt/narx helperlari, matnlar, komandalar
+└── utils/                # helperlar, matnlar, komandalar, health server
 ```
 
 ## Ma'lumotlar bazasi

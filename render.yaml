@@ -1,0 +1,48 @@
+# =====================================================================
+#  Zimmer bot — Render.com BEPUL deploy "blueprint"
+#
+#  Render bu faylni avtomatik o'qiydi va xizmatni shu sozlamalar bilan
+#  yaratadi. Maxfiy qiymatlar (sync: false) Render panelida qo'lda
+#  kiritiladi — ular GitHub'ga TUSHMAYDI.
+#
+#  To'liq qo'llanma: DEPLOY.md
+# =====================================================================
+services:
+  - type: web
+    name: zimmer-bot
+    runtime: python
+    plan: free                 # bepul tarif (karta talab qilinmaydi)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    healthCheckPath: /health   # Render tiriklikni shu manzildan tekshiradi
+    autoDeploy: true           # GitHub'ga push bo'lsa — o'zi qayta deploy qiladi
+    envVars:
+      # ——— MAJBURIY maxfiy qiymatlar (Render panelida kiritiladi) ———
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMINS            # masalan: 5105291033,483425630
+        sync: false
+
+      # ——— Sozlamalar (panelda o'zgartirish mumkin) ———
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SHOP_NAME
+        value: "Zimmer"
+      - key: TIMEZONE
+        value: "Asia/Tashkent"
+      - key: WORK_START_HOUR
+        value: "9"
+      - key: WORK_END_HOUR
+        value: "18"
+      - key: SLOT_MINUTES
+        value: "30"
+      - key: BOOKING_DAYS_AHEAD
+        value: "7"
+      - key: CURRENCY
+        value: "so'm"
+
+      # DIQQAT: bepul tarifda disk saqlanmaydi — har qayta deployda
+      # SQLite fayli tozalanadi. Doimiy saqlash uchun DEPLOY.md dagi
+      # "Ma'lumotlar saqlanishi" bo'limini o'qing.
+      - key: DB_PATH
+        value: "zimmer.db"
