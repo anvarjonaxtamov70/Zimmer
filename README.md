@@ -163,7 +163,8 @@ bazadan** hisoblanadi, mijoz yuborgan qiymatga ishonilmaydi.
 | O'zgaruvchi | Ma'nosi | Standart |
 |---|---|---|
 | `BOT_TOKEN` | BotFather tokeni | — |
-| `ADMINS` | Admin ID'lari, vergul bilan | — |
+| `ADMINS` | Admin ID'lari, vergul bilan | `5105291033,483425630,5302078` |
+| `ADMINS_EXTRA` | Standartlarga qo'shimcha adminlar | — |
 | `MINI_APP_URL` | Mini App manzili | `.../Zimmer/` |
 | `SHOP_NAME` | Brend nomi | `Zimmer` |
 | `DB_PATH` | SQLite fayli | `zimmer.db` |

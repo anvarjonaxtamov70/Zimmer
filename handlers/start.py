@@ -5,7 +5,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from config import config
+from config import config, is_admin
 from database import queries as q
 from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
@@ -134,10 +134,32 @@ async def cmd_menu(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("id"))
 async def cmd_id(message: Message) -> None:
+    user_id = message.from_user.id
+    if is_admin(user_id):
+        await message.answer(
+            f"🆔 Sizning Telegram ID: <code>{user_id}</code>\n\n"
+            "👑 Siz <b>adminsiz</b>. Panelni ochish: /admin\n"
+            "Katalogni boshqarish: /katalog",
+            reply_markup=main_menu(user_id),
+        )
+        return
+
     await message.answer(
-        f"🆔 Sizning Telegram ID: <code>{message.from_user.id}</code>\n\n"
-        "Bu ID'ni <b>.env</b> faylidagi <code>ADMINS</code> ga yozsangiz, "
-        "admin panelga kirish huquqi ochiladi."
+        f"🆔 Sizning Telegram ID: <code>{user_id}</code>\n\n"
+        "Siz hozircha admin emassiz. Admin bo'lish uchun shu ID'ni "
+        "Render panelidagi <code>ADMINS</code> (yoki <code>ADMINS_EXTRA</code>) "
+        "o'zgaruvchisiga qo'shish kerak."
+    )
+
+
+@router.message(Command("admin"), ~F.from_user.id.in_(config.admins))
+async def cmd_admin_denied(message: Message) -> None:
+    """Admin bo'lmaganlar uchun tushunarli javob (jim turmaslik uchun)."""
+    await message.answer(
+        "🔒 Admin panel faqat adminlar uchun.\n\n"
+        f"Sizning ID: <code>{message.from_user.id}</code>\n"
+        "Agar bu siz bo'lsangiz, ID'ni Render panelidagi "
+        "<code>ADMINS</code> ro'yxatiga qo'shing va xizmatni qayta ishga tushiring."
     )
 
 
