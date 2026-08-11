@@ -87,8 +87,10 @@ xizmat/mahsulotlar qo'shiladi.
 To'liq qo'llanma: **[DEPLOY.md](DEPLOY.md)**
 
 1. **Bot + API** → Render.com: New → Blueprint → `Zimmer` repo → `BOT_TOKEN`, `ADMINS`
-2. **Mini App** → GitHub Pages: Settings → Pages → branch `main`, papka `/docs`
+2. **Mini App** → GitHub Pages: Actions → *Deploy Mini App (GitHub Pages)* →
+   **Run workflow** (Pages'ni o'zi yoqadi, keyin har o'zgarishda avtomatik yangilanadi)
 3. **BotFather** → Menu Button URL: `https://anvarjonaxtamov70.github.io/Zimmer/`
+   (katta harf bilan `Zimmer` — manzil harf registriga sezgir)
 
 > ⚠️ Render'ning bepul tarifida disk saqlanmaydi — qayta deployda SQLite
 > bazasi tozalanadi. Doimiy saqlash variantlari DEPLOY.md da.

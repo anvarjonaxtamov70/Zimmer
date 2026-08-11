@@ -1,0 +1,62 @@
+name: Deploy Mini App (GitHub Pages)
+
+# =====================================================================
+#  Mini App'ni (docs/ papkasi) GitHub Pages'ga chiqaradi.
+#
+#  Bu workflow Pages'ni O'ZI YOQADI (`enablement: true`) — Settings
+#  bo'limiga kirib qo'lda sozlash shart emas. Har safar `docs/` ichida
+#  o'zgarish bo'lsa, sayt avtomatik yangilanadi.
+#
+#  QO'LDA ISHGA TUSHIRISH: Actions -> "Deploy Mini App (GitHub Pages)"
+#  -> "Run workflow".
+#
+#  Natija manzili: https://<foydalanuvchi>.github.io/Zimmer/
+#  (katta harf bilan "Zimmer" — manzil harf registriga sezgir!)
+# =====================================================================
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Bir vaqtda bitta deploy ishlasin
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Pages'ga chiqarish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Repo'ni olish
+        uses: actions/checkout@v4
+
+      - name: Pages'ni sozlash (va kerak bo'lsa yoqish)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: docs/ papkasini yuklash
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Manzilni ko'rsatish
+        run: |
+          echo "Mini App manzili: ${{ steps.deployment.outputs.page_url }}"
+          echo "Shu manzilni BotFather -> Menu Button va MINI_APP_URL ga yozing."

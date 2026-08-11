@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zimmer</title>
+  <!--
+    Zaxira sahifa. GitHub Pages "main / (root)" rejimida yoqilgan bo'lsa,
+    foydalanuvchi shu faylga tushadi va ilovaga (docs/) yo'naltiriladi.
+    Telegram initData'ni manzilning # (hash) qismida yuboradi — shuning
+    uchun yo'naltirishda search va hash ALBATTA saqlanadi.
+  -->
+  <style>
+    body {
+      margin: 0; min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #ffffff; color: #1c1c1e; text-align: center; padding: 24px;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid rgba(128,128,128,.25);
+      border-top-color: #2481cc; border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    a { color: #2481cc; }
+    p { color: #8e8e93; margin: 0; }
+  </style>
+  <script>
+    // Ilovaga yo'naltirish (query va hash saqlanadi)
+    location.replace("docs/" + location.search + location.hash);
+  </script>
+</head>
+<body>
+  <div class="spinner"></div>
+  <p>Ilova yuklanmoqda...</p>
+  <p><a id="link" href="docs/">Ochilmasa, bu yerga bosing</a></p>
+  <script>
+    document.getElementById("link").href = "docs/" + location.search + location.hash;
+  </script>
+</body>
+</html>
