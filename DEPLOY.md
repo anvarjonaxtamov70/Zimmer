@@ -118,35 +118,49 @@ Render xizmatni qayta ishga tushiradi.
 Mini App — bu Telegram ichida ochiladigan ilova. Kodi `docs/` papkasida,
 bepul **GitHub Pages**da turadi (Avto_A1'dagi kabi).
 
-## 1. GitHub Pages'ni yoqish
+## 1. GitHub Pages qanday ishlaydi (allaqachon yoqilgan)
 
-### Usul A — avtomatik (tavsiya etiladi)
-
-Repoda `.github/workflows/deploy-pages.yml` workflow'i bor: u Pages'ni
-**o'zi yoqadi** va `docs/` papkasini saytga chiqaradi.
-
-1. GitHub repo → **Actions**
-   (agar "workflows are disabled" chiqsa → **I understand my workflows, go ahead and enable them**)
-2. Chapdan **Deploy Mini App (GitHub Pages)** → **Run workflow** → **Run**
-3. 1-2 daqiqa kutamiz. Yashil ✅ bo'lganda oxirgi qadamda manzil chiqadi:
+Sayt **`gh-pages`** branchidan chiqariladi:
 
 ```
+docs/ (main branch)  ──workflow──>  gh-pages branch  ──>  GitHub Pages
+```
+
+`gh-pages` branch push qilinganda GitHub Pages'ni **o'zi yoqadi** —
+Settings bo'limiga kirish shart emas. Holat:
+
+```
+source: { branch: "gh-pages", path: "/" }   status: built
 https://anvarjonaxtamov70.github.io/Zimmer/
 ```
 
-Bundan keyin `docs/` ichida biror narsa o'zgarsa, sayt **avtomatik**
-yangilanadi — hech narsa bosish kerak emas.
+Bundan keyin `docs/` ichida biror narsa o'zgarsa,
+`.github/workflows/sync-pages.yml` workflow'i `gh-pages` ni avtomatik
+yangilaydi. Qo'lda ishga tushirish: **Actions → Mini App'ni gh-pages'ga
+chiqarish → Run workflow**.
 
-### Usul B — qo'lda (agar A ishlamasa)
+> ### ❗ Nima uchun oldingi usul ishlamadi
+> Dastlab `actions/configure-pages` (`enablement: true`) ishlatilgan edi —
+> u Pages saytini API orqali yaratmoqchi bo'ladi va quyidagi xato bilan
+> to'xtaydi:
+>
+> ```
+> Create Pages site failed.
+> Error: Resource not accessible by integration
+> ```
+>
+> Sabab: workflow'ning `GITHUB_TOKEN`'i Pages saytini **yaratish**
+> huquqiga ega emas (GitHub cheklovi). `gh-pages` usulida esa faqat
+> oddiy `git push` kerak — shuning uchun ishonchli.
 
-1. Repo → **Settings** → chap menyuda **Pages**
-2. **Source**: `Deploy from a branch`
-3. **Branch**: `main`, papka: **`/docs`** → **Save**
-4. 1-2 daqiqadan keyin sayt tayyor
+### Zaxira variant (kerak bo'lsa)
 
-> Repo ildizida zaxira `index.html` ham bor: papka sifatida `/docs` emas,
-> `/(root)` tanlangan bo'lsa ham foydalanuvchi ilovaga yo'naltiriladi
-> (Telegram'ning `#tgWebAppData` qismi saqlanib qoladi).
+Settings → **Pages** → Source: `Deploy from a branch` →
+branch **`gh-pages`**, papka **`/ (root)`**.
+
+`main` branchning ildizida ham `index.html` bor — agar kimdir Pages'ni
+`main` / `(root)` ga o'tkazsa, u foydalanuvchini `docs/` ga yo'naltiradi
+(Telegram'ning `#tgWebAppData` qismi saqlanib qoladi).
 
 ### ⚠️ Manzildagi katta harf muhim
 
@@ -228,9 +242,9 @@ o'tsa, ilova ochiladi.
 **Sayt 404 beradi**
 Uchta sabab bo'lishi mumkin, shu tartibda tekshiring:
 
-1. **Pages yoqilmagan** — eng ko'p uchraydigan sabab. Actions →
-   *Deploy Mini App (GitHub Pages)* → **Run workflow** (Usul A).
-   Yoki Settings → Pages bo'limida `main` / `/docs` tanlangan bo'lishi kerak.
+1. **Pages yoqilmagan yoki `gh-pages` branch yo'q** — Actions →
+   *Mini App'ni gh-pages'ga chiqarish* → **Run workflow**.
+   Yoki Settings → Pages'da source `gh-pages` / `(root)` bo'lishi kerak.
 2. **Manzilda kichik harf** — `/zimmer/` emas, `/Zimmer/` bo'lishi shart.
 3. **Deploy hali tugamagan** — Actions'da workflow yashil ✅ bo'lishini kutin
    (birinchi marta 1-2 daqiqa).
