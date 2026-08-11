@@ -12,24 +12,5 @@ class Checkout(StatesGroup):
     confirm = State()
 
 
-class AddService(StatesGroup):
-    name = State()
-    duration = State()
-    price = State()
-
-
-class AddCategory(StatesGroup):
-    name = State()
-
-
-class AddProduct(StatesGroup):
-    category = State()
-    name = State()
-    description = State()
-    price = State()
-    stock = State()
-    photo = State()
-
-
 class Broadcast(StatesGroup):
     text = State()

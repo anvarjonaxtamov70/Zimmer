@@ -545,18 +545,33 @@ async def _columns(table: str) -> set[str]:
 async def _migrate() -> None:
     """Eski bazalarga yangi ustunlarni qo'shadi (ma'lumot yo'qotmasdan)."""
     db = get_db()
+    # Media ustunlari: har bir element uchun rasm va video
+    #   *_id  — Telegram file_id (admin panelda yuklanadi)
+    #   *_url — tashqi manzil (Firebase Storage / sayt / CDN)
+    media = [
+        ("photo_id", "TEXT"),
+        ("photo_url", "TEXT"),
+        ("video_id", "TEXT"),
+        ("video_url", "TEXT"),
+    ]
+
     additions = {
         "users": [("car_id", "INTEGER")],
         "products": [
             ("car_id", "INTEGER"),
             ("old_price", "INTEGER"),
             ("badge", "TEXT"),
-            ("photo_url", "TEXT"),
             ("external_id", "TEXT"),
+            ("sort", "INTEGER NOT NULL DEFAULT 0"),
+            *media,
         ],
         "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
-        "banners": [("photo_url", "TEXT")],
-        "stories": [("photo_url", "TEXT")],
+        "cars": [*media],
+        "biled_types": [*media],
+        "shrouds": [*media],
+        "optic_colors": [*media],
+        "banners": [*media],
+        "stories": [*media],
     }
     for table, columns in additions.items():
         existing = await _columns(table)

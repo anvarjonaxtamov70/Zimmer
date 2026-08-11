@@ -132,14 +132,12 @@ def checkout_confirm_kb() -> InlineKeyboardMarkup:
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="🔥 Bi-LED buyurtmalar", callback_data="adm:bileds:new")
+    kb.button(text="🗂 Katalogni boshqarish", callback_data="adm:catalog")
     kb.button(text="📊 Statistika", callback_data="adm:stats")
     kb.button(text="🗓 Navbatlar", callback_data="adm:bookings:today")
     kb.button(text="📦 Do'kon buyurtmalari", callback_data="adm:orders:new")
-    kb.button(text="🛠 Xizmatlar", callback_data="adm:services")
-    kb.button(text="🗂 Kategoriya qo'shish", callback_data="adm:addcat")
-    kb.button(text="🛍 Mahsulot qo'shish", callback_data="adm:addprod")
     kb.button(text="📣 Xabar yuborish", callback_data="adm:broadcast")
-    kb.adjust(1, 1, 2, 2, 1, 1)
+    kb.adjust(1, 1, 2, 1, 1)
     return kb.as_markup()
 
 
@@ -218,27 +216,8 @@ def admin_order_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def admin_services_kb(services: Sequence[aiosqlite.Row]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    for svc in services:
-        mark = "🟢" if svc["is_active"] else "🔴"
-        kb.button(
-            text=f"{mark} {svc['name']} · {fmt_price(svc['price'])}",
-            callback_data=f"adm:svctoggle:{svc['id']}",
-        )
-    kb.adjust(1)
-    kb.row(InlineKeyboardButton(text="➕ Xizmat qo'shish", callback_data="adm:addsvc"))
-    kb.row(InlineKeyboardButton(text="⬅️ Admin menyu", callback_data="adm:menu"))
-    return kb.as_markup()
 
 
-def admin_pick_category_kb(categories: Sequence[aiosqlite.Row]) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    for cat in categories:
-        kb.button(text=cat["name"], callback_data=f"adm:pickcat:{cat['id']}")
-    kb.adjust(1)
-    kb.row(InlineKeyboardButton(text="⬅️ Admin menyu", callback_data="adm:menu"))
-    return kb.as_markup()
 
 
 def admin_new_booking_kb(booking_id: int) -> InlineKeyboardMarkup:

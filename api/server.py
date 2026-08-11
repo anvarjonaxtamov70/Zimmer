@@ -7,9 +7,11 @@ env o'zgaruvchisi mavjud bo'lganda ishga tushadi.
 import logging
 import os
 
+import aiohttp
 from aiohttp import web
 
 from api.errors import ApiError
+from api.media import handle_media
 from api.routes import routes
 from utils.helpers import TZ, now
 
@@ -52,6 +54,17 @@ async def error_and_cors_middleware(request: web.Request, handler):
 def create_app(bot, bot_username: str | None = None) -> web.Application:
     started_at = now()
 
+    async def _startup(app: web.Application) -> None:
+        # media proksisi uchun umumiy HTTP sessiya
+        app["http"] = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=60)
+        )
+
+    async def _cleanup(app: web.Application) -> None:
+        session = app.get("http")
+        if session is not None and not session.closed:
+            await session.close()
+
     async def health(_request: web.Request) -> web.Response:
         return web.json_response(
             {
@@ -65,9 +78,13 @@ def create_app(bot, bot_username: str | None = None) -> web.Application:
 
     app = web.Application(middlewares=[error_and_cors_middleware])
     app["bot"] = bot
+    app.on_startup.append(_startup)
+    app.on_cleanup.append(_cleanup)
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
     app.add_routes(routes)
+    # rasm/video: /api/media/{jadval}/{id}/{photo|video}
+    app.router.add_get("/api/media/{table}/{row_id}/{kind}", handle_media)
     return app
 
 

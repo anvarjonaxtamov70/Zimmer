@@ -452,9 +452,11 @@ def product_json(product: aiosqlite.Row) -> dict[str, Any]:
         "badge": product["badge"] if "badge" in keys else None,
         "stock": int(product["stock"]),
         "car_id": product["car_id"] if "car_id" in keys else None,
+        # media: xom qiymatlar — yakuniy manzillar API qatlamida yasaladi
         "has_photo": bool(product["photo_id"]),
-        # tashqi rasm (Firebase / sayt) — bo'lsa to'g'ridan-to'g'ri ishlatiladi
-        "photo_url": product["photo_url"] if "photo_url" in keys else None,
+        "photo_url_raw": product["photo_url"] if "photo_url" in keys else None,
+        "has_video": bool(product["video_id"]) if "video_id" in keys else False,
+        "video_url_raw": product["video_url"] if "video_url" in keys else None,
     }
 
 
@@ -841,3 +843,137 @@ async def upsert_external_product(
     )
     await db.commit()
     return int(cur.lastrowid)
+
+
+
+# ========================================================================
+#         ADMIN CRUD uchun universal so'rovlar (jadval/ustun oq ro'yxati)
+# ========================================================================
+
+# Xavfsizlik: jadval va ustun nomlari faqat shu ro'yxatdan olinadi.
+EDITABLE: dict[str, set[str]] = {
+    "cars": {
+        "name", "slug", "years", "note", "sort", "is_active",
+        "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "biled_types": {
+        "name", "brand", "size", "kelvin", "lumen", "warranty", "description",
+        "price", "badge", "glow", "sort", "is_active",
+        "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "shrouds": {
+        "name", "style", "ring_color", "description", "price", "sort", "is_active",
+        "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "optic_colors": {
+        "name", "hex_from", "hex_to", "description", "price", "sort", "is_active",
+        "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "products": {
+        "category_id", "car_id", "name", "description", "price", "old_price",
+        "stock", "badge", "sort", "is_active",
+        "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "categories": {"name", "icon", "sort", "is_active"},
+    "services": {"name", "duration_min", "price", "is_active"},
+    "banners": {
+        "title", "subtitle", "tag", "color_from", "color_to", "car_id",
+        "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "stories": {
+        "title", "emoji", "heading", "body", "color_from", "color_to",
+        "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
+    },
+    "promos": {"title", "text", "discount", "until_date", "sort", "is_active"},
+}
+
+
+def _check(table: str, column: str | None = None) -> None:
+    if table not in EDITABLE:
+        raise ValueError(f"Ruxsat berilmagan jadval: {table}")
+    if column is not None and column not in EDITABLE[table]:
+        raise ValueError(f"Ruxsat berilmagan ustun: {table}.{column}")
+
+
+async def admin_list(table: str, limit: int = 60) -> list[aiosqlite.Row]:
+    _check(table)
+    db = get_db()
+    order = "sort, id" if "sort" in EDITABLE[table] else "id"
+    async with db.execute(f"SELECT * FROM {table} ORDER BY {order} LIMIT ?", (limit,)) as cur:
+        return await cur.fetchall()
+
+
+async def admin_get(table: str, row_id: int) -> aiosqlite.Row | None:
+    _check(table)
+    db = get_db()
+    async with db.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def admin_update(table: str, row_id: int, column: str, value) -> None:
+    _check(table, column)
+    db = get_db()
+    await db.execute(f"UPDATE {table} SET {column} = ? WHERE id = ?", (value, row_id))
+    await db.commit()
+
+
+async def admin_toggle(table: str, row_id: int, column: str = "is_active") -> int:
+    """Faol/o'chirilgan holatini almashtiradi va yangi qiymatni qaytaradi."""
+    _check(table, column)
+    db = get_db()
+    await db.execute(
+        f"UPDATE {table} SET {column} = 1 - COALESCE({column}, 0) WHERE id = ?", (row_id,)
+    )
+    await db.commit()
+    row = await admin_get(table, row_id)
+    return int(row[column]) if row else 0
+
+
+async def admin_insert(table: str, data: dict[str, Any]) -> int:
+    _check(table)
+    for column in data:
+        _check(table, column)
+    if not data:
+        raise ValueError("Bo'sh ma'lumot")
+
+    db = get_db()
+    columns = ", ".join(data)
+    marks = ", ".join("?" for _ in data)
+    cur = await db.execute(
+        f"INSERT INTO {table} ({columns}) VALUES ({marks})", tuple(data.values())
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+async def admin_delete(table: str, row_id: int) -> None:
+    _check(table)
+    db = get_db()
+    await db.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+    await db.commit()
+
+
+async def admin_next_sort(table: str) -> int:
+    _check(table)
+    if "sort" not in EDITABLE[table]:
+        return 0
+    db = get_db()
+    async with db.execute(f"SELECT COALESCE(MAX(sort), 0) + 1 FROM {table}") as cur:
+        row = await cur.fetchone()
+    return int(row[0])
+
+
+async def admin_count(table: str) -> int:
+    _check(table)
+    db = get_db()
+    async with db.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+        row = await cur.fetchone()
+    return int(row[0])
+
+
+def media_of(row: aiosqlite.Row, kind: str = "photo") -> tuple[str | None, str | None]:
+    """(file_id, url) juftligini qaytaradi — mavjud bo'lganini."""
+    keys = row.keys()
+    file_id = row[f"{kind}_id"] if f"{kind}_id" in keys else None
+    url = row[f"{kind}_url"] if f"{kind}_url" in keys else None
+    return file_id, url

@@ -76,8 +76,30 @@ batafsil [DEPLOY.md](DEPLOY.md). Firebase ulanmasa ham hammasi ishlaydi
 - 🔥 **Bi-LED buyurtmalar** — to'liq konfiguratsiya ko'rinadi (mashina, linza, ochki, rang, narx)
   - holatlar: 🆕 yangi → ✅ qabul → 🔧 ishda → ✨ topshirildi (mijozga avtomatik xabar)
 - 📊 Statistika — Bi-LED, navbat va do'kon bo'yicha alohida + umumiy savdo
-- 🗓 Kun bo'yicha navbatlar, 📦 do'kon buyurtmalari
-- 🛠 Xizmat / 🗂 kategoriya / 🛍 mahsulot qo'shish, 📣 ommaviy xabar
+- 🗓 Kun bo'yicha navbatlar, 📦 do'kon buyurtmalari, 📣 ommaviy xabar
+- 🗂 **Katalogni boshqarish** (`/katalog`) — pastda batafsil
+
+### 🗂 Katalogni boshqarish — hamma narsa tahrirlanadi
+
+10 bo'lim, bitta universal interfeys: 💡 Bi-LED linzalar · 🕶 Ochkilar ·
+🎨 Optika ranglari · 🚗 Mashinalar · 🛍 Mahsulotlar · 🗂 Kategoriyalar ·
+🔧 Xizmatlar · 🖼 Bannerlar · 📸 Stories · 🎁 Aksiyalar.
+
+Har bir element uchun:
+
+| Amal | Qanday |
+|---|---|
+| ✏️ Har bir maydonni tahrirlash | Nom, narx, tavsif, brend, kelvin, lumen, kafolat, badge, rang (HEX), tartib... |
+| 🖼 Rasm qo'shish | Telegram'ga rasm yuborasiz **yoki** URL yozasiz (Firebase/sayt/CDN) |
+| 🎬 Video qo'shish | Video/GIF yuborasiz yoki URL yozasiz — ilovada «Video» tabida ko'rinadi |
+| 👁 Ko'rish · 🗑 O'chirish | Yuklangan media'ni tekshirish yoki olib tashlash |
+| 🟢/🔴 Yoqish–yashirish | Mijozga ko'rinmasin, lekin ma'lumot saqlanib qolsin |
+| ➕ Yangi qo'shish | Faqat majburiy maydonlar so'raladi, qolganini keyin to'ldirasiz |
+| 🗑 Butunlay o'chirish | Tasdiqlash so'raladi |
+
+Kiritilgan qiymatlar tekshiriladi (narx — son, rang — `#rrggbb`, media — fayl
+yoki `https://`), jadval/ustun nomlari **oq ro'yxat** bilan cheklangan —
+SQL injection mumkin emas.
 
 ---
 
@@ -108,6 +130,26 @@ To'liq qo'llanma: **[DEPLOY.md](DEPLOY.md)**
 2. **Mini App** → GitHub Pages allaqachon yoqilgan (`gh-pages` branch).
    `docs/` o'zgarsa, workflow uni avtomatik yangilaydi
 3. **BotFather** → Menu Button URL: `https://anvarjonaxtamov70.github.io/Zimmer/`
+
+## ⚡ Ishlash (telefon qizmasligi uchun)
+
+Animatsiyaga boy, lekin **arzon** — Apple ilovalaridagidek silliq:
+
+| Qoida | Nima qilingan |
+|---|---|
+| `filter: blur()` yo'q | Yumshoq nur radial-gradient bilan (GPU uchun deyarli bepul) |
+| SVG filtrlari yo'q | `feGaussianBlur` olib tashlandi — fara nuri gradientlar bilan |
+| Cheksiz animatsiya 1 ta | Faqat linzaning «nafas olishi» (opacity), qolgani bir martalik |
+| Fonga o'tsa to'xtaydi | `visibilitychange` → `body.paused` + videolar pauza |
+| `backdrop-filter` 3 joyda | Faqat topbar, home header va navbar |
+| Uzun ro'yxatlar | `content-visibility: auto` — ko'rinmayotgan qism hisoblanmaydi |
+| Scroll hodisasi | `requestAnimationFrame` bilan cheklangan |
+| Videolar | `preload="none"` — bosilmaguncha yuklanmaydi |
+| Media | Tashqi URL bo'lsa server orqali o'tmaydi (to'g'ridan-to'g'ri) |
+| Telegram fayllari | Oqim (stream) bilan uzatiladi, `Range` qo'llab-quvvatlanadi |
+
+`prefers-reduced-motion` hurmat qilinadi — tizimda animatsiya o'chirilgan
+bo'lsa, ilova ham tinch ishlaydi.
 
 ## 🔐 Xavfsizlik
 
@@ -144,6 +186,7 @@ Zimmer/
 ├── api/
 │   ├── auth.py            # initData HMAC tekshiruvi
 │   ├── routes.py          # barcha endpointlar
+│   ├── media.py           # rasm/video uzatish (stream + Range)
 │   ├── server.py          # aiohttp + CORS + /health
 │   └── errors.py
 ├── docs/                  # Mini App (gh-pages ga chiqadi)
@@ -160,7 +203,11 @@ Zimmer/
 ├── database/
 │   ├── db.py              # sxema, migratsiya, katalog
 │   └── queries.py         # SQL so'rovlar
-├── handlers/              # start, admin, queue, shop, cart, orders
+├── handlers/
+│   ├── admin.py           # buyurtmalar, statistika, broadcast
+│   ├── admin_crud.py      # universal katalog tahrirlash dvigateli
+│   ├── admin_schema.py    # bo'limlar va maydonlar tavsifi (sof mantiq)
+│   └── start, queue, shop, cart, orders, fallback
 ├── keyboards/ states/ utils/
 └── .github/workflows/     # keep-alive + gh-pages sinxronizatsiya
 ```
@@ -188,7 +235,8 @@ Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
 | GET | `/api/tuning` | linzalar + ochkilar + ranglar |
 | POST/GET | `/api/biled-orders` | konfiguratsiya buyurtmasi |
 | GET | `/api/home` | stories, banner, aksiya, mahsulotlar |
-| GET | `/api/catalog` · `/api/photo/{id}` | katalog va rasmlar |
+| GET | `/api/catalog` | katalog (mashinaga qarab) |
+| GET | `/api/media/{jadval}/{id}/{photo\|video}` | rasm/video (stream, Range) |
 | GET | `/api/services` · `/api/dates` · `/api/slots` | navbat uchun |
 | POST/GET | `/api/bookings` (+`/cancel`) | navbat |
 | POST/GET | `/api/orders` | do'kon buyurtmalari |

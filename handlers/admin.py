@@ -6,7 +6,7 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery, Message
 
 from config import config
 from database import queries as q
@@ -19,19 +19,16 @@ from keyboards.inline import (
     admin_menu_kb,
     admin_order_actions_kb,
     admin_orders_kb,
-    admin_pick_category_kb,
-    admin_services_kb,
 )
 from keyboards.reply import cancel_kb, main_menu
 from services import sync
-from states import AddCategory, AddProduct, AddService, Broadcast
+from states import Broadcast
 from utils.helpers import available_dates, date_label, fmt_price, today_iso, user_link
 from utils.texts import (
     BILED_STATUS,
     BOOKING_STATUS,
     BTN_ADMIN,
     BTN_CANCEL,
-    BTN_SKIP,
     ORDER_STATUS,
 )
 from utils.ui import edit_or_send
@@ -46,11 +43,6 @@ router.callback_query.filter(F.from_user.id.in_(config.admins))
 ADMIN_TITLE = "⚙️ <b>Admin panel</b>\n\nKerakli bo'limni tanlang:"
 
 
-def skip_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BTN_SKIP)], [KeyboardButton(text=BTN_CANCEL)]],
-        resize_keyboard=True,
-    )
 
 
 @router.message(Command("admin"))
@@ -398,235 +390,6 @@ async def admin_order_detail_refresh(callback: CallbackQuery, order_id: int) -> 
     )
 
 
-# --------------------------------------------------------------------- xizmatlar
-
-
-@router.callback_query(F.data == "adm:services")
-async def admin_services(callback: CallbackQuery) -> None:
-    services = await q.get_services(active_only=False)
-    text = (
-        "🛠 <b>Xizmatlar</b>\n\n"
-        "Xizmat nomini bosib uni yoqish/o'chirish mumkin.\n"
-        "🟢 — faol, 🔴 — o'chirilgan"
-    )
-    await edit_or_send(callback.message, text, admin_services_kb(services))
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("adm:svctoggle:"))
-async def admin_toggle_service(callback: CallbackQuery) -> None:
-    service_id = int(callback.data.split(":")[2])
-    await q.toggle_service(service_id)
-    services = await q.get_services(active_only=False)
-    await edit_or_send(
-        callback.message,
-        "🛠 <b>Xizmatlar</b>\n\n🟢 — faol, 🔴 — o'chirilgan",
-        admin_services_kb(services),
-    )
-    await callback.answer("O'zgartirildi")
-
-
-@router.callback_query(F.data == "adm:addsvc")
-async def add_service_start(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AddService.name)
-    await callback.message.answer(
-        "🛠 <b>Yangi xizmat</b>\n\n1/3. Xizmat nomini yozing:", reply_markup=cancel_kb()
-    )
-    await callback.answer()
-
-
-@router.message(AddService.name, F.text)
-async def add_service_name(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    await state.update_data(name=message.text.strip())
-    await state.set_state(AddService.duration)
-    await message.answer("2/3. Davomiyligini daqiqada yozing (masalan: 30):")
-
-
-@router.message(AddService.duration, F.text)
-async def add_service_duration(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    value = _parse_int(message.text)
-    if value is None or value < 5 or value > 480:
-        await message.answer("5 dan 480 gacha son yuboring (daqiqa).")
-        return
-    await state.update_data(duration=value)
-    await state.set_state(AddService.price)
-    await message.answer("3/3. Narxini yozing (masalan: 50000):")
-
-
-@router.message(AddService.price, F.text)
-async def add_service_price(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    price = _parse_int(message.text)
-    if price is None or price < 0:
-        await message.answer("Narxni son ko'rinishida yuboring (masalan: 50000).")
-        return
-
-    data = await state.get_data()
-    service_id = await q.add_service(data["name"], data["duration"], price)
-    await state.clear()
-    await message.answer(
-        f"✅ Xizmat qo'shildi!\n\n🆔 #{service_id}\n🛠 {data['name']}\n"
-        f"⏱ {data['duration']} daqiqa\n💰 {fmt_price(price)}",
-        reply_markup=main_menu(message.from_user.id),
-    )
-    await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
-
-
-# ----------------------------------------------------------------- kategoriyalar
-
-
-@router.callback_query(F.data == "adm:addcat")
-async def add_category_start(callback: CallbackQuery, state: FSMContext) -> None:
-    categories = await q.get_categories(active_only=False)
-    existing = "\n".join(f"• {cat['name']}" for cat in categories) or "— hozircha yo'q —"
-    await state.set_state(AddCategory.name)
-    await callback.message.answer(
-        f"🗂 <b>Yangi kategoriya</b>\n\nMavjud kategoriyalar:\n{existing}\n\n"
-        "Yangi kategoriya nomini yozing:",
-        reply_markup=cancel_kb(),
-    )
-    await callback.answer()
-
-
-@router.message(AddCategory.name, F.text)
-async def add_category_name(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    name = message.text.strip()
-    if len(name) < 2:
-        await message.answer("Nom juda qisqa. Qaytadan yozing.")
-        return
-    category_id = await q.add_category(name)
-    await state.clear()
-    await message.answer(
-        f"✅ Kategoriya qo'shildi: <b>{name}</b> (#{category_id})",
-        reply_markup=main_menu(message.from_user.id),
-    )
-    await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
-
-
-# ------------------------------------------------------------------- mahsulotlar
-
-
-@router.callback_query(F.data == "adm:addprod")
-async def add_product_start(callback: CallbackQuery, state: FSMContext) -> None:
-    categories = await q.get_categories(active_only=False)
-    if not categories:
-        await callback.answer("Avval kategoriya qo'shing (🗂 Kategoriya qo'shish)", show_alert=True)
-        return
-    await state.set_state(AddProduct.category)
-    await edit_or_send(
-        callback.message,
-        "🛍 <b>Yangi mahsulot</b>\n\n1/6. Kategoriyani tanlang:",
-        admin_pick_category_kb(categories),
-    )
-    await callback.answer()
-
-
-@router.callback_query(AddProduct.category, F.data.startswith("adm:pickcat:"))
-async def add_product_category(callback: CallbackQuery, state: FSMContext) -> None:
-    category_id = int(callback.data.split(":")[2])
-    await state.update_data(category_id=category_id)
-    await state.set_state(AddProduct.name)
-    await callback.message.answer("2/6. Mahsulot nomini yozing:", reply_markup=cancel_kb())
-    await callback.answer()
-
-
-@router.message(AddProduct.name, F.text)
-async def add_product_name(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    await state.update_data(name=message.text.strip())
-    await state.set_state(AddProduct.description)
-    await message.answer(
-        "3/6. Mahsulot tavsifini yozing (yoki o'tkazib yuboring):",
-        reply_markup=skip_kb(),
-    )
-
-
-@router.message(AddProduct.description, F.text)
-async def add_product_description(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    text = message.text.strip()
-    await state.update_data(description=None if text == BTN_SKIP else text)
-    await state.set_state(AddProduct.price)
-    await message.answer("4/6. Narxini yozing (masalan: 45000):", reply_markup=cancel_kb())
-
-
-@router.message(AddProduct.price, F.text)
-async def add_product_price(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    price = _parse_int(message.text)
-    if price is None or price < 0:
-        await message.answer("Narxni son ko'rinishida yuboring.")
-        return
-    await state.update_data(price=price)
-    await state.set_state(AddProduct.stock)
-    await message.answer("5/6. Ombordagi sonini yozing (masalan: 10):")
-
-
-@router.message(AddProduct.stock, F.text)
-async def add_product_stock(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    stock = _parse_int(message.text)
-    if stock is None or stock < 0:
-        await message.answer("Sonni butun son ko'rinishida yuboring.")
-        return
-    await state.update_data(stock=stock)
-    await state.set_state(AddProduct.photo)
-    await message.answer(
-        "6/6. Mahsulot rasmini yuboring (yoki o'tkazib yuboring):", reply_markup=skip_kb()
-    )
-
-
-@router.message(AddProduct.photo, F.photo)
-async def add_product_photo(message: Message, state: FSMContext) -> None:
-    await _save_product(message, state, message.photo[-1].file_id)
-
-
-@router.message(AddProduct.photo, F.text)
-async def add_product_photo_skip(message: Message, state: FSMContext) -> None:
-    if await _cancelled(message, state):
-        return
-    if message.text.strip() != BTN_SKIP:
-        await message.answer("Rasm yuboring yoki «⏭ O'tkazib yuborish» tugmasini bosing.")
-        return
-    await _save_product(message, state, None)
-
-
-async def _save_product(message: Message, state: FSMContext, photo_id: str | None) -> None:
-    data = await state.get_data()
-    product_id = await q.add_product(
-        data["category_id"],
-        data["name"],
-        data.get("description"),
-        data["price"],
-        data["stock"],
-        photo_id,
-    )
-    category = await q.get_category(data["category_id"])
-    category_name = category["name"] if category else "-"
-    photo_label = "bor" if photo_id else "yo'q"
-    await state.clear()
-    await message.answer(
-        f"✅ Mahsulot qo'shildi!\n\n"
-        f"🆔 #{product_id}\n🛍 <b>{data['name']}</b>\n"
-        f"🗂 {category_name}\n"
-        f"💰 {fmt_price(data['price'])}\n📦 {data['stock']} dona\n"
-        f"🖼 Rasm: {photo_label}",
-        reply_markup=main_menu(message.from_user.id),
-    )
-    await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
-
-
 # --------------------------------------------------------------------- broadcast
 
 
@@ -671,23 +434,3 @@ async def broadcast_send(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
 
 
-# ----------------------------------------------------------------------- utils
-
-
-def _parse_int(raw: str | None) -> int | None:
-    if not raw:
-        return None
-    digits = raw.replace(" ", "").replace("_", "")
-    if not digits.isdigit():
-        return None
-    return int(digits)
-
-
-async def _cancelled(message: Message, state: FSMContext) -> bool:
-    """BTN_CANCEL bosilganini tekshiradi va state'ni tozalaydi."""
-    if message.text and message.text.strip() == BTN_CANCEL:
-        await state.clear()
-        await message.answer("❌ Bekor qilindi.", reply_markup=main_menu(message.from_user.id))
-        await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
-        return True
-    return False
