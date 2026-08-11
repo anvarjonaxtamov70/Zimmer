@@ -1,27 +1,30 @@
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import (
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    WebAppInfo,
+)
 
-from config import is_admin
+from config import config, is_admin
 from utils.texts import (
     BTN_ADMIN,
+    BTN_APP,
     BTN_CANCEL,
-    BTN_CART,
     BTN_CONTACT,
-    BTN_MY_QUEUE,
-    BTN_ORDERS,
     BTN_PHONE,
-    BTN_QUEUE,
-    BTN_SHOP,
 )
 
 remove_kb = ReplyKeyboardRemove()
 
 
 def main_menu(user_id: int) -> ReplyKeyboardMarkup:
-    rows = [
-        [KeyboardButton(text=BTN_QUEUE), KeyboardButton(text=BTN_SHOP)],
-        [KeyboardButton(text=BTN_MY_QUEUE), KeyboardButton(text=BTN_CART)],
-        [KeyboardButton(text=BTN_ORDERS), KeyboardButton(text=BTN_CONTACT)],
-    ]
+    """Asosiy menyu: bosh vazifa — foydalanuvchini Mini App'ga yo'naltirish."""
+    rows: list[list[KeyboardButton]] = []
+    if config.has_mini_app:
+        rows.append(
+            [KeyboardButton(text=BTN_APP, web_app=WebAppInfo(url=config.mini_app_url))]
+        )
+    rows.append([KeyboardButton(text=BTN_CONTACT)])
     if is_admin(user_id):
         rows.append([KeyboardButton(text=BTN_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)

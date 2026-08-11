@@ -37,6 +37,11 @@ class Config:
     slot_minutes: int
     booking_days_ahead: int
     currency: str
+    mini_app_url: str
+
+    @property
+    def has_mini_app(self) -> bool:
+        return self.mini_app_url.startswith("https://")
 
 
 def _db_path() -> str:
@@ -58,6 +63,9 @@ config = Config(
     slot_minutes=_int_env("SLOT_MINUTES", 30),
     booking_days_ahead=_int_env("BOOKING_DAYS_AHEAD", 7),
     currency=os.getenv("CURRENCY", "so'm").strip(),
+    mini_app_url=os.getenv(
+        "MINI_APP_URL", "https://anvarjonaxtamov70.github.io/Zimmer/"
+    ).strip(),
 )
 
 

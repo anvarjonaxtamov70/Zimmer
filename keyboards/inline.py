@@ -3,9 +3,10 @@
 from collections.abc import Sequence
 
 import aiosqlite
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from config import config
 from utils.helpers import encode_time, fmt_price, short_date_label
 
 # ------------------------------------------------------------------- navbat
@@ -252,4 +253,15 @@ def admin_new_order_kb(order_id: int) -> InlineKeyboardMarkup:
     kb.button(text="✅ Qabul qilish", callback_data=f"adm:ordst:{order_id}:accepted")
     kb.button(text="❌ Bekor qilish", callback_data=f"adm:ordst:{order_id}:cancelled")
     kb.adjust(2)
+    return kb.as_markup()
+
+
+
+# ------------------------------------------------------------------- Mini App
+
+
+def open_app_kb(text: str = "🚀 Ilovani ochish") -> InlineKeyboardMarkup:
+    """Mini App'ni ochadigan inline tugma."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text=text, web_app=WebAppInfo(url=config.mini_app_url))
     return kb.as_markup()

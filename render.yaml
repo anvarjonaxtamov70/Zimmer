@@ -28,6 +28,9 @@ services:
         value: "3.11.9"
       - key: SHOP_NAME
         value: "Zimmer"
+      # Mini App manzili (GitHub Pages)
+      - key: MINI_APP_URL
+        value: "https://anvarjonaxtamov70.github.io/Zimmer/"
       - key: TIMEZONE
         value: "Asia/Tashkent"
       - key: WORK_START_HOUR
