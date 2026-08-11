@@ -1,17 +1,16 @@
-# 🤖 Zimmer — Telegram Mini App + bot
+# 🔥 ZIMMER — Bi-LED avtotuning
 
-**Navbat olish** va **mahsulot xarid qilish** uchun Telegram ilovasi.
-Foydalanuvchi botda faqat ro'yxatdan o'tadi, keyin barcha ishni
-**Mini App** ichida bajaradi.
+Bi-LED linza **sotish va o'rnatish** uchun Telegram Mini App + bot.
+Mijoz botda faqat ro'yxatdan o'tadi, qolgan hammasi ilova ichida bo'ladi.
 
 ```
    Telegram
       │
-      ├── 🤖 Bot (aiogram 3)        ── ro'yxatdan o'tish + ilovaga yo'naltirish
-      │      └── ⚙️ Admin panel     ── navbat/buyurtmalarni boshqarish
+      ├── 🤖 Bot (aiogram 3)      ── ro'yxatdan o'tish + ilovaga yo'naltirish
+      │      └── ⚙️ Admin panel   ── buyurtma va navbatlarni boshqarish
       │
-      └── 📱 Mini App (GitHub Pages)
-                   │  Authorization: tma <initData>   (HMAC imzo tekshiriladi)
+      └── 📱 Mini App (GitHub Pages) — qora/qizil premium dizayn
+                   │  Authorization: tma <initData>  (HMAC imzo tekshiriladi)
                    ▼
              🌐 API (bot ichida, aiohttp) ──> 🗄 SQLite
 ```
@@ -20,31 +19,41 @@ Hosting: bot + API — **Render.com** (bepul), Mini App — **GitHub Pages** (be
 
 ---
 
-## 📱 Mini App imkoniyatlari
+## 🎯 Buyurtma berish oqimi (konfigurator)
 
-- 🗓 **Navbat olish**: xizmat → kun (bo'sh joy soni ko'rinadi) → bo'sh vaqt → tasdiqlash
-- 🛍 **Do'kon**: kategoriyalar, mahsulot kartochkalari (rasm, tavsif, narx, ombor)
-- 🧺 **Savatcha**: son o'zgartirish, o'chirish, jami summa (telefon xotirasida saqlanadi)
-- 🚚 **Buyurtma**: manzil + telefon → yuborish
-- 👤 **Kabinet**: navbatlarim (bekor qilish), buyurtmalarim va ularning holati
-- 🎨 Telegram mavzusiga (tungi/kunduzgi) moslashadi, haptik javob, BackButton
+Mijoz ilovaga kirganda salomlashadi, so'ng 4 qadam:
 
-## 🤖 Bot imkoniyatlari
+| Qadam | Nima tanlanadi | Ko'rinish |
+|---|---|---|
+| 1️⃣ | **Mashina** — Gentra yoki Nexia 2 | Vektor siluet, yoniq fara aksenti |
+| 2️⃣ | **Bi-LED linza** — 5 xil model (ZES, Koito, Hella, Aozoom) | Fara chizmasi paydo bo'ladi, linza yonadi |
+| 3️⃣ | **Ochki (maska)** — klassik, Devil Eyes, Angel Eyes, sport, karbon | Halqa fara ichida real vaqtda o'zgaradi |
+| 4️⃣ | **Fara optikasi rangi** — xrom, matt qora, tutun, qizil, oltin | Korpus gradienti almashadi |
+| ✅ | Yakuniy narx + izoh → buyurtma | Confetti + ✓ animatsiyasi |
 
-- 📱 Ro'yxatdan o'tish: ism + telefon (tugma orqali yoki qo'lda)
-- 🚀 «Ilovani ochish» tugmasi va ko'k **Menu** tugmasi — ikkisi ham Mini App'ni ochadi
-- 🔔 Har bir navbat/buyurtma bo'yicha tasdiq xabarlari
-- Zaxira sifatida botning o'zida ham ishlaydi: `/navbat`, `/dokon`
+Har bir tanlovda **fara SVG'si qayta chiziladi**: linza yorug'ligi, nur konusi,
+DRL chizig'i, ochki halqasi va korpus rangi o'zgaradi. Rasm fayllari kerak emas —
+hammasi vektor va CSS animatsiya.
+
+Buyurtma yuborilgach mijoz **asosiy menyuga** o'tadi.
+
+## 🏠 Asosiy menyu (Avto_A1 uslubida)
+
+- 📸 **Stories** — gradient halqali doiralar, to'liq ekran ko'rish, progress chiziq, 5s avtomatik
+- 🖼 **Banner karusel** — snap-scroll, avtomatik almashish, nuqtali indikator
+- 🎁 **Aksiyalar** — chegirma badge'lari bilan gorizontal kartalar
+- 🔧 **Konfigurator CTA** — yaltiroq (sheen) animatsiya bilan
+- 🗓 **O'rnatishga navbat** — bottom sheet: xizmat → kun → bo'sh vaqt
+- 🛍 **Mahsulotlar** — **faqat tanlangan mashinaga mos** + universal tovarlar
+- 🧺 Savatcha va 👤 Kabinet (Bi-LED buyurtmalari, navbatlar, buyurtmalar)
 
 ## ⚙️ Admin panel (`/admin`)
 
-- 📊 Statistika (foydalanuvchi, navbat, buyurtma, umumiy savdo)
-- 🗓 Kun bo'yicha navbatlar → tasdiqlash / bajarildi / bekor qilish
-- 📦 Buyurtmalar → qabul qilish / yetkazildi / bekor qilish
-- 🛠 Xizmat qo'shish va yoqib-o'chirish
-- 🗂 Kategoriya, 🛍 mahsulot qo'shish (rasm bilan)
-- 📣 Barcha foydalanuvchilarga ommaviy xabar
-- Holat o'zgarganda mijozga avtomatik xabar boradi
+- 🔥 **Bi-LED buyurtmalar** — to'liq konfiguratsiya ko'rinadi (mashina, linza, ochki, rang, narx)
+  - holatlar: 🆕 yangi → ✅ qabul → 🔧 ishda → ✨ topshirildi (mijozga avtomatik xabar)
+- 📊 Statistika — Bi-LED, navbat va do'kon bo'yicha alohida + umumiy savdo
+- 🗓 Kun bo'yicha navbatlar, 📦 do'kon buyurtmalari
+- 🛠 Xizmat / 🗂 kategoriya / 🛍 mahsulot qo'shish, 📣 ommaviy xabar
 
 ---
 
@@ -58,49 +67,30 @@ python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env             # Windows: copy .env.example .env
-```
-
-`.env` faylini to'ldiring:
-
-```env
-BOT_TOKEN=BotFather'dan olgan token
-ADMINS=sizning_telegram_id
-MINI_APP_URL=https://anvarjonaxtamov70.github.io/Zimmer/
-```
-
-Telegram ID'ni bilish uchun botga `/id` yuboring yoki
-[@userinfobot](https://t.me/userinfobot).
-
-```bash
+cp .env.example .env             # BOT_TOKEN va ADMINS ni yozing
 python bot.py
 ```
 
-Birinchi ishga tushirishda `zimmer.db` avtomatik yaratiladi va namuna
-xizmat/mahsulotlar qo'shiladi.
+Birinchi ishga tushirishda `zimmer.db` yaratiladi va katalog to'ldiriladi:
+2 mashina, 5 linza, 5 ochki, 5 rang, 3 xizmat, 9 mahsulot, banner/story/aksiyalar.
 
-> Mini App API'sini lokal sinash uchun: `API_PORT=8080 python bot.py`
-> (Render'da `PORT` avtomatik beriladi).
+> Mini App API'sini lokal sinash: `API_PORT=8080 python bot.py`
 
 ## ☁️ Bulutga joylash
 
 To'liq qo'llanma: **[DEPLOY.md](DEPLOY.md)**
 
-1. **Bot + API** → Render.com: New → Blueprint → `Zimmer` repo → `BOT_TOKEN`, `ADMINS`
-2. **Mini App** → GitHub Pages allaqachon yoqilgan: sayt `gh-pages` branchidan
-   chiqadi, `docs/` o'zgarsa workflow uni avtomatik yangilaydi
+1. **Bot + API** → Render: New → Blueprint → `Zimmer` → `BOT_TOKEN`, `ADMINS`
+2. **Mini App** → GitHub Pages allaqachon yoqilgan (`gh-pages` branch).
+   `docs/` o'zgarsa, workflow uni avtomatik yangilaydi
 3. **BotFather** → Menu Button URL: `https://anvarjonaxtamov70.github.io/Zimmer/`
-   (katta harf bilan `Zimmer` — manzil harf registriga sezgir)
-
-> ⚠️ Render'ning bepul tarifida disk saqlanmaydi — qayta deployda SQLite
-> bazasi tozalanadi. Doimiy saqlash variantlari DEPLOY.md da.
 
 ## 🔐 Xavfsizlik
 
-Mini App har so'rovda `Authorization: tma <initData>` yuboradi. Server uni
-bot tokeni bilan HMAC-SHA256 orqali tekshiradi (`api/auth.py`) — boshqa odam
-nomidan navbat yoki buyurtma berish mumkin emas. Ro'yxatdan o'tmagan
-foydalanuvchi API'ga kira olmaydi.
+Har so'rovda `Authorization: tma <initData>` yuboriladi va server uni bot
+tokeni bilan HMAC-SHA256 orqali tekshiradi (`api/auth.py`). Boshqa odam
+nomidan buyurtma berish yoki narxni o'zgartirish mumkin emas — **narx doim
+bazadan** hisoblanadi, mijoz yuborgan qiymatga ishonilmaydi.
 
 ## 📋 Sozlamalar (`.env`)
 
@@ -108,72 +98,74 @@ foydalanuvchi API'ga kira olmaydi.
 |---|---|---|
 | `BOT_TOKEN` | BotFather tokeni | — |
 | `ADMINS` | Admin ID'lari, vergul bilan | — |
-| `MINI_APP_URL` | Mini App manzili (GitHub Pages) | `.../Zimmer/` |
-| `SHOP_NAME` | Bot/do'kon nomi | `Zimmer` |
+| `MINI_APP_URL` | Mini App manzili | `.../Zimmer/` |
+| `SHOP_NAME` | Brend nomi | `Zimmer` |
 | `DB_PATH` | SQLite fayli | `zimmer.db` |
 | `TIMEZONE` | Vaqt zonasi | `Asia/Tashkent` |
-| `WORK_START_HOUR` | Ish boshlanishi (soat) | `9` |
-| `WORK_END_HOUR` | Ish tugashi (soat) | `18` |
-| `SLOT_MINUTES` | Navbat oralig'i (daqiqa) | `30` |
+| `WORK_START_HOUR` / `WORK_END_HOUR` | Ish vaqti | `9` / `18` |
+| `SLOT_MINUTES` | Navbat oralig'i | `30` |
 | `BOOKING_DAYS_AHEAD` | Necha kun oldinga navbat | `7` |
-| `CURRENCY` | Valyuta yozuvi | `so'm` |
-| `API_PORT` | Lokal sinov uchun API porti | — |
+| `CURRENCY` | Valyuta | `so'm` |
+| `API_PORT` | Lokal API porti | — |
 
-## 📁 Loyiha tuzilishi
+## 📁 Tuzilishi
 
 ```
 Zimmer/
-├── bot.py                # kirish nuqtasi (polling + API server)
-├── config.py             # .env sozlamalari
-├── render.yaml           # Render.com deploy blueprint
-├── DEPLOY.md             # bulutga joylash qo'llanmasi
-├── .github/workflows/    # keep-alive ping
-├── api/                  # Mini App uchun REST API
-│   ├── auth.py           # initData HMAC tekshiruvi
-│   ├── routes.py         # endpointlar
-│   ├── server.py         # aiohttp ilovasi + /health + CORS
-│   └── errors.py         # JSON xato formati
-├── docs/                 # Mini App (GitHub Pages shu papkani chiqaradi)
+├── bot.py                 # polling + API server
+├── config.py
+├── api/
+│   ├── auth.py            # initData HMAC tekshiruvi
+│   ├── routes.py          # barcha endpointlar
+│   ├── server.py          # aiohttp + CORS + /health
+│   └── errors.py
+├── docs/                  # Mini App (gh-pages ga chiqadi)
 │   ├── index.html
-│   ├── app.js            # butun ilova mantiqi
-│   ├── styles.css        # Telegram mavzusiga moslashgan uslublar
-│   └── config.js         # API_BASE manzili
+│   ├── styles.css         # qora/qizil tema, 24 ta animatsiya
+│   ├── config.js          # API_BASE
+│   └── js/
+│       ├── headlight.js   # parametrik fara SVG
+│       ├── cars.js        # mashina siluetlari
+│       └── app.js         # oqim, asosiy menyu, stories
 ├── database/
-│   ├── db.py             # ulanish, jadvallar, namuna ma'lumot
-│   └── queries.py        # barcha SQL so'rovlar
-├── handlers/             # start, queue, shop, cart, orders, admin, fallback
-├── keyboards/            # reply va inline tugmalar
-├── states/               # FSM holatlar
-└── utils/                # helperlar, matnlar, komandalar
+│   ├── db.py              # sxema, migratsiya, katalog
+│   └── queries.py         # SQL so'rovlar
+├── handlers/              # start, admin, queue, shop, cart, orders
+├── keyboards/ states/ utils/
+└── .github/workflows/     # keep-alive + gh-pages sinxronizatsiya
 ```
 
 ## 🗄 Ma'lumotlar bazasi
 
-`users`, `services`, `bookings`, `categories`, `products`, `cart_items`,
-`orders`, `order_items`. Sxema `database/db.py` ichida — bot ishga
-tushganda avtomatik yaratiladi.
+**Tuning:** `cars`, `biled_types`, `shrouds`, `optic_colors`, `biled_orders`
+**Do'kon:** `categories`, `products` (`car_id` bilan), `cart_items`, `orders`, `order_items`
+**Navbat:** `services`, `bookings`
+**Kontent:** `banners`, `stories`, `promos`
+**Xizmat:** `users` (`car_id`), `meta` (seed versiyasi)
 
-## 🌐 API endpointlari
+Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
+`seed_version` orqali yangilanadi — buyurtmalar bor bo'lsa tegilmaydi.
+
+## 🌐 API
 
 | Metod | Yo'l | Vazifasi |
 |---|---|---|
 | GET | `/health` | Render tiriklik tekshiruvi |
-| GET | `/api/config` | do'kon nomi, valyuta, ish vaqti |
-| GET | `/api/me` | foydalanuvchi profili, ro'yxatdan o'tganmi |
-| GET | `/api/services` | xizmatlar ro'yxati |
-| GET | `/api/dates?service_id=` | kunlar + har birida bo'sh joy soni |
-| GET | `/api/slots?service_id=&date=` | bo'sh vaqtlar |
-| POST | `/api/bookings` | navbat olish |
-| GET | `/api/bookings` | mening navbatlarim |
-| POST | `/api/bookings/{id}/cancel` | navbatni bekor qilish |
-| GET | `/api/catalog` | kategoriyalar + mahsulotlar |
-| GET | `/api/photo/{id}` | mahsulot rasmi (Telegram'dan) |
-| POST | `/api/orders` | buyurtma berish |
-| GET | `/api/orders` | mening buyurtmalarim |
+| GET | `/api/config` | brend, valyuta, ish vaqti |
+| GET | `/api/me` · POST `/api/me/car` | profil, mashinani saqlash |
+| GET | `/api/cars` | mashinalar |
+| GET | `/api/tuning` | linzalar + ochkilar + ranglar |
+| POST/GET | `/api/biled-orders` | konfiguratsiya buyurtmasi |
+| GET | `/api/home` | stories, banner, aksiya, mahsulotlar |
+| GET | `/api/catalog` · `/api/photo/{id}` | katalog va rasmlar |
+| GET | `/api/services` · `/api/dates` · `/api/slots` | navbat uchun |
+| POST/GET | `/api/bookings` (+`/cancel`) | navbat |
+| POST/GET | `/api/orders` | do'kon buyurtmalari |
 
-## 🔮 Keyingi rejalar
+## 🔮 Keyingi qadamlar
 
-- To'lov tizimlari (Payme/Click) integratsiyasi
-- Navbat haqida eslatma (bir kun oldin xabar)
-- PostgreSQL'ga o'tish (doimiy saqlash)
-- Ko'p tilli interfeys (uz / ru)
+- Yana mashinalar (Cobalt, Spark, Malibu...) — admin paneldan qo'shish
+- Haqiqiy fara/ish rasmlari (hozir vektor chizma)
+- To'lov (Payme/Click) va bo'lib to'lash
+- PostgreSQL (Render'da doimiy saqlash uchun)
+- uz / ru tillari

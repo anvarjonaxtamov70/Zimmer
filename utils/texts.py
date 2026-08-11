@@ -30,6 +30,15 @@ ORDER_STATUS = {
     "cancelled": "❌ Bekor qilingan",
 }
 
+# Bi-LED (tuning) buyurtmalari holati
+BILED_STATUS = {
+    "new": "🆕 Yangi",
+    "accepted": "✅ Qabul qilindi",
+    "in_work": "🔧 Ish jarayonida",
+    "done": "✨ Topshirildi",
+    "cancelled": "❌ Bekor qilingan",
+}
+
 WEEKDAYS = [
     "Dushanba",
     "Seshanba",
@@ -59,27 +68,31 @@ MONTHS = [
 def greeting(name: str) -> str:
     return (
         f"Assalomu alaykum, <b>{name}</b>! 👋\n\n"
-        f"<b>{config.shop_name}</b> ga xush kelibsiz.\n\n"
-        "Barcha ishlar <b>ilova</b> ichida bajariladi:\n"
-        "• 🗓 <b>Navbat olish</b> — kun va bo'sh vaqtni tanlab\n"
-        "• 🛍 <b>Mahsulot xarid qilish</b>\n"
-        "• 📅 Navbat va buyurtmalaringizni kuzatish\n\n"
+        f"<b>{config.shop_name}</b> — Bi-LED avtotuning. 🔥\n\n"
+        "Ilova ichida:\n"
+        "• 🚗 Mashinangizni tanlaysiz\n"
+        "• 💡 <b>Bi-LED linza</b> turini tanlaysiz\n"
+        "• 🕶 <b>Ochki</b> (maska) va 🎨 <b>optika rangini</b> tanlaysiz\n"
+        "• Faraning ko'rinishini <b>real vaqtda</b> ko'rib turasiz\n\n"
         "Pastdagi <b>🚀 Ilovani ochish</b> tugmasini bosing 👇"
     )
 
 
 APP_INTRO = (
-    "🚀 <b>{shop}</b> ilovasi\n\n"
-    "Navbat olish, mahsulot xarid qilish va buyurtmalarni kuzatish — "
-    "hammasi ilova ichida.\n\n"
+    "🚀 <b>{shop}</b> — Bi-LED konfigurator\n\n"
+    "Mashina → Bi-LED linza → ochki → optika rangi.\n"
+    "Har bir qadamda fara ko'rinishi jonli o'zgaradi.\n\n"
     "Ilovani ochish uchun tugmani bosing:"
 )
 
 
 CONTACT_TEXT = (
-    f"☎️ <b>{config.shop_name} bilan aloqa</b>\n\n"
-    "📍 Manzil: (admin sozlamalarda ko'rsatadi)\n"
+    f"☎️ <b>{config.shop_name} — Bi-LED avtotuning</b>\n\n"
+    "🔧 Xizmatlar: Bi-LED linza o'rnatish, ochki (maska) almashtirish,\n"
+    "fara optikasini bo'yash, polirovka va germetizatsiya.\n\n"
+    "🛡 Linzalarga <b>1 yil kafolat</b>.\n\n"
     "🕘 Ish vaqti: {start}:00 - {end}:00\n"
-    "📞 Telefon: +998 90 000 00 00\n\n"
-    "Savollaringiz bo'lsa, adminga yozing."
+    "📞 Telefon: +998 90 000 00 00\n"
+    "📍 Manzil: (admin kiritadi)\n\n"
+    "Savollaringiz bo'lsa, shu yerga yozing."
 ).format(start=config.work_start_hour, end=config.work_end_hour)

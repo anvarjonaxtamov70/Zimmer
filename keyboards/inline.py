@@ -131,14 +131,15 @@ def checkout_confirm_kb() -> InlineKeyboardMarkup:
 
 def admin_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.button(text="🔥 Bi-LED buyurtmalar", callback_data="adm:bileds:new")
     kb.button(text="📊 Statistika", callback_data="adm:stats")
     kb.button(text="🗓 Navbatlar", callback_data="adm:bookings:today")
-    kb.button(text="📦 Buyurtmalar", callback_data="adm:orders:new")
+    kb.button(text="📦 Do'kon buyurtmalari", callback_data="adm:orders:new")
     kb.button(text="🛠 Xizmatlar", callback_data="adm:services")
     kb.button(text="🗂 Kategoriya qo'shish", callback_data="adm:addcat")
     kb.button(text="🛍 Mahsulot qo'shish", callback_data="adm:addprod")
     kb.button(text="📣 Xabar yuborish", callback_data="adm:broadcast")
-    kb.adjust(2, 2, 2, 1)
+    kb.adjust(1, 1, 2, 2, 1, 1)
     return kb.as_markup()
 
 
@@ -264,4 +265,57 @@ def open_app_kb(text: str = "🚀 Ilovani ochish") -> InlineKeyboardMarkup:
     """Mini App'ni ochadigan inline tugma."""
     kb = InlineKeyboardBuilder()
     kb.button(text=text, web_app=WebAppInfo(url=config.mini_app_url))
+    return kb.as_markup()
+
+
+
+# ------------------------------------------------------- Bi-LED buyurtmalari
+
+
+def admin_new_biled_kb(order_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Qabul qilish", callback_data=f"adm:bilst:{order_id}:accepted")
+    kb.button(text="🔧 Ishga olish", callback_data=f"adm:bilst:{order_id}:in_work")
+    kb.button(text="❌ Bekor qilish", callback_data=f"adm:bilst:{order_id}:cancelled")
+    kb.adjust(2, 1)
+    return kb.as_markup()
+
+
+def admin_biled_orders_kb(
+    orders: Sequence[aiosqlite.Row], status: str
+) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for order in orders:
+        kb.button(
+            text=f"#{order['id']} · {order['car_name']} · {fmt_price(order['total'])}",
+            callback_data=f"adm:bil:{order['id']}",
+        )
+    kb.adjust(1)
+    filters = [
+        ("🆕 Yangi", "new"),
+        ("🔧 Ishda", "in_work"),
+        ("✨ Topshirilgan", "done"),
+        ("📋 Hammasi", "all"),
+    ]
+    kb.row(
+        *[
+            InlineKeyboardButton(
+                text=("• " + label if key == status else label),
+                callback_data=f"adm:bileds:{key}",
+            )
+            for label, key in filters
+        ]
+    )
+    kb.row(InlineKeyboardButton(text="⬅️ Admin menyu", callback_data="adm:menu"))
+    return kb.as_markup()
+
+
+def admin_biled_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Qabul", callback_data=f"adm:bilst:{order_id}:accepted")
+    kb.button(text="🔧 Ishda", callback_data=f"adm:bilst:{order_id}:in_work")
+    kb.button(text="✨ Topshirildi", callback_data=f"adm:bilst:{order_id}:done")
+    kb.button(text="❌ Bekor", callback_data=f"adm:bilst:{order_id}:cancelled")
+    kb.button(text="⬅️ Ro'yxat", callback_data=f"adm:bileds:{status}")
+    kb.adjust(2, 2, 1)
     return kb.as_markup()

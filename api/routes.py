@@ -12,7 +12,11 @@ from api.auth import extract_init_data, validate_init_data
 from api.errors import ApiError, bad_request, not_found, not_registered, unauthorized
 from config import config
 from database import queries as q
-from keyboards.inline import admin_new_booking_kb, admin_new_order_kb
+from keyboards.inline import (
+    admin_new_biled_kb,
+    admin_new_booking_kb,
+    admin_new_order_kb,
+)
 from utils.helpers import (
     available_dates,
     date_label,
@@ -23,7 +27,7 @@ from utils.helpers import (
     today_iso,
     user_link,
 )
-from utils.texts import BOOKING_STATUS, ORDER_STATUS
+from utils.texts import BILED_STATUS, BOOKING_STATUS, ORDER_STATUS
 from utils.ui import notify_admins
 
 logger = logging.getLogger(__name__)
@@ -102,6 +106,18 @@ async def api_config(_request: web.Request) -> web.Response:
 async def api_me(request: web.Request) -> web.Response:
     user_id, tg_user, row = await _current_user(request, require_registration=False)
     registered = row is not None and bool(row["phone"])
+
+    car = None
+    if registered:
+        full = await q.get_user_with_car(user_id)
+        if full and full["car_id"]:
+            car = {
+                "id": full["car_id"],
+                "name": full["car_name"],
+                "years": full["car_years"],
+                "slug": full["car_slug"],
+            }
+
     return web.json_response(
         {
             "registered": registered,
@@ -109,6 +125,281 @@ async def api_me(request: web.Request) -> web.Response:
             "first_name": tg_user.get("first_name"),
             "full_name": row["full_name"] if row else tg_user.get("first_name"),
             "phone": row["phone"] if row else None,
+            "car": car,
+        }
+    )
+
+
+@routes.post("/api/me/car")
+async def api_set_car(request: web.Request) -> web.Response:
+    user_id, _, _ = await _current_user(request)
+    body = await _json_body(request)
+    try:
+        car_id = int(body.get("car_id"))
+    except (TypeError, ValueError) as error:
+        raise bad_request("car_id noto'g'ri") from error
+
+    car = await q.get_car(car_id)
+    if not car or not car["is_active"]:
+        raise not_found("Mashina topilmadi")
+
+    await q.set_user_car(user_id, car_id)
+    return web.json_response(
+        {"ok": True, "car": {"id": car["id"], "name": car["name"], "years": car["years"]}}
+    )
+
+
+# ==================================================================== tuning
+
+
+@routes.get("/api/cars")
+async def api_cars(request: web.Request) -> web.Response:
+    await _current_user(request)
+    cars = await q.get_cars()
+    return web.json_response(
+        [
+            {
+                "id": car["id"],
+                "name": car["name"],
+                "slug": car["slug"],
+                "years": car["years"],
+                "note": car["note"],
+            }
+            for car in cars
+        ]
+    )
+
+
+@routes.get("/api/tuning")
+async def api_tuning(request: web.Request) -> web.Response:
+    """Konfigurator uchun barcha variantlar: linzalar, ochkilar, ranglar."""
+    await _current_user(request)
+
+    biled = await q.get_biled_types()
+    shrouds = await q.get_shrouds()
+    colors = await q.get_optic_colors()
+
+    return web.json_response(
+        {
+            "biled_types": [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "brand": row["brand"],
+                    "size": row["size"],
+                    "kelvin": row["kelvin"],
+                    "lumen": row["lumen"],
+                    "warranty": row["warranty"],
+                    "description": row["description"],
+                    "price": int(row["price"]),
+                    "price_label": fmt_price(row["price"]),
+                    "badge": row["badge"],
+                    "glow": row["glow"],
+                }
+                for row in biled
+            ],
+            "shrouds": [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "style": row["style"],
+                    "ring_color": row["ring_color"],
+                    "description": row["description"],
+                    "price": int(row["price"]),
+                    "price_label": fmt_price(row["price"]),
+                }
+                for row in shrouds
+            ],
+            "colors": [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "hex_from": row["hex_from"],
+                    "hex_to": row["hex_to"],
+                    "description": row["description"],
+                    "price": int(row["price"]),
+                    "price_label": fmt_price(row["price"]),
+                }
+                for row in colors
+            ],
+        }
+    )
+
+
+def _biled_order_json(row) -> dict:
+    parts = [row["biled_name"]]
+    if row["shroud_name"]:
+        parts.append(row["shroud_name"])
+    if row["color_name"]:
+        parts.append(row["color_name"])
+    return {
+        "id": row["id"],
+        "car_name": row["car_name"],
+        "biled_name": row["biled_name"],
+        "biled_brand": row["biled_brand"],
+        "shroud_name": row["shroud_name"],
+        "color_name": row["color_name"],
+        "summary": " · ".join(parts),
+        "total": int(row["total"]),
+        "total_label": fmt_price(row["total"]),
+        "status": row["status"],
+        "status_label": BILED_STATUS.get(row["status"], row["status"]),
+        "comment": row["comment"],
+        "created_at": row["created_at"],
+    }
+
+
+@routes.post("/api/biled-orders")
+async def api_create_biled_order(request: web.Request) -> web.Response:
+    user_id, _, row = await _current_user(request)
+    body = await _json_body(request)
+
+    def _int_or_none(key: str) -> int | None:
+        value = body.get(key)
+        if value in (None, "", 0):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError) as error:
+            raise bad_request(f"{key} noto'g'ri") from error
+
+    car_id = _int_or_none("car_id")
+    biled_id = _int_or_none("biled_id")
+    if not car_id or not biled_id:
+        raise bad_request("Mashina va Bi-LED linza tanlanishi shart")
+
+    car = await q.get_car(car_id)
+    if not car:
+        raise not_found("Mashina topilmadi")
+
+    shroud_id = _int_or_none("shroud_id")
+    color_id = _int_or_none("color_id")
+    comment = str(body.get("comment", "")).strip()[:400] or None
+    phone = normalize_phone(str(body.get("phone", ""))) or row["phone"]
+
+    order_id, total = await q.create_biled_order(
+        user_id, car_id, biled_id, shroud_id, color_id, phone, comment
+    )
+    if order_id is None:
+        raise not_found("Bi-LED linza topilmadi")
+
+    # tanlangan mashina profilga eslab qolinadi
+    await q.set_user_car(user_id, car_id)
+
+    order = await q.get_biled_order(order_id)
+    details = [
+        f"🚗 Mashina: <b>{order['car_name']}</b>",
+        f"💡 Linza: <b>{order['biled_name']}</b> — {fmt_price(order['biled_price'])}",
+    ]
+    if order["shroud_name"]:
+        details.append(
+            f"🕶 Ochki: <b>{order['shroud_name']}</b> — {fmt_price(order['shroud_price'])}"
+        )
+    if order["color_name"]:
+        details.append(
+            f"🎨 Optika rangi: <b>{order['color_name']}</b> — {fmt_price(order['color_price'])}"
+        )
+    if comment:
+        details.append(f"📝 Izoh: {comment}")
+
+    bot = request.app["bot"]
+    await notify_admins(
+        bot,
+        "🔥 <b>Yangi Bi-LED buyurtma</b>\n\n"
+        f"🆔 #{order_id}\n"
+        f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
+        f"📞 {phone}\n\n" + "\n".join(details) + f"\n\n💰 Jami: <b>{fmt_price(total)}</b>",
+        admin_new_biled_kb(order_id),
+    )
+    try:
+        await bot.send_message(
+            user_id,
+            "✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n"
+            f"🆔 #{order_id}\n" + "\n".join(details) + f"\n\n💰 Jami: <b>{fmt_price(total)}</b>\n\n"
+            "Mutaxassisimiz tez orada bog'lanib, o'rnatish vaqtini kelishadi. 🔧",
+        )
+    except Exception as error:
+        logger.warning("Bi-LED tasdiqi yuborilmadi: %s", error)
+
+    return web.json_response({"ok": True, "order": _biled_order_json(order)}, status=201)
+
+
+@routes.get("/api/biled-orders")
+async def api_my_biled_orders(request: web.Request) -> web.Response:
+    user_id, _, _ = await _current_user(request)
+    orders = await q.get_user_biled_orders(user_id)
+    return web.json_response([_biled_order_json(row) for row in orders])
+
+
+# ================================================================ asosiy menyu
+
+
+@routes.get("/api/home")
+async def api_home(request: web.Request) -> web.Response:
+    """Asosiy menyu uchun: stories, bannerlar, aksiyalar va mahsulotlar."""
+    user_id, _, row = await _current_user(request)
+
+    car_id = None
+    raw_car = request.query.get("car_id")
+    if raw_car:
+        try:
+            car_id = int(raw_car)
+        except ValueError as error:
+            raise bad_request("car_id noto'g'ri") from error
+    else:
+        full = await q.get_user_with_car(user_id)
+        car_id = full["car_id"] if full else None
+
+    banners = await q.get_banners(car_id)
+    stories = await q.get_stories()
+    promos = await q.get_promos()
+    catalog = await q.get_catalog(car_id)
+
+    for category in catalog:
+        for product in category["products"]:
+            product["price_label"] = fmt_price(product["price"])
+            product["old_price_label"] = (
+                fmt_price(product["old_price"]) if product["old_price"] else None
+            )
+            product["photo_url"] = f"/api/photo/{product['id']}" if product["has_photo"] else None
+
+    return web.json_response(
+        {
+            "car_id": car_id,
+            "banners": [
+                {
+                    "id": b["id"],
+                    "title": b["title"],
+                    "subtitle": b["subtitle"],
+                    "tag": b["tag"],
+                    "color_from": b["color_from"],
+                    "color_to": b["color_to"],
+                }
+                for b in banners
+            ],
+            "stories": [
+                {
+                    "id": s["id"],
+                    "title": s["title"],
+                    "emoji": s["emoji"],
+                    "heading": s["heading"],
+                    "body": s["body"],
+                    "color_from": s["color_from"],
+                    "color_to": s["color_to"],
+                }
+                for s in stories
+            ],
+            "promos": [
+                {
+                    "id": p["id"],
+                    "title": p["title"],
+                    "text": p["text"],
+                    "discount": p["discount"],
+                    "until_date": p["until_date"],
+                }
+                for p in promos
+            ],
+            "catalog": catalog,
         }
     )
 
@@ -148,9 +439,7 @@ async def api_dates(request: web.Request) -> web.Response:
 
     result = []
     for date_iso in available_dates():
-        slots = free_slots(
-            date_iso, int(service["duration_min"]), await _taken_slots(date_iso)
-        )
+        slots = free_slots(date_iso, int(service["duration_min"]), await _taken_slots(date_iso))
         result.append(
             {
                 "date": date_iso,
@@ -279,14 +568,27 @@ async def api_cancel_booking(request: web.Request) -> web.Response:
 
 @routes.get("/api/catalog")
 async def api_catalog(request: web.Request) -> web.Response:
-    await _current_user(request)
-    catalog = await q.get_catalog()
+    user_id, _, _ = await _current_user(request)
+
+    car_id = None
+    raw_car = request.query.get("car_id")
+    if raw_car:
+        try:
+            car_id = int(raw_car)
+        except ValueError as error:
+            raise bad_request("car_id noto'g'ri") from error
+    else:
+        full = await q.get_user_with_car(user_id)
+        car_id = full["car_id"] if full else None
+
+    catalog = await q.get_catalog(car_id)
     for category in catalog:
         for product in category["products"]:
             product["price_label"] = fmt_price(product["price"])
-            product["photo_url"] = (
-                f"/api/photo/{product['id']}" if product["has_photo"] else None
+            product["old_price_label"] = (
+                fmt_price(product["old_price"]) if product["old_price"] else None
             )
+            product["photo_url"] = f"/api/photo/{product['id']}" if product["has_photo"] else None
     return web.json_response(catalog)
 
 

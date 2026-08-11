@@ -2,82 +2,201 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#2481cc">
-  <title>Zimmer</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#08080a">
+  <title>ZIMMER — Bi-LED avtotuning</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=3">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
-<!-- ============ Yuklanish ============ -->
-<div id="loader" class="loader">
-  <div class="spinner"></div>
-  <p>Yuklanmoqda...</p>
+<!-- fon effektlari -->
+<div class="fx" aria-hidden="true">
+  <div class="fx-grid"></div>
+  <div class="fx-beam fx-beam-1"></div>
+  <div class="fx-beam fx-beam-2"></div>
+  <div class="fx-vignette"></div>
 </div>
 
-<!-- ============ Ro'yxatdan o'tmagan ============ -->
-<div id="gate" class="gate hidden">
+<!-- ==================== SPLASH / SALOM ==================== -->
+<section id="splash" class="splash">
+  <div class="splash-lights">
+    <span class="hl hl-left"></span>
+    <span class="hl hl-right"></span>
+  </div>
+
+  <div class="logo-block">
+    <div class="logo" id="logo">
+      <span>Z</span><span>I</span><span>M</span><span>M</span><span>E</span><span>R</span>
+    </div>
+    <div class="logo-line"></div>
+    <div class="logo-sub">BI&#8209;LED · AVTOTUNING</div>
+  </div>
+
+  <div class="splash-hello" id="splash-hello">
+    <div class="hello-skeleton"></div>
+  </div>
+
+  <button class="btn btn-primary btn-glow splash-btn" id="splash-start">
+    <span>Boshlash</span>
+    <i class="arrow">→</i>
+  </button>
+
+  <div class="splash-feats">
+    <div><b>1 yil</b><small>kafolat</small></div>
+    <div><b>2–3 soat</b><small>o'rnatish</small></div>
+    <div><b>14 000 lm</b><small>gacha</small></div>
+  </div>
+</section>
+
+<!-- ==================== RO'YXATDAN O'TMAGAN ==================== -->
+<section id="gate" class="gate hidden">
   <div class="gate-icon">🔐</div>
   <h2>Ro'yxatdan o'tish kerak</h2>
-  <p id="gate-text">Ilovadan foydalanish uchun avval botda ism va telefon raqamingizni qoldiring.</p>
+  <p id="gate-text">Ilovadan foydalanish uchun botda ism va telefon raqamingizni qoldiring.</p>
   <button class="btn btn-primary" id="gate-close">Botga qaytish</button>
   <button class="btn btn-ghost" id="gate-retry">Qayta tekshirish</button>
-</div>
+</section>
 
-<!-- ============ Asosiy ============ -->
-<div id="app" class="app hidden">
-
-  <header class="header">
-    <div>
-      <div class="header-title" id="shop-name">Zimmer</div>
-      <div class="header-sub" id="user-name">—</div>
+<!-- ==================== KONFIGURATOR ==================== -->
+<section id="flow" class="page hidden">
+  <header class="topbar">
+    <button class="icon-btn" id="flow-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="flow-title">Mashinani tanlang</div>
+      <div class="topbar-sub" id="flow-sub">1-qadam / 4</div>
     </div>
-    <div class="header-badge" id="work-hours">09:00–18:00</div>
+    <button class="icon-btn ghost" id="flow-close" aria-label="Yopish">✕</button>
   </header>
 
-  <!-- ---------- Navbat ---------- -->
-  <section class="screen" id="screen-book">
-    <div class="step" id="step-service">
-      <h3 class="section-title">🗓 Qaysi xizmat uchun navbat olasiz?</h3>
-      <div id="services" class="list"></div>
+  <div class="progress"><i id="progress-fill"></i></div>
+
+  <!-- fara jonli ko'rinishi -->
+  <div class="preview hidden" id="preview">
+    <div class="preview-stage">
+      <div class="preview-halo" id="preview-halo"></div>
+      <div class="preview-svg" id="headlight"></div>
+    </div>
+    <div class="preview-caption" id="preview-caption"></div>
+  </div>
+
+  <div class="flow-body">
+    <!-- 1. mashina -->
+    <div class="step" id="fstep-car">
+      <h2 class="step-title">Mashinangiz qaysi?</h2>
+      <p class="step-sub">Faqat modelingizga mos yechimlarni ko'rsatamiz</p>
+      <div class="cars" id="cars"></div>
     </div>
 
-    <div class="step hidden" id="step-date">
-      <div class="chosen" id="chosen-service"></div>
-      <h3 class="section-title">📅 Kunni tanlang</h3>
-      <div id="dates" class="chips"></div>
+    <!-- 2. bi-led -->
+    <div class="step hidden" id="fstep-biled">
+      <h2 class="step-title">Bi&#8209;LED linzani tanlang</h2>
+      <p class="step-sub">Fara ichiga o'rnatiladigan linza — yorug'lik shu yerdan chiqadi</p>
+      <div class="opts" id="biled-list"></div>
     </div>
 
-    <div class="step hidden" id="step-time">
-      <div class="chosen" id="chosen-date"></div>
-      <h3 class="section-title">🕐 Bo'sh vaqtni tanlang</h3>
-      <div id="slots" class="chips slots"></div>
-      <p class="empty hidden" id="slots-empty">Bu kunda bo'sh vaqt qolmadi. Boshqa kunni tanlang.</p>
+    <!-- 3. ochki -->
+    <div class="step hidden" id="fstep-shroud">
+      <h2 class="step-title">Ochki (maska)</h2>
+      <p class="step-sub">Linza ustidagi bezak halqa — faraning yuzi shu bilan belgilanadi</p>
+      <div class="opts" id="shroud-list"></div>
     </div>
-  </section>
 
-  <!-- ---------- Do'kon ---------- -->
-  <section class="screen hidden" id="screen-shop">
-    <div id="categories" class="chips"></div>
-    <div id="products" class="grid"></div>
-    <p class="empty hidden" id="products-empty">Hozircha mahsulot yo'q.</p>
-  </section>
+    <!-- 4. optika rangi -->
+    <div class="step hidden" id="fstep-color">
+      <h2 class="step-title">Fara optikasi rangi</h2>
+      <p class="step-sub">Korpus va reflektor rangi</p>
+      <div class="swatches" id="color-list"></div>
+    </div>
 
-  <!-- ---------- Savatcha ---------- -->
-  <section class="screen hidden" id="screen-cart">
-    <h3 class="section-title">🧺 Savatcha</h3>
-    <div id="cart-items" class="list"></div>
-    <p class="empty hidden" id="cart-empty">Savatchangiz bo'sh. «Do'kon» bo'limidan mahsulot tanlang.</p>
-
-    <div id="cart-checkout" class="card hidden">
-      <div class="total-row">
-        <span>Jami</span>
-        <b id="cart-total">0</b>
-      </div>
+    <!-- 5. yakun -->
+    <div class="step hidden" id="fstep-summary">
+      <h2 class="step-title">Konfiguratsiya tayyor</h2>
+      <p class="step-sub">Tekshirib, buyurtmani yuboring</p>
+      <div class="summary card" id="summary"></div>
       <label class="field">
-        <span>📍 Yetkazib berish manzili</span>
-        <textarea id="order-address" rows="2" placeholder="Masalan: Toshkent, Chilonzor 9-kvartal, 25-uy"></textarea>
+        <span>📝 Izoh (ixtiyoriy)</span>
+        <textarea id="order-comment" rows="2" placeholder="Masalan: shanba kuni kelmoqchiman"></textarea>
+      </label>
+      <div class="trust">
+        <div><b>🛡</b> 1 yil kafolat</div>
+        <div><b>🔧</b> Professional o'rnatish</div>
+        <div><b>💳</b> Bo'lib to'lash mumkin</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-cta hidden" id="flow-cta">
+    <div class="cta-total">
+      <span>Jami</span>
+      <b id="flow-total">0</b>
+    </div>
+    <button class="btn btn-primary" id="flow-next">Davom etish</button>
+  </div>
+</section>
+
+<!-- ==================== ASOSIY MENYU ==================== -->
+<section id="home" class="page hidden">
+  <header class="home-header">
+    <div class="brand">
+      <span class="brand-mark">Z</span>
+      <div class="brand-txt"><b>ZIMMER</b><small>Bi&#8209;LED avtotuning</small></div>
+    </div>
+    <button class="car-chip" id="car-chip"><i>🚗</i><span id="car-chip-name">—</span><em>▾</em></button>
+  </header>
+
+  <div class="stories" id="stories"></div>
+
+  <div class="banner-wrap">
+    <div class="banners" id="banners"></div>
+    <div class="dots" id="banner-dots"></div>
+  </div>
+
+  <button class="config-cta" id="config-cta">
+    <div class="config-cta-txt">
+      <b>Bi&#8209;LED konfigurator</b>
+      <small id="config-cta-sub">Linza, ochki va rangni tanlab narxni ko'ring</small>
+    </div>
+    <span class="config-cta-go">→</span>
+  </button>
+
+  <section class="sec" id="promos-sec">
+    <h3 class="sec-title">🎁 Aksiyalar</h3>
+    <div class="promos" id="promos"></div>
+  </section>
+
+  <section class="sec" id="book-sec">
+    <h3 class="sec-title">🗓 O'rnatishga navbat</h3>
+    <div class="book-card" id="book-card">
+      <div id="book-body"></div>
+    </div>
+  </section>
+
+  <section class="sec" id="catalog-sec">
+    <h3 class="sec-title">🛍 Mashinangizga mos mahsulotlar</h3>
+    <div class="chips" id="cats"></div>
+    <div class="grid" id="products"></div>
+    <p class="empty hidden" id="products-empty">Bu bo'limda hozircha mahsulot yo'q.</p>
+  </section>
+</section>
+
+<!-- ==================== SAVATCHA ==================== -->
+<section id="cart" class="page hidden">
+  <header class="topbar static">
+    <div class="topbar-mid"><div class="topbar-title">🧺 Savatcha</div></div>
+  </header>
+  <div class="pad">
+    <div class="list" id="cart-items"></div>
+    <p class="empty hidden" id="cart-empty">Savatchangiz bo'sh.</p>
+    <div class="card hidden" id="cart-checkout">
+      <div class="total-row"><span>Jami</span><b id="cart-total">0</b></div>
+      <label class="field">
+        <span>📍 Manzil</span>
+        <textarea id="order-address" rows="2" placeholder="Toshkent, Chilonzor 9-kvartal, 25-uy"></textarea>
       </label>
       <label class="field">
         <span>📞 Telefon</span>
@@ -85,39 +204,71 @@
       </label>
       <button class="btn btn-primary" id="order-submit">Buyurtma berish</button>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ---------- Kabinet ---------- -->
-  <section class="screen hidden" id="screen-profile">
-    <h3 class="section-title">📅 Navbatlarim</h3>
-    <div id="my-bookings" class="list"></div>
-    <p class="empty hidden" id="bookings-empty">Navbatlaringiz yo'q.</p>
-
-    <h3 class="section-title">📦 Buyurtmalarim</h3>
-    <div id="my-orders" class="list"></div>
-    <p class="empty hidden" id="orders-empty">Buyurtmalaringiz yo'q.</p>
-
+<!-- ==================== KABINET ==================== -->
+<section id="profile" class="page hidden">
+  <header class="topbar static">
+    <div class="topbar-mid"><div class="topbar-title">👤 Kabinet</div></div>
+  </header>
+  <div class="pad">
     <div class="card profile-card">
       <div class="row"><span>Ism</span><b id="profile-name">—</b></div>
       <div class="row"><span>Telefon</span><b id="profile-phone">—</b></div>
-      <p class="hint">Ma'lumotni o'zgartirish uchun botga /start yuboring.</p>
+      <div class="row"><span>Mashina</span><b id="profile-car">—</b></div>
+      <button class="btn btn-ghost btn-sm" id="change-car">Mashinani o'zgartirish</button>
     </div>
-  </section>
 
-  <!-- ---------- Pastdagi navigatsiya ---------- -->
-  <nav class="tabbar">
-    <button class="tab active" data-tab="book"><span>🗓</span>Navbat</button>
-    <button class="tab" data-tab="shop"><span>🛍</span>Do'kon</button>
-    <button class="tab" data-tab="cart">
-      <span>🧺<i class="badge hidden" id="cart-badge">0</i></span>Savatcha
-    </button>
-    <button class="tab" data-tab="profile"><span>👤</span>Kabinet</button>
-  </nav>
+    <h3 class="sec-title">🔥 Bi&#8209;LED buyurtmalarim</h3>
+    <div class="list" id="my-biled"></div>
+    <p class="empty hidden" id="biled-empty">Hali buyurtma bermagansiz.</p>
+
+    <h3 class="sec-title">🗓 Navbatlarim</h3>
+    <div class="list" id="my-bookings"></div>
+    <p class="empty hidden" id="bookings-empty">Navbat yo'q.</p>
+
+    <h3 class="sec-title">📦 Mahsulot buyurtmalari</h3>
+    <div class="list" id="my-orders"></div>
+    <p class="empty hidden" id="orders-empty">Buyurtma yo'q.</p>
+  </div>
+</section>
+
+<!-- ==================== NAVIGATSIYA ==================== -->
+<nav class="nav hidden" id="nav">
+  <button class="nav-btn active" data-page="home"><i>🏠</i><span>Asosiy</span></button>
+  <button class="nav-btn" data-page="flow"><i>🔧</i><span>Konfigurator</span></button>
+  <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge">0</b></button>
+  <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
+</nav>
+
+<!-- ==================== STORY KO'RUVCHI ==================== -->
+<div class="story-view hidden" id="story-view">
+  <div class="story-bars" id="story-bars"></div>
+  <button class="story-close" id="story-close">✕</button>
+  <div class="story-inner" id="story-inner"></div>
+  <div class="story-tap left" id="story-prev"></div>
+  <div class="story-tap right" id="story-next"></div>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<!-- sheet: navbat olish -->
+<div class="sheet hidden" id="sheet">
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <b id="sheet-title">O'rnatishga navbat</b>
+      <button class="icon-btn ghost" id="sheet-close">✕</button>
+    </div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
 
-<script src="config.js"></script>
-<script src="app.js"></script>
+<div class="toast hidden" id="toast"></div>
+<div class="burst hidden" id="burst"></div>
+
+<script src="config.js?v=3"></script>
+<script src="js/headlight.js?v=3"></script>
+<script src="js/cars.js?v=3"></script>
+<script src="js/app.js?v=3"></script>
 </body>
 </html>
