@@ -1,0 +1,78 @@
+name: Mini App'ni gh-pages'ga chiqarish
+
+# =====================================================================
+#  NEGA SHU USUL?
+#  Avval `actions/configure-pages` (enablement: true) ishlatilgan edi,
+#  lekin u quyidagi xato bilan to'xtadi:
+#
+#     Create Pages site failed.
+#     Error: Resource not accessible by integration
+#
+#  Sabab: workflow'ning GITHUB_TOKEN'i Pages saytini YARATISH huquqiga
+#  ega emas (GitHub buni cheklaydi). Shuning uchun Pages API'siga
+#  umuman murojaat qilmaydigan yo'l tanlandi:
+#
+#     docs/  ──>  gh-pages branch (ildizga)  ──>  GitHub Pages
+#
+#  `gh-pages` branch mavjud bo'lsa, GitHub Pages'ni O'ZI yoqadi va shu
+#  branchdan sayt qiladi. Bu yerda faqat `contents: write` kerak, ya'ni
+#  oddiy git push — hech qanday qo'shimcha ruxsat talab qilinmaydi.
+#
+#  Natija: https://<foydalanuvchi>.github.io/Zimmer/
+#  (manzil harf registriga sezgir — "Zimmer" katta harf bilan)
+# =====================================================================
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/sync-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: docs/ papkasini gh-pages'ga ko'chirish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo'ni olish
+        uses: actions/checkout@v4
+
+      - name: gh-pages branchini yangilash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f docs/index.html ]; then
+            echo "::error title=docs/index.html topilmadi::Mini App fayllari joyida emas."
+            exit 1
+          fi
+
+          WORK="$(mktemp -d)"
+          cp -r docs/. "$WORK"/
+          touch "$WORK/.nojekyll"      # Jekyll aralashmasin
+
+          cd "$WORK"
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Mini App: ${GITHUB_SHA:0:7} commitidan yangilandi"
+
+          # Deploy branch — tarix saqlanmaydi, shuning uchun force push
+          git push -q -f \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            gh-pages
+
+          echo "✅ gh-pages yangilandi. Sayt 1-2 daqiqada yangi versiyani ko'rsatadi."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Manzil
+        run: |
+          echo "Mini App: https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"

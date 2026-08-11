@@ -87,8 +87,8 @@ xizmat/mahsulotlar qo'shiladi.
 To'liq qo'llanma: **[DEPLOY.md](DEPLOY.md)**
 
 1. **Bot + API** → Render.com: New → Blueprint → `Zimmer` repo → `BOT_TOKEN`, `ADMINS`
-2. **Mini App** → GitHub Pages: Actions → *Deploy Mini App (GitHub Pages)* →
-   **Run workflow** (Pages'ni o'zi yoqadi, keyin har o'zgarishda avtomatik yangilanadi)
+2. **Mini App** → GitHub Pages allaqachon yoqilgan: sayt `gh-pages` branchidan
+   chiqadi, `docs/` o'zgarsa workflow uni avtomatik yangilaydi
 3. **BotFather** → Menu Button URL: `https://anvarjonaxtamov70.github.io/Zimmer/`
    (katta harf bilan `Zimmer` — manzil harf registriga sezgir)
 
