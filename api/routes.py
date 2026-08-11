@@ -9,7 +9,7 @@ import logging
 from aiohttp import web
 
 from api.auth import extract_init_data, validate_init_data
-from api.errors import ApiError, bad_request, not_found, not_registered, unauthorized
+from api.errors import ApiError, bad_request, not_found, phone_required, unauthorized
 from config import config
 from database import queries as q
 from keyboards.inline import (
@@ -17,6 +17,7 @@ from keyboards.inline import (
     admin_new_booking_kb,
     admin_new_order_kb,
 )
+from services import sync
 from utils.helpers import (
     available_dates,
     date_label,
@@ -38,8 +39,15 @@ routes = web.RouteTableDef()
 # ------------------------------------------------------------------ yordamchilar
 
 
-async def _current_user(request: web.Request, require_registration: bool = True):
-    """initData'ni tekshiradi va (user_id, telegram_user, db_row) qaytaradi."""
+async def _current_user(request: web.Request, require_phone: bool = False):
+    """initData'ni tekshiradi va (user_id, telegram_user, db_row) qaytaradi.
+
+    Foydalanuvchi bazada bo'lmasa — Telegram ismi bilan AVTOMATIK yaratiladi.
+    Ya'ni ilovaga kirish uchun hech qanday "ro'yxatdan o'tish to'sig'i" yo'q:
+    katalog, konfigurator va narxlar hammaga darhol ko'rinadi.
+
+    Telefon raqami faqat BUYURTMA berishda so'raladi (require_phone=True).
+    """
     init_data = extract_init_data(request.headers)
     verified = validate_init_data(init_data, config.bot_token)
     if not verified:
@@ -49,8 +57,16 @@ async def _current_user(request: web.Request, require_registration: bool = True)
     user_id = int(tg_user["id"])
     row = await q.get_user(user_id)
 
-    if require_registration and (row is None or not row["phone"]):
-        raise not_registered()
+    if row is None:
+        name = " ".join(
+            part for part in [tg_user.get("first_name"), tg_user.get("last_name")] if part
+        ).strip() or "Mijoz"
+        await q.add_user(user_id, name, None, tg_user.get("username"))
+        row = await q.get_user(user_id)
+        logger.info("Yangi foydalanuvchi avtomatik qo'shildi: %s (%s)", name, user_id)
+
+    if require_phone and not row["phone"]:
+        raise phone_required()
     return user_id, tg_user, row
 
 
@@ -67,6 +83,31 @@ async def _json_body(request: web.Request) -> dict:
 async def _taken_slots(date_iso: str) -> list[tuple[str, int]]:
     rows = await q.get_day_bookings(date_iso)
     return [(row["time"], int(row["duration_min"])) for row in rows]
+
+
+def _decorate_catalog(catalog: list[dict]) -> None:
+    """Narx yozuvlari va rasm manzilini to'ldiradi.
+
+    Rasm ikki manbadan bo'lishi mumkin:
+      • tashqi URL (Firebase/sayt) — to'g'ridan-to'g'ri ishlatiladi;
+      • Telegram file_id — `/api/photo/<id>` orqali uzatiladi.
+    """
+    for category in catalog:
+        for product in category["products"]:
+            product["price_label"] = fmt_price(product["price"])
+            product["old_price_label"] = (
+                fmt_price(product["old_price"]) if product["old_price"] else None
+            )
+            external = (product.get("photo_url") or "").strip()
+            if external.startswith("http"):
+                product["photo_url"] = external
+                product["photo_external"] = True
+            elif product["has_photo"]:
+                product["photo_url"] = f"/api/photo/{product['id']}"
+                product["photo_external"] = False
+            else:
+                product["photo_url"] = None
+                product["photo_external"] = False
 
 
 def _booking_json(row) -> dict:
@@ -104,29 +145,80 @@ async def api_config(_request: web.Request) -> web.Response:
 
 @routes.get("/api/me")
 async def api_me(request: web.Request) -> web.Response:
-    user_id, tg_user, row = await _current_user(request, require_registration=False)
-    registered = row is not None and bool(row["phone"])
+    user_id, tg_user, row = await _current_user(request)
 
     car = None
-    if registered:
-        full = await q.get_user_with_car(user_id)
-        if full and full["car_id"]:
-            car = {
-                "id": full["car_id"],
-                "name": full["car_name"],
-                "years": full["car_years"],
-                "slug": full["car_slug"],
-            }
+    full = await q.get_user_with_car(user_id)
+    if full and full["car_id"]:
+        car = {
+            "id": full["car_id"],
+            "name": full["car_name"],
+            "years": full["car_years"],
+            "slug": full["car_slug"],
+        }
 
     return web.json_response(
         {
-            "registered": registered,
+            # ilovaga kirish har doim ochiq; faqat telefon yetishmasligi mumkin
+            "registered": True,
+            "needs_phone": not bool(row["phone"]),
             "user_id": user_id,
             "first_name": tg_user.get("first_name"),
-            "full_name": row["full_name"] if row else tg_user.get("first_name"),
-            "phone": row["phone"] if row else None,
+            "full_name": row["full_name"],
+            "phone": row["phone"],
             "car": car,
         }
+    )
+
+
+@routes.post("/api/register")
+async def api_register(request: web.Request) -> web.Response:
+    """Ilova ichida ro'yxatdan o'tish: ism + telefon. Botga qaytish shart emas."""
+    user_id, tg_user, row = await _current_user(request)
+    body = await _json_body(request)
+
+    full_name = str(body.get("full_name", "")).strip()
+    if not full_name:
+        full_name = row["full_name"] or tg_user.get("first_name") or "Mijoz"
+    if len(full_name) < 2 or len(full_name) > 64:
+        raise bad_request("Ismni to'g'ri kiriting")
+
+    phone = normalize_phone(str(body.get("phone", "")))
+    if not phone:
+        raise bad_request("Telefon raqam noto'g'ri. Masalan: +998901234567")
+
+    await q.add_user(user_id, full_name, phone, tg_user.get("username"))
+    full = await q.get_user_with_car(user_id)
+    await sync.push_user(
+        user_id,
+        {
+            "full_name": full_name,
+            "phone": phone,
+            "username": tg_user.get("username"),
+            "car_id": full["car_id"] if full else None,
+            "car_name": full["car_name"] if full else None,
+        },
+    )
+
+    bot = request.app["bot"]
+    await notify_admins(
+        bot,
+        "👤 <b>Yangi mijoz</b> (ilova orqali)\n\n"
+        f"Ism: <b>{full_name}</b>\n"
+        f"📞 {phone}\n"
+        f"ID: <code>{user_id}</code>",
+    )
+    try:
+        await bot.send_message(
+            user_id,
+            f"✅ Rahmat, <b>{full_name}</b>! Ma'lumotlaringiz saqlandi.\n"
+            f"📞 {phone}\n\nEndi buyurtma berishingiz mumkin. 🔧",
+        )
+    except Exception as error:
+        logger.warning("Ro'yxat tasdiqi yuborilmadi: %s", error)
+
+    return web.json_response(
+        {"ok": True, "full_name": full_name, "phone": phone, "needs_phone": False}
     )
 
 
@@ -144,6 +236,18 @@ async def api_set_car(request: web.Request) -> web.Response:
         raise not_found("Mashina topilmadi")
 
     await q.set_user_car(user_id, car_id)
+
+    row = await q.get_user(user_id)
+    await sync.push_user(
+        user_id,
+        {
+            "full_name": row["full_name"],
+            "phone": row["phone"],
+            "username": row["username"],
+            "car_id": car["id"],
+            "car_name": car["name"],
+        },
+    )
     return web.json_response(
         {"ok": True, "car": {"id": car["id"], "name": car["name"], "years": car["years"]}}
     )
@@ -251,7 +355,7 @@ def _biled_order_json(row) -> dict:
 
 @routes.post("/api/biled-orders")
 async def api_create_biled_order(request: web.Request) -> web.Response:
-    user_id, _, row = await _current_user(request)
+    user_id, _, row = await _current_user(request, require_phone=True)
     body = await _json_body(request)
 
     def _int_or_none(key: str) -> int | None:
@@ -287,6 +391,7 @@ async def api_create_biled_order(request: web.Request) -> web.Response:
     await q.set_user_car(user_id, car_id)
 
     order = await q.get_biled_order(order_id)
+    await sync.push_biled_order(order)
     details = [
         f"🚗 Mashina: <b>{order['car_name']}</b>",
         f"💡 Linza: <b>{order['biled_name']}</b> — {fmt_price(order['biled_price'])}",
@@ -355,13 +460,7 @@ async def api_home(request: web.Request) -> web.Response:
     promos = await q.get_promos()
     catalog = await q.get_catalog(car_id)
 
-    for category in catalog:
-        for product in category["products"]:
-            product["price_label"] = fmt_price(product["price"])
-            product["old_price_label"] = (
-                fmt_price(product["old_price"]) if product["old_price"] else None
-            )
-            product["photo_url"] = f"/api/photo/{product['id']}" if product["has_photo"] else None
+    _decorate_catalog(catalog)
 
     return web.json_response(
         {
@@ -472,7 +571,7 @@ async def api_slots(request: web.Request) -> web.Response:
 
 @routes.post("/api/bookings")
 async def api_create_booking(request: web.Request) -> web.Response:
-    user_id, _, row = await _current_user(request)
+    user_id, _, row = await _current_user(request, require_phone=True)
     body = await _json_body(request)
 
     try:
@@ -500,6 +599,7 @@ async def api_create_booking(request: web.Request) -> web.Response:
 
     booking_id = await q.add_booking(user_id, service_id, date_iso, time_str)
     booking = await q.get_booking(booking_id)
+    await sync.push_booking(booking)
 
     bot = request.app["bot"]
     await notify_admins(
@@ -582,13 +682,7 @@ async def api_catalog(request: web.Request) -> web.Response:
         car_id = full["car_id"] if full else None
 
     catalog = await q.get_catalog(car_id)
-    for category in catalog:
-        for product in category["products"]:
-            product["price_label"] = fmt_price(product["price"])
-            product["old_price_label"] = (
-                fmt_price(product["old_price"]) if product["old_price"] else None
-            )
-            product["photo_url"] = f"/api/photo/{product['id']}" if product["has_photo"] else None
+    _decorate_catalog(catalog)
     return web.json_response(catalog)
 
 
@@ -621,7 +715,7 @@ async def api_photo(request: web.Request) -> web.Response:
 
 @routes.post("/api/orders")
 async def api_create_order(request: web.Request) -> web.Response:
-    user_id, _, row = await _current_user(request)
+    user_id, _, row = await _current_user(request, require_phone=True)
     body = await _json_body(request)
 
     raw_items = body.get("items")
@@ -656,6 +750,7 @@ async def api_create_order(request: web.Request) -> web.Response:
 
     order = await q.get_order(order_id)
     order_items = await q.get_order_items(order_id)
+    await sync.push_order(order, order_items)
     lines = [
         f"• {item['name']} × {item['qty']} = {fmt_price(int(item['price']) * int(item['qty']))}"
         for item in order_items

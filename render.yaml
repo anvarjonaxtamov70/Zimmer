@@ -23,6 +23,15 @@ services:
       - key: ADMINS            # masalan: 5105291033,483425630
         sync: false
 
+      # ——— Firebase (mijozlar/tovarlar doimiy saqlanishi uchun) ———
+      # serviceAccount.json BUTUN matni (yoki base64). Panelda kiritiladi.
+      - key: SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_DB_URL
+        value: "https://avtoa1shop-default-rtdb.firebaseio.com"
+      - key: FIREBASE_ROOT
+        value: "zimmer"
+
       # ——— Sozlamalar (panelda o'zgartirish mumkin) ———
       - key: PYTHON_VERSION
         value: "3.11.9"

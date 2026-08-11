@@ -47,6 +47,30 @@ Buyurtma yuborilgach mijoz **asosiy menyuga** o'tadi.
 - 🛍 **Mahsulotlar** — **faqat tanlangan mashinaga mos** + universal tovarlar
 - 🧺 Savatcha va 👤 Kabinet (Bi-LED buyurtmalari, navbatlar, buyurtmalar)
 
+## 👤 Ro'yxatdan o'tish — to'siqsiz
+
+Ilovaga kirishda **hech qanday to'siq yo'q**. Foydalanuvchi Telegram
+`initData`si asosida **avtomatik** bazaga qo'shiladi (ismi Telegram'dan
+olinadi) — katalog, konfigurator va narxlar darhol ko'rinadi.
+
+**Telefon faqat buyurtma bosilganda** so'raladi: ilova ichidagi kichik forma —
+Telegram raqamini bir tugma bilan yuborish (`requestContact`) yoki qo'lda
+kiritish. Bir marta kiritiladi, keyin boshqa so'ralmaydi.
+
+## 🔥 Firebase — mijozlar va tovarlar doimiy saqlanadi
+
+Avto_A1 bilan bir xil usul: service-account → OAuth token → RTDB REST.
+
+- Mijozlar Firebase'ga yoziladi va bot qayta ishga tushganda **o'zi tiklanadi**
+  → Render qayta deploy qilsa ham foydalanuvchi qaytadan ro'yxatdan o'tmaydi
+- **Tovarlar rasm URL'lari bilan** Firebase'dan import qilinadi → mahsulot va
+  rasmlarni saytdan boshqarish mumkin
+- Buyurtma va navbatlar nusxasi Firebase'da qoladi (tarix yo'qolmaydi)
+
+Sozlash: `SERVICE_ACCOUNT_JSON`, `FIREBASE_DB_URL`, `FIREBASE_ROOT` —
+batafsil [DEPLOY.md](DEPLOY.md). Firebase ulanmasa ham hammasi ishlaydi
+(faqat mahalliy bazada saqlanadi).
+
 ## ⚙️ Admin panel (`/admin`)
 
 - 🔥 **Bi-LED buyurtmalar** — to'liq konfiguratsiya ko'rinadi (mashina, linza, ochki, rang, narx)
@@ -107,6 +131,9 @@ bazadan** hisoblanadi, mijoz yuborgan qiymatga ishonilmaydi.
 | `BOOKING_DAYS_AHEAD` | Necha kun oldinga navbat | `7` |
 | `CURRENCY` | Valyuta | `so'm` |
 | `API_PORT` | Lokal API porti | — |
+| `FIREBASE_DB_URL` | Realtime Database manzili | — (o'chirilgan) |
+| `FIREBASE_ROOT` | Firebase'dagi tugun nomi | `zimmer` |
+| `SERVICE_ACCOUNT_JSON` | Firebase service-account JSON (yoki base64) | — |
 
 ## 📁 Tuzilishi
 
@@ -127,6 +154,9 @@ Zimmer/
 │       ├── headlight.js   # parametrik fara SVG
 │       ├── cars.js        # mashina siluetlari
 │       └── app.js         # oqim, asosiy menyu, stories
+├── services/
+│   ├── firebase.py        # RTDB REST + service-account token
+│   └── sync.py            # mijoz/tovar/buyurtma sinxronizatsiyasi
 ├── database/
 │   ├── db.py              # sxema, migratsiya, katalog
 │   └── queries.py         # SQL so'rovlar
@@ -153,6 +183,7 @@ Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
 | GET | `/health` | Render tiriklik tekshiruvi |
 | GET | `/api/config` | brend, valyuta, ish vaqti |
 | GET | `/api/me` · POST `/api/me/car` | profil, mashinani saqlash |
+| POST | `/api/register` | ilova ichida ism + telefon saqlash |
 | GET | `/api/cars` | mashinalar |
 | GET | `/api/tuning` | linzalar + ochkilar + ranglar |
 | POST/GET | `/api/biled-orders` | konfiguratsiya buyurtmasi |

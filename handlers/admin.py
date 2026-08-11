@@ -23,6 +23,7 @@ from keyboards.inline import (
     admin_services_kb,
 )
 from keyboards.reply import cancel_kb, main_menu
+from services import sync
 from states import AddCategory, AddProduct, AddService, Broadcast
 from utils.helpers import available_dates, date_label, fmt_price, today_iso, user_link
 from utils.texts import (
@@ -149,6 +150,7 @@ async def admin_booking_status(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     await q.set_booking_status(booking_id, status)
+    await sync.push_status("booking", booking_id, status)
     label = BOOKING_STATUS.get(status, status)
 
     messages = {
@@ -258,6 +260,7 @@ async def admin_biled_status(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     await q.set_biled_order_status(order_id, status)
+    await sync.push_status("biled", order_id, status)
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\n\n"
@@ -354,6 +357,7 @@ async def admin_order_status(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     await q.set_order_status(order_id, status)
+    await sync.push_status("order", order_id, status)
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\nTez orada yetkazib beramiz. 🚚"

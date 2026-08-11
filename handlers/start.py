@@ -9,6 +9,7 @@ from config import config
 from database import queries as q
 from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
+from services import sync
 from states import Register
 from utils.helpers import normalize_phone
 from utils.texts import APP_INTRO, BTN_CANCEL, BTN_CONTACT, CONTACT_TEXT, greeting
@@ -80,6 +81,19 @@ async def _finish_registration(message: Message, state: FSMContext, raw_phone: s
     full_name = data.get("full_name") or message.from_user.full_name
     phone = normalize_phone(raw_phone) or raw_phone
     await q.add_user(message.from_user.id, full_name, phone, message.from_user.username)
+
+    # Firebase'ga yozamiz — qayta deploydan keyin ham saqlanib qoladi
+    full = await q.get_user_with_car(message.from_user.id)
+    await sync.push_user(
+        message.from_user.id,
+        {
+            "full_name": full_name,
+            "phone": phone,
+            "username": message.from_user.username,
+            "car_id": full["car_id"] if full else None,
+            "car_name": full["car_name"] if full else None,
+        },
+    )
     await state.clear()
     await message.answer(
         f"✅ Ro'yxatdan o'tdingiz!\n📞 Raqam: <b>{phone}</b>",

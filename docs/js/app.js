@@ -126,17 +126,134 @@
     return data;
   }
 
-  function onError(err) {
-    if (err && (err.code === "not_registered" || err.code === "invalid_init_data")) {
-      gate(
-        err.code === "not_registered"
-          ? "Ilovadan foydalanish uchun botda ism va telefon raqamingizni qoldiring."
-          : "Telegram ma'lumotlari tasdiqlanmadi. Ilovani bot ichidagi tugma orqali oching."
-      );
+  function onError(err, retry) {
+    // Telefon yetishmasa — to'siq emas, kichik forma ochiladi va amal davom etadi
+    if (err && err.code === "phone_required") {
+      openPhoneSheet(retry);
+      return;
+    }
+    if (err && err.code === "invalid_init_data") {
+      gate("Telegram ma'lumotlari tasdiqlanmadi. Ilovani bot ichidagi tugma orqali oching.");
       return;
     }
     haptic("err");
     toast((err && err.message) || "Xatolik yuz berdi");
+  }
+
+  /* ------------------------------------------- ism + telefon (bir martalik) */
+
+  function extractPhone(response) {
+    try {
+      if (!response) return null;
+      if (typeof response === "string") {
+        const params = new URLSearchParams(response);
+        const contact = params.get("contact");
+        if (contact) return JSON.parse(contact).phone_number || null;
+        return null;
+      }
+      const contact =
+        (response.responseUnsafe && response.responseUnsafe.contact) || response.contact;
+      return (contact && contact.phone_number) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function openPhoneSheet(onSaved) {
+    const name = (S.me && S.me.full_name) || "";
+    const phone = (S.me && S.me.phone) || "";
+
+    openSheet(
+      "Ma'lumotlaringiz",
+      `<p class="step-sub">Buyurtmani rasmiylashtirish uchun ism va telefon kerak.
+        Bir marta kiritasiz — keyin boshqa so'ralmaydi.</p>
+       <label class="field"><span>👤 Ism va familiya</span>
+         <input id="reg-name" value="${esc(name)}" placeholder="Anvarjon Axtamov"></label>
+       <label class="field"><span>📞 Telefon</span>
+         <input id="reg-phone" type="tel" inputmode="tel" value="${esc(phone)}"
+                placeholder="+998901234567"></label>
+       <button class="btn btn-ghost" id="reg-contact">📱 Telegram raqamimni yuborish</button>
+       <button class="btn btn-primary" id="reg-save" style="margin-top:10px">
+         Saqlash va davom etish</button>`
+    );
+
+    $("reg-contact").onclick = () => {
+      haptic();
+      if (tg && typeof tg.requestContact === "function") {
+        try {
+          tg.requestContact((granted, response) => {
+            if (!granted) return toast("Raqam ulashilmadi — qo'lda kiritishingiz mumkin");
+            const got = extractPhone(response);
+            if (got) {
+              $("reg-phone").value = got;
+              haptic("ok");
+              toast("Raqam olindi ✅");
+            } else {
+              toast("Raqamni qo'lda kiritib, Saqlashni bosing");
+            }
+          });
+          return;
+        } catch (_) {}
+      }
+      toast("Telegram versiyasi qo'llamaydi — raqamni qo'lda kiriting");
+    };
+
+    $("reg-save").onclick = async () => {
+      const btn = $("reg-save");
+      const fullName = $("reg-name").value.trim();
+      const value = $("reg-phone").value.trim();
+      if (fullName.length < 2) return toast("Ismingizni kiriting");
+      if (value.replace(/\D/g, "").length < 9) return toast("Telefon raqamni to'liq kiriting");
+
+      btn.disabled = true;
+      btn.textContent = "Saqlanmoqda...";
+      try {
+        const res = await api("/api/register", {
+          method: "POST",
+          body: { full_name: fullName, phone: value },
+        });
+        S.me.full_name = res.full_name;
+        S.me.phone = res.phone;
+        S.me.needs_phone = false;
+        haptic("ok");
+        closeSheet();
+        toast("Rahmat! Ma'lumotlar saqlandi ✅");
+        renderPhoneWarn();
+        if (typeof onSaved === "function") onSaved();
+      } catch (err) {
+        onError(err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Saqlash va davom etish";
+      }
+    };
+  }
+
+  /** Telefon talab qiladigan amallarni o'raydi: kerak bo'lsa forma ochib, keyin davom etadi. */
+  async function withPhone(action) {
+    try {
+      await action();
+    } catch (err) {
+      onError(err, () => withPhone(action));
+    }
+  }
+
+  function renderPhoneWarn() {
+    const box = $("phone-warn");
+    if (!box) return;
+    if (!S.me || !S.me.needs_phone) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+    box.className = "card";
+    box.innerHTML = `
+      <div class="row"><b>📞 Telefon qoldirilmagan</b></div>
+      <div class="item-sub">Buyurtma berish uchun bir marta raqam kiritish kerak.</div>`;
+    const btn = el("button", "btn btn-primary btn-sm", "Raqam qoldirish");
+    btn.style.marginTop = "10px";
+    btn.onclick = () => openPhoneSheet();
+    box.append(btn);
   }
 
   /* ---------------------------------------------------------------- savatcha */
@@ -423,35 +540,34 @@
     $("summary").innerHTML = html;
   }
 
-  async function submitConfig() {
+  function submitConfig() {
     if (!S.car || !S.biled) {
       toast("Mashina va linzani tanlang");
       return;
     }
-    const btn = $("flow-next");
-    btn.disabled = true;
-    btn.textContent = "Yuborilmoqda...";
-
-    try {
-      const res = await api("/api/biled-orders", {
-        method: "POST",
-        body: {
-          car_id: S.car.id,
-          biled_id: S.biled.id,
-          shroud_id: S.shroud ? S.shroud.id : null,
-          color_id: S.color ? S.color.id : null,
-          comment: $("order-comment").value.trim(),
-        },
-      });
-      haptic("ok");
-      burst();
-      showDone(res.order);
-    } catch (err) {
-      onError(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Buyurtmani yuborish";
-    }
+    return withPhone(async () => {
+      const btn = $("flow-next");
+      btn.disabled = true;
+      btn.textContent = "Yuborilmoqda...";
+      try {
+        const res = await api("/api/biled-orders", {
+          method: "POST",
+          body: {
+            car_id: S.car.id,
+            biled_id: S.biled.id,
+            shroud_id: S.shroud ? S.shroud.id : null,
+            color_id: S.color ? S.color.id : null,
+            comment: $("order-comment").value.trim(),
+          },
+        });
+        haptic("ok");
+        burst();
+        showDone(res.order);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Buyurtmani yuborish";
+      }
+    });
   }
 
   function showDone(order) {
@@ -668,9 +784,13 @@
     products.forEach((p, i) => {
       const card = el("div", "prod");
       card.style.animationDelay = i * 0.05 + "s";
-      const art = p.photo_url
-        ? `<img src="${API + p.photo_url}" alt="" loading="lazy">`
-        : "💡";
+      // rasm tashqi manzildan (Firebase/sayt) yoki Telegram'dan kelishi mumkin
+      const photo = p.photo_url
+        ? p.photo_external || /^https?:\/\//.test(p.photo_url)
+          ? p.photo_url
+          : API + p.photo_url
+        : null;
+      const art = photo ? `<img src="${esc(photo)}" alt="" loading="lazy">` : "💡";
       card.innerHTML = `
         <div class="prod-art">${art}${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}</div>
         <div class="prod-body">
@@ -774,45 +894,46 @@
     renderCart();
   }
 
-  async function submitOrder() {
+  function submitOrder() {
     const address = $("order-address").value.trim();
     if (address.length < 5) return toast("Manzilni to'liqroq yozing");
     if (!S.cart.length) return toast("Savatcha bo'sh");
 
-    const btn = $("order-submit");
-    btn.disabled = true;
-    btn.textContent = "Yuborilmoqda...";
-    try {
-      const res = await api("/api/orders", {
-        method: "POST",
-        body: {
-          items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
-          address,
-          phone: $("order-phone").value.trim(),
-        },
-      });
-      S.cart = [];
-      saveCart();
-      renderCart();
-      $("order-address").value = "";
-      haptic("ok");
-      burst();
-      toast(`✅ Buyurtma #${res.order.id} qabul qilindi`, 3400);
-      show("profile");
-    } catch (err) {
-      onError(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Buyurtma berish";
-    }
+    return withPhone(async () => {
+      const btn = $("order-submit");
+      btn.disabled = true;
+      btn.textContent = "Yuborilmoqda...";
+      try {
+        const res = await api("/api/orders", {
+          method: "POST",
+          body: {
+            items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
+            address,
+            phone: $("order-phone").value.trim() || (S.me && S.me.phone) || "",
+          },
+        });
+        S.cart = [];
+        saveCart();
+        renderCart();
+        $("order-address").value = "";
+        haptic("ok");
+        burst();
+        toast(`✅ Buyurtma #${res.order.id} qabul qilindi`, 3400);
+        show("profile");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Buyurtma berish";
+      }
+    });
   }
 
   /* --------------------------------------------------------------- kabinet */
   async function loadProfile() {
     if (S.me) {
       $("profile-name").textContent = S.me.full_name || "—";
-      $("profile-phone").textContent = S.me.phone || "—";
+      $("profile-phone").textContent = S.me.phone || "kiritilmagan";
       $("profile-car").textContent = S.me.car ? `${S.me.car.name} (${S.me.car.years || "-"})` : "—";
+      renderPhoneWarn();
     }
     try {
       const [biled, bookings, orders] = await Promise.all([
@@ -974,8 +1095,9 @@
       data.slots.forEach((time) => {
         const btn = el("button", "slot", time);
         btn.onclick = async () => {
-          if (!(await ask(`${S.booking.service.name}\n${day.label} · ${time}\n\nTasdiqlaysizmi?`))) return;
-          try {
+          if (!(await ask(`${S.booking.service.name}\n${day.label} · ${time}\n\nTasdiqlaysizmi?`)))
+            return;
+          await withPhone(async () => {
             const res = await api("/api/bookings", {
               method: "POST",
               body: { service_id: S.booking.service.id, date: day.date, time },
@@ -985,9 +1107,7 @@
             burst();
             toast(`✅ Navbat #${res.booking.id} · ${time}`, 3200);
             show("profile");
-          } catch (err) {
-            onError(err);
-          }
+          });
         };
         grid.append(btn);
       });
@@ -1038,8 +1158,9 @@
       const [cfg, me] = await Promise.all([api("/api/config"), api("/api/me")]);
       S.currency = cfg.currency || "so'm";
       S.me = me;
-
-      if (!me.registered) return gate();
+      // Ro'yxatdan o'tish to'sig'i YO'Q: foydalanuvchi initData asosida
+      // avtomatik yaratiladi, telefon esa faqat buyurtmada so'raladi.
+      renderPhoneWarn();
 
       const name = (me.full_name || me.first_name || "").split(" ")[0];
       $("splash-hello").innerHTML = `
@@ -1049,7 +1170,7 @@
       S.cars = await api("/api/cars");
       if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
     } catch (err) {
-      if (err && (err.code === "not_registered" || err.code === "invalid_init_data")) return onError(err);
+      if (err && err.code === "invalid_init_data") return onError(err);
       gate(
         (err && err.message ? err.message : "Server javob bermadi") +
           "\n\nServer: " +
