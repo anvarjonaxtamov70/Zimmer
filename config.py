@@ -10,11 +10,32 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 
+# Avto_A1 loyihasidagi adminlar — Zimmer uchun ham standart.
+# Render'da ADMINS o'zgaruvchisi berilmasa, shu ro'yxat ishlatiladi,
+# ya'ni admin panel har qanday holatda ochiladi.
+DEFAULT_ADMINS = "5105291033,483425630,5302078"
+
+
 def _parse_admins(raw: str) -> list[int]:
     admins: list[int] = []
     for part in raw.replace(" ", "").split(","):
         if part.lstrip("-").isdigit():
             admins.append(int(part))
+    return admins
+
+
+def _admins_from_env() -> list[int]:
+    """ADMINS env'i bo'sh yoki noto'g'ri bo'lsa — standart ro'yxat.
+
+    Qo'shimcha ADMINS_EXTRA orqali yangi adminlarni standartlarga
+    qo'shish mumkin (standartlarni o'chirmasdan).
+    """
+    admins = _parse_admins(os.getenv("ADMINS", ""))
+    if not admins:
+        admins = _parse_admins(DEFAULT_ADMINS)
+    for extra in _parse_admins(os.getenv("ADMINS_EXTRA", "")):
+        if extra not in admins:
+            admins.append(extra)
     return admins
 
 
@@ -61,7 +82,7 @@ def _db_path() -> str:
 
 config = Config(
     bot_token=os.getenv("BOT_TOKEN", "").strip(),
-    admins=_parse_admins(os.getenv("ADMINS", "")),
+    admins=_admins_from_env(),
     shop_name=os.getenv("SHOP_NAME", "Zimmer").strip(),
     db_path=_db_path(),
     timezone=os.getenv("TIMEZONE", "Asia/Tashkent").strip(),

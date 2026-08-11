@@ -394,3 +394,48 @@ istalgan CDN bo'lishi mumkin.
 
 Video **avtomatik yuklanmaydi** (`preload="none"`) — foydalanuvchi bosgandan
 keyin yuklanadi, shuning uchun trafik va batareya tejaladi.
+
+
+---
+
+# 👑 Adminlar
+
+## Standart adminlar
+
+Kodda Avto_A1 loyihasidagi adminlar standart qilib yozilgan:
+
+```
+5105291033, 483425630, 5302078
+```
+
+`ADMINS` o'zgaruvchisi berilmasa ham **admin panel ishlaydi** — shu uchta ID
+avtomatik admin bo'ladi. (Avvalgi versiyada `ADMINS` bo'sh bo'lsa panel
+umuman ochilmasdi — muammo shunda edi.)
+
+## Tekshirish
+
+Botga **`/id`** yuboring:
+
+- Admin bo'lsangiz: `👑 Siz adminsiz` + panel havolalari chiqadi
+- Admin bo'lmasangiz: ID'ingiz va nima qilish kerakligi yoziladi
+
+Botga **`/admin`** yuborsangiz ham javob keladi (avval jim turardi — endi
+sababini aytadi).
+
+## Yangi admin qo'shish
+
+Render panel → xizmat → **Environment**:
+
+| Variant | Kalit | Qiymat | Natija |
+|---|---|---|---|
+| Standartlarni saqlab qo'shish | `ADMINS_EXTRA` | `123456789` | 3 standart + yangi admin |
+| Ro'yxatni to'liq almashtirish | `ADMINS` | `5105291033,123456789` | Faqat shu ikkisi |
+
+Saqlagandan keyin Render xizmatni qayta ishga tushiradi. Logda ko'rinadi:
+
+```
+Adminlar (4 ta): 5105291033, 483425630, 5302078, 123456789
+```
+
+> Admin panel: `/admin` · Katalogni boshqarish: `/katalog`
+> Menyudagi **⚙️ Admin panel** tugmasi ham faqat adminlarga ko'rinadi.

@@ -32,10 +32,16 @@ async def main() -> None:
         )
         sys.exit(1)
 
-    if not config.admins:
+    if config.admins:
+        logger.info(
+            "Adminlar (%s ta): %s",
+            len(config.admins),
+            ", ".join(str(admin_id) for admin_id in config.admins),
+        )
+    else:
         logger.warning(
-            "ADMINS bo'sh. Admin panel ishlamaydi. Botga /id yuborib ID'ingizni "
-            ".env dagi ADMINS ga yozing."
+            "ADMINS bo'sh — admin panel ishlamaydi. Botga /id yuborib ID'ingizni "
+            "ADMINS ga qo'shing."
         )
 
     await init_db()

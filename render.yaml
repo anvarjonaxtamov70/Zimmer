@@ -20,8 +20,10 @@ services:
       # ——— MAJBURIY maxfiy qiymatlar (Render panelida kiritiladi) ———
       - key: BOT_TOKEN
         sync: false
-      - key: ADMINS            # masalan: 5105291033,483425630
-        sync: false
+      # Adminlar (Avto_A1 dagi bilan bir xil). Yangi admin qo'shish uchun
+      # shu qatorga vergul bilan ID qo'shing yoki panelda ADMINS_EXTRA yozing.
+      - key: ADMINS
+        value: "5105291033,483425630,5302078"
 
       # ——— Firebase (mijozlar/tovarlar doimiy saqlanishi uchun) ———
       # serviceAccount.json BUTUN matni (yoki base64). Panelda kiritiladi.
