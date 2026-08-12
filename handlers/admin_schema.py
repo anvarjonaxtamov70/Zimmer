@@ -243,6 +243,31 @@ ENTITIES: dict[str, Entity] = {
 }
 
 
+async def prepare_insert(entity: Entity, values: dict) -> dict:
+    """Yangi yozuv uchun texnik maydonlarni to'ldiradi.
+
+    `sort` — ro'yxat oxiriga qo'yiladi; `cars.slug` — nomdan yasaladi va
+    takrorlanmasligi tekshiriladi (ustun NOT NULL UNIQUE).
+
+    Bot admin paneli ham, Mini App admin paneli ham shu funksiyani
+    ishlatadi — shuning uchun ikkisi bir xil natija beradi.
+    """
+    data = dict(values)
+    if "sort" in q.EDITABLE[entity.table]:
+        data.setdefault("sort", await q.admin_next_sort(entity.table))
+
+    if entity.table == "cars":
+        base = re.sub(r"[^a-z0-9]+", "", str(data.get("name", "")).lower()) or "car"
+        slug, index = base, 1
+        existing = {row["slug"] for row in await q.get_cars(active_only=False)}
+        while slug in existing:
+            index += 1
+            slug = f"{base}{index}"
+        data["slug"] = slug
+
+    return data
+
+
 def parse_value(kind: str, raw: str):
     """Admin kiritgan matnni tekshiradi. Qaytaradi: (qiymat, xato_matni)."""
     if raw == "-":

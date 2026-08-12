@@ -518,6 +518,39 @@ DEMO_PROMOS = [
 # --------------------------------------------------------------------- ulanish
 
 
+# Media ustunlari: har bir element uchun rasm va video
+#   *_id  — Telegram file_id (admin panelda yuklanadi)
+#   *_url — tashqi manzil (Firebase Storage / sayt / CDN)
+MEDIA_COLUMNS = [
+    ("photo_id", "TEXT"),
+    ("photo_url", "TEXT"),
+    ("video_id", "TEXT"),
+    ("video_url", "TEXT"),
+]
+
+# Eski bazalarga qo'shiladigan ustunlar (`_migrate` shu ro'yxat bo'yicha ishlaydi).
+# Modul darajasida turadi — qaysi ustunlar qayerda borligini bir joydan ko'rish
+# mumkin bo'lsin.
+MIGRATIONS: dict[str, list[tuple[str, str]]] = {
+    "users": [("car_id", "INTEGER")],
+    "products": [
+        ("car_id", "INTEGER"),
+        ("old_price", "INTEGER"),
+        ("badge", "TEXT"),
+        ("external_id", "TEXT"),
+        ("sort", "INTEGER NOT NULL DEFAULT 0"),
+        *MEDIA_COLUMNS,
+    ],
+    "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
+    "cars": [*MEDIA_COLUMNS],
+    "biled_types": [*MEDIA_COLUMNS],
+    "shrouds": [*MEDIA_COLUMNS],
+    "optic_colors": [*MEDIA_COLUMNS],
+    "banners": [*MEDIA_COLUMNS],
+    "stories": [*MEDIA_COLUMNS],
+}
+
+
 async def init_db() -> aiosqlite.Connection:
     global _db
     _db = await aiosqlite.connect(config.db_path)
@@ -554,35 +587,7 @@ async def _columns(table: str) -> set[str]:
 async def _migrate() -> None:
     """Eski bazalarga yangi ustunlarni qo'shadi (ma'lumot yo'qotmasdan)."""
     db = get_db()
-    # Media ustunlari: har bir element uchun rasm va video
-    #   *_id  — Telegram file_id (admin panelda yuklanadi)
-    #   *_url — tashqi manzil (Firebase Storage / sayt / CDN)
-    media = [
-        ("photo_id", "TEXT"),
-        ("photo_url", "TEXT"),
-        ("video_id", "TEXT"),
-        ("video_url", "TEXT"),
-    ]
-
-    additions = {
-        "users": [("car_id", "INTEGER")],
-        "products": [
-            ("car_id", "INTEGER"),
-            ("old_price", "INTEGER"),
-            ("badge", "TEXT"),
-            ("external_id", "TEXT"),
-            ("sort", "INTEGER NOT NULL DEFAULT 0"),
-            *media,
-        ],
-        "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
-        "cars": [*media],
-        "biled_types": [*media],
-        "shrouds": [*media],
-        "optic_colors": [*media],
-        "banners": [*media],
-        "stories": [*media],
-    }
-    for table, columns in additions.items():
+    for table, columns in MIGRATIONS.items():
         existing = await _columns(table)
         for column, ddl in columns:
             if column not in existing:

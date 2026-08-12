@@ -18,7 +18,6 @@ Callback sxemasi (64 baytga sig'adi):
 """
 
 import logging
-import re
 from collections.abc import Sequence
 
 from aiogram import F, Router
@@ -34,7 +33,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database import queries as q
-from handlers.admin_schema import ENTITIES, Entity, Field, parse_value
+from handlers.admin_schema import ENTITIES, Entity, Field, parse_value, prepare_insert
 from keyboards.reply import cancel_kb, main_menu
 from utils.filters import IsAdmin
 from utils.helpers import fmt_price
@@ -596,17 +595,8 @@ async def _create_entity(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     entity = ENTITIES[data["key"]]
     values = {k: v for k, v in data["values"].items() if v is not None}
-
-    if "sort" in q.EDITABLE[entity.table]:
-        values.setdefault("sort", await q.admin_next_sort(entity.table))
-    if entity.table == "cars":
-        base = re.sub(r"[^a-z0-9]+", "", str(values.get("name", "")).lower()) or "car"
-        slug, index = base, 1
-        existing = {row["slug"] for row in await q.get_cars(active_only=False)}
-        while slug in existing:
-            index += 1
-            slug = f"{base}{index}"
-        values["slug"] = slug
+    # sort va cars.slug — Mini App admin paneli bilan umumiy mantiq
+    values = await prepare_insert(entity, values)
 
     try:
         row_id = await q.admin_insert(entity.table, values)

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ZIMMER — Bi-LED avtotuning Mini App
+   ZIMMER — avtotuning Mini App
 
    Oqim: salom → mashina → Bi-LED linza → ochki → optika rangi → buyurtma
          → asosiy menyu (stories, bannerlar, aksiyalar, mahsulotlar)
@@ -301,14 +301,14 @@
 
   /* ---------------------------------------------------------- navigatsiya */
   function show(page) {
-    ["splash", "gate", "flow", "home", "cart", "profile"].forEach((p) => {
+    ["splash", "gate", "flow", "home", "cart", "profile", "admin"].forEach((p) => {
       const node = $(p);
       if (node) node.classList.toggle("hidden", p !== page);
     });
     S.page = page;
 
     // konfiguratorda o'zining sticky CTA'si bor — navbar yashiriladi
-    const navVisible = ["home", "cart", "profile"].includes(page) && S.me;
+    const navVisible = ["home", "cart", "profile", "admin"].includes(page) && S.me;
     $("nav").classList.toggle("hidden", !navVisible);
     document
       .querySelectorAll(".nav-btn")
@@ -316,6 +316,7 @@
 
     if (page === "cart") renderCart();
     if (page === "profile") loadProfile();
+    if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
     window.scrollTo({ top: 0 });
     syncBackButton();
@@ -329,6 +330,8 @@
   }
 
   function goBack() {
+    // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz
+    if (S.page === "admin" && window.ZimmerAdmin && window.ZimmerAdmin.back()) return;
     if (S.page === "flow" && S.step > 1) return setStep(S.step - 1);
     if (S.page !== "home") return show("home");
   }
@@ -1392,8 +1395,14 @@
 
       const name = (me.full_name || me.first_name || "").split(" ")[0];
       $("splash-hello").innerHTML = `
-        <h1>Assalomu alaykum${name ? ", " + esc(name) : ""}! 👋</h1>
-        <p>Faralaringizni Bi-LED bilan yangilaymiz</p>`;
+        <h1>Assalomu alaykum${name ? ", " + esc(name) : ""}</h1>
+        <p>Faralaringizni yangilaymiz</p>`;
+
+      // Admin bo'lsa — pastdagi menyuda «Boshqaruv» tugmasi paydo bo'ladi
+      if (me.is_admin) {
+        const adminBtn = $("nav-admin");
+        if (adminBtn) adminBtn.classList.remove("hidden");
+      }
 
       S.cars = await api("/api/cars");
       if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
@@ -1417,6 +1426,23 @@
       }
     };
   }
+
+  /* ---------------------------------------------------- admin panel ko'prigi
+     admin.js alohida fayl (app.js dan oldin yuklanadi). U shu ko'prik
+     orqali API, toast, haptic va boshqa yordamchilarni ishlatadi — kod
+     ikki joyda takrorlanmasin. */
+  window.ZIMMER_APP = {
+    api: api,
+    toast: toast,
+    haptic: haptic,
+    esc: esc,
+    fmt: fmt,
+    ask: ask,
+    show: show,
+    abs: abs,
+    apiBase: () => API,
+    state: S,
+  };
 
   /* --------------------------------------------------------------- hodisa */
   document.querySelectorAll(".nav-btn").forEach((btn) => {

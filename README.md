@@ -71,7 +71,30 @@ Sozlash: `SERVICE_ACCOUNT_JSON`, `FIREBASE_DB_URL`, `FIREBASE_ROOT` —
 batafsil [DEPLOY.md](DEPLOY.md). Firebase ulanmasa ham hammasi ishlaydi
 (faqat mahalliy bazada saqlanadi).
 
-## ⚙️ Admin panel (`/admin`)
+## 📱 Admin panel — ilova ichida
+
+Ilovaning pastidagi menyuda adminlarga **⚙️ Admin** tugmasi ko'rinadi
+(oddiy mijozlarga ko'rinmaydi). U yerda:
+
+- **Statistika** — savdo, buyurtmalar, mijozlar soni;
+- **Buyurtmalar** — Bi-LED, do'kon va navbatlar; holatni bir bosishda
+  o'zgartirasiz, mijozga xabar avtomatik ketadi;
+- **Katalogni boshqarish** — 10 bo'limning hammasi: Bi-LED linzalar,
+  ochkilar, optika ranglari, mashinalar, mahsulotlar, kategoriyalar,
+  xizmatlar, bannerlar, stories, aksiyalar.
+
+Har bir element uchun: barcha maydonlarni tahrirlash, **rasm/video
+yuklash** (telefondan tanlaysiz yoki URL yozasiz), yashirish/ko'rsatish,
+o'chirish va yangi qo'shish.
+
+> Forma maydonlari serverdagi `handlers/admin_schema.py` dan olinadi —
+> ya'ni bot paneli bilan bitta manba. Yangi maydon qo'shilsa, ilovada
+> o'zi paydo bo'ladi.
+>
+> Yuklangan fayllar Telegram'da saqlanadi (`file_id`), shuning uchun
+> alohida fayl ombori (S3 va h.k.) kerak emas.
+
+## ⚙️ Admin panel — bot ichida (`/admin`)
 
 - 🔥 **Bi-LED buyurtmalar** — to'liq konfiguratsiya ko'rinadi (mashina, linza, ochki, rang, narx)
   - holatlar: 🆕 yangi → ✅ qabul → 🔧 ishda → ✨ topshirildi (mijozga avtomatik xabar)
@@ -201,7 +224,13 @@ Zimmer/
 │   └── js/
 │       ├── headlight.js   # parametrik fara SVG
 │       ├── cars.js        # mashina siluetlari
-│       └── app.js         # oqim, asosiy menyu, stories
+│       ├── app.js         # oqim, asosiy menyu, stories
+│       └── admin.js       # ilova ichidagi admin panel
+├── api/
+│   ├── routes.py          # Mini App API (mijoz uchun)
+│   ├── admin.py           # Mini App admin API (katalog CRUD, media, buyurtma)
+│   ├── auth.py            # initData imzosini tekshirish
+│   └── media.py           # rasm/video oqimi (Telegram file_id proksisi)
 ├── services/
 │   ├── firebase.py        # RTDB REST + service-account token
 │   ├── sync.py            # mijoz/tovar/buyurtma sinxronizatsiyasi
@@ -240,6 +269,10 @@ Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
 | GET | `/api/config` | brend, valyuta, ish vaqti |
 | GET | `/api/me` · POST `/api/me/car` | profil, mashinani saqlash |
 | POST | `/api/register` | ilova ichida ism + telefon saqlash |
+| GET | `/api/admin/summary` · `/api/admin/schema` | admin: statistika, bo'limlar tavsifi |
+| GET/POST/PATCH/DELETE | `/api/admin/section/{key}[/{id}]` | admin: katalog CRUD |
+| POST/DELETE | `/api/admin/section/{key}/{id}/media[/{kind}]` | admin: rasm/video |
+| GET/POST | `/api/admin/orders[/{kind}/{id}/status]` | admin: buyurtmalar va holat |
 | GET | `/api/cars` | mashinalar |
 | GET | `/api/tuning` | linzalar + ochkilar + ranglar |
 | POST/GET | `/api/biled-orders` | konfiguratsiya buyurtmasi |
