@@ -26,6 +26,7 @@ Rasm/video yuklash:
   Ya'ni Telegram o'zi bepul va ishonchli "fayl ombori" bo'lib qoladi.
 """
 
+import json
 import logging
 
 from aiogram.types import BufferedInputFile
@@ -227,6 +228,13 @@ def _serialize(entity: Entity, row) -> dict:
 # ------------------------------------------------------------------- dashboard
 
 
+# Bosh menyuda ko'rsatilmaydigan bo'limlar (o'z alohida oynasi bor)
+MENU_HIDDEN = {"prd"}
+
+# Ombor chegaralari: shu sondan kam qolsa "kam qoldi" deb belgilanadi
+LOW_STOCK = 3
+
+
 @admin_routes.get("/api/admin/summary")
 async def admin_summary(request: web.Request) -> web.Response:
     """Panelning bosh menyusi: bo'limlar va ularning sonlari.
@@ -238,6 +246,11 @@ async def admin_summary(request: web.Request) -> web.Response:
 
     sections = []
     for entity in ENTITIES.values():
+        # «Mahsulotlar» bo'limi menyuda ko'rsatilmaydi — uning o'rniga
+        # «Ombor» va «Tovar qo'shish» oynalari bor (tahrirlash shu entity
+        # orqali ishlaydi, faqat menyudan yashirilgan).
+        if entity.key in MENU_HIDDEN:
+            continue
         try:
             count = await q.admin_count(entity.table)
         except Exception as error:
@@ -567,7 +580,8 @@ async def section_media_upload(request: web.Request) -> web.Response:
         raise bad_request("Fayl yuborilmadi") from error
 
     kind = str(form.get("kind") or "photo")
-    if kind not in ("photo", "video"):
+    # photo2/photo3 — mahsulotning qo'shimcha rasmlari
+    if kind not in ("photo", "photo2", "photo3", "video"):
         raise bad_request("Faqat rasm yoki video")
     if f"{kind}_id" not in q.EDITABLE[entity.table]:
         raise bad_request("Bu bo'limga media qo'yilmaydi")
@@ -576,7 +590,7 @@ async def section_media_upload(request: web.Request) -> web.Response:
     if upload is None or not hasattr(upload, "file"):
         raise bad_request("Fayl tanlanmadi")
 
-    limit = MAX_PHOTO_BYTES if kind == "photo" else MAX_VIDEO_BYTES
+    limit = MAX_VIDEO_BYTES if kind == "video" else MAX_PHOTO_BYTES
     data = upload.file.read(limit + 1)
     if not data:
         raise bad_request("Fayl bo'sh")
@@ -589,7 +603,7 @@ async def section_media_upload(request: web.Request) -> web.Response:
     caption = f"{entity.icon} {entity.title} #{row_id} — {kind} yuklandi (ilova orqali)"
 
     try:
-        if kind == "photo":
+        if kind != "video":
             message = await bot.send_photo(admin_id, document, caption=caption)
             file_id = message.photo[-1].file_id
         else:
@@ -616,7 +630,7 @@ async def section_media_clear(request: web.Request) -> web.Response:
     row_id = _row_id(request)
     kind = request.match_info["kind"]
 
-    if kind not in ("photo", "video"):
+    if kind not in ("photo", "photo2", "photo3", "video"):
         raise bad_request("Faqat rasm yoki video")
     if f"{kind}_id" not in q.EDITABLE[entity.table]:
         raise bad_request("Bu bo'limga media qo'yilmaydi")
@@ -792,3 +806,227 @@ async def admin_order_status(request: web.Request) -> web.Response:
             "closed": orders.is_final(kind, status),
         }
     )
+
+
+
+# ==========================================================================
+# OMBOR (inventory) va YANGI TOVAR QO'SHISH
+#
+# «Mahsulotlar» bo'limi o'rniga ikki alohida oyna:
+#   • Ombor — qoldiqni tez ko'rish va o'zgartirish (kam qolgan/tugagan);
+#   • Tovar qo'shish — to'liq forma (rasmlar, nom, narx, aksiya, razmerlar).
+#
+# Razmerli tovarda qoldiq `sizes` (JSON) ichida saqlanadi:
+#     [{"size": "92.5", "stock": 4}, ...]
+# Bunda `stock` ustuni razmerlar yig'indisiga teng bo'lib turadi — savat va
+# buyurtma mantig'i o'zgarmaydi (u faqat `stock` bilan ishlaydi).
+# ==========================================================================
+
+
+def _parse_sizes(raw) -> list[dict]:
+    """Razmerlar ro'yxatini tozalab qaytaradi (bo'sh qatorlar tashlanadi)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        size = str(item.get("size") or "").strip()[:40]
+        if not size:
+            continue
+        try:
+            stock = max(0, int(item.get("stock") or 0))
+        except (TypeError, ValueError):
+            stock = 0
+        out.append({"size": size, "stock": stock})
+    return out[:40]
+
+
+def _sizes_of(row) -> list[dict]:
+    keys = row.keys()
+    return _parse_sizes(row["sizes"]) if "sizes" in keys else []
+
+
+def _inventory_item(row) -> dict:
+    keys = row.keys()
+    sizes = _sizes_of(row)
+    stock = int(row["stock"] or 0)
+    photo, _ = media_url("products", row, "photo")
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "code": row["code"] if "code" in keys else None,
+        "price": int(row["price"] or 0),
+        "price_label": fmt_price(row["price"] or 0),
+        "old_price": int(row["old_price"]) if ("old_price" in keys and row["old_price"]) else None,
+        "stock": stock,
+        "unit": (row["unit"] if "unit" in keys else None) or "dona",
+        "product_type": (row["product_type"] if "product_type" in keys else None) or "oddiy",
+        "sizes": sizes,
+        "is_active": bool(row["is_active"]),
+        "photo_url": photo,
+        "low": 0 < stock <= LOW_STOCK,
+        "out": stock <= 0,
+    }
+
+
+@admin_routes.get("/api/admin/inventory")
+async def admin_inventory(request: web.Request) -> web.Response:
+    """Ombor: barcha tovar + xulosa (jami / kam qolgan / tugagan / qiymat)."""
+    await _admin_id(request)
+
+    rows = await q.admin_list("products", limit=500)
+    items = [_inventory_item(row) for row in rows]
+
+    # Tartib: tugagan → kam qolgan → yetarli (eng muhimi tepada)
+    items.sort(key=lambda i: 0 if i["out"] else (1 if i["low"] else 2))
+
+    total_value = sum(i["price"] * i["stock"] for i in items)
+    return web.json_response(
+        {
+            "items": items,
+            "summary": {
+                "total": len(items),
+                "low": sum(1 for i in items if i["low"]),
+                "out": sum(1 for i in items if i["out"]),
+                "hidden": sum(1 for i in items if not i["is_active"]),
+                "value": total_value,
+                "value_label": fmt_price(total_value),
+            },
+            "low_stock": LOW_STOCK,
+        }
+    )
+
+
+@admin_routes.post("/api/admin/inventory/{row_id}/stock")
+async def admin_inventory_stock(request: web.Request) -> web.Response:
+    """Qoldiqni tez saqlash. Oddiy tovar: {stock}. Razmerli: {sizes:[...]}."""
+    admin_id = await _admin_id(request)
+    try:
+        row_id = int(request.match_info["row_id"])
+    except ValueError as error:
+        raise bad_request("Noto'g'ri id") from error
+
+    row = await q.admin_get("products", row_id)
+    if not row:
+        raise not_found("Tovar topilmadi")
+
+    body = await _body(request)
+
+    if "sizes" in body:
+        sizes = _parse_sizes(body.get("sizes"))
+        total = sum(s["stock"] for s in sizes)
+        await q.admin_update("products", row_id, "sizes", json.dumps(sizes, ensure_ascii=False))
+        await q.admin_update("products", row_id, "product_type", "razmerli")
+        await q.admin_update("products", row_id, "stock", total)
+    else:
+        try:
+            stock = max(0, int(body.get("stock") or 0))
+        except (TypeError, ValueError) as error:
+            raise bad_request("Qoldiq noto'g'ri") from error
+        await q.admin_update("products", row_id, "stock", stock)
+
+    await sync.push_catalog("products", row_id)
+    fresh = await q.admin_get("products", row_id)
+    logger.info("Admin %s #%s qoldig'ini yangiladi", admin_id, row_id)
+    return web.json_response({"ok": True, "item": _inventory_item(fresh)})
+
+
+@admin_routes.post("/api/admin/products")
+async def admin_create_product(request: web.Request) -> web.Response:
+    """Yangi tovar (to'liq forma: rasmlar, nom, narx, aksiya, razmerlar).
+
+    Rasmlar ikki yo'l bilan keladi:
+      • URL — shu yerda saqlanadi (photo_url / photo2_url / photo3_url);
+      • telefondan fayl — element yaratilgandan keyin `.../media` orqali
+        yuklanadi (mavjud oqim, Telegram file_id sifatida saqlanadi).
+    """
+    admin_id = await _admin_id(request)
+    body = await _body(request)
+
+    name = str(body.get("name") or "").strip()[:160]
+    if len(name) < 2:
+        raise bad_request("Tovar nomini yozing")
+
+    def money(key: str) -> int | None:
+        raw = body.get(key)
+        if raw in (None, "", "null"):
+            return None
+        digits = "".join(ch for ch in str(raw) if ch.isdigit())
+        return int(digits) if digits else None
+
+    price = money("price")
+    if not price:
+        raise bad_request("Narxni kiriting")
+
+    old_price = money("old_price")
+    if old_price is not None and old_price <= price:
+        # Aksiya narxi asl narxdan past bo'lishi kerak — aks holda chegirma yo'q
+        old_price = None
+
+    product_type = "razmerli" if str(body.get("product_type") or "") == "razmerli" else "oddiy"
+    sizes = _parse_sizes(body.get("sizes")) if product_type == "razmerli" else []
+    if product_type == "razmerli" and not sizes:
+        raise bad_request("Kamida bitta razmer va uning soni kerak")
+
+    if product_type == "razmerli":
+        stock = sum(s["stock"] for s in sizes)
+    else:
+        try:
+            stock = max(0, int(body.get("stock") or 0))
+        except (TypeError, ValueError):
+            stock = 0
+
+    unit = "komplekt" if str(body.get("unit") or "") == "komplekt" else "dona"
+
+    car_id = None
+    raw_car = body.get("car_id")
+    if raw_car not in (None, "", "null"):
+        try:
+            car_id = int(raw_car)
+        except (TypeError, ValueError):
+            car_id = None
+
+    values: dict = {
+        "name": name,
+        "price": price,
+        "stock": stock,
+        "unit": unit,
+        "product_type": product_type,
+        "sizes": json.dumps(sizes, ensure_ascii=False) if sizes else None,
+        "description": str(body.get("description") or "").strip()[:2000] or None,
+        "code": str(body.get("code") or "").strip()[:60] or None,
+        "badge": str(body.get("badge") or "").strip()[:40] or None,
+        "old_price": old_price,
+        "car_id": car_id,
+    }
+
+    # Rasm manzillari (ixtiyoriy)
+    for column, key in (
+        ("photo_url", "photo_url"),
+        ("photo2_url", "photo2_url"),
+        ("photo3_url", "photo3_url"),
+    ):
+        url = str(body.get(key) or "").strip()
+        if url.startswith("http"):
+            values[column] = url[:500]
+
+    values = {column: value for column, value in values.items() if value is not None}
+    entity = ENTITIES["prd"]
+    values = await prepare_insert(entity, values)  # standart kategoriya + tartib
+
+    try:
+        row_id = await q.admin_insert("products", values)
+    except Exception as error:
+        logger.warning("Tovar qo'shilmadi: %s", error)
+        raise bad_request(f"Qo'shilmadi: {error}") from error
+
+    await sync.push_catalog("products", row_id)
+    row = await q.admin_get("products", row_id)
+    logger.info("Admin %s yangi tovar qo'shdi: #%s «%s»", admin_id, row_id, name)
+    return web.json_response({"ok": True, "item": _inventory_item(row)}, status=201)
