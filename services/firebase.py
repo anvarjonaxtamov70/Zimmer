@@ -126,12 +126,26 @@ def _refresh_blocking() -> str | None:
         return None
 
     try:
+        # DIQQAT: `google.auth.transport.requests` ichida `requests` kutubxonasi
+        # kerak bo'ladi. `google-auth` uni O'ZI O'RNATMAYDI — u qo'shimcha
+        # ("extra") hisoblanadi. Shuning uchun requirements.txt da
+        # `google-auth[requests]` deb yozilgan. Aks holda shu yerda ImportError
+        # bo'lib, Firebase jimgina o'chib qolardi.
         import google.auth.transport.requests
         from google.oauth2 import service_account
-    except ImportError:
-        _last_error = "google-auth kutubxonasi o'rnatilmagan (requirements.txt ni tekshiring)."
+    except ImportError as error:
+        missing = getattr(error, "name", None) or "google-auth"
+        _last_error = (
+            f"«{missing}» kutubxonasi o'rnatilmagan. requirements.txt da "
+            "`google-auth[requests]` borligini tekshirib, Render'da qayta "
+            "deploy qiling (Clear build cache bilan)."
+        )
         if not _warned:
-            logger.warning("google-auth o'rnatilmagan — Firebase sinxronizatsiyasi o'chirilgan.")
+            logger.warning(
+                "Firebase uchun kutubxona yetishmaydi (%s): %s — sinxronizatsiya o'chirilgan.",
+                missing,
+                error,
+            )
             _warned = True
         return None
 

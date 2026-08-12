@@ -4,4 +4,9 @@ python-dotenv>=1.0
 aiohttp>=3.9
 tzdata>=2024.1
 # Firebase Realtime Database (mijozlar va tovarlarni doimiy saqlash uchun)
-google-auth>=2.30
+#
+# [requests] qo'shimchasi MAJBURIY: google-auth token yangilash uchun
+# `google.auth.transport.requests` modulini ishlatadi, u esa `requests`
+# kutubxonasiga tayanadi. google-auth uni o'zi o'rnatmaydi — shuning uchun
+# `google-auth` deb yozilsa, Firebase jimgina ishlamay qolardi.
+google-auth[requests]>=2.30
