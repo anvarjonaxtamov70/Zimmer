@@ -353,6 +353,7 @@ async def push_biled_order(order) -> None:
 async def push_order(order, items_list) -> None:
     if not firebase.is_enabled():
         return
+    keys = order.keys()
     await firebase.put(
         f"orders/{order['id']}",
         {
@@ -361,6 +362,10 @@ async def push_order(order, items_list) -> None:
             "name": order["full_name"],
             "phone": order["phone"],
             "address": order["address"],
+            # Yetkazib berish va to'lov usuli — deploy/tozalashdan keyin ham qaytadi
+            "deliveryMethod": order["delivery_method"] if "delivery_method" in keys else None,
+            "deliveryInfo": order["delivery_info"] if "delivery_info" in keys else None,
+            "paymentMethod": order["payment_method"] if "payment_method" in keys else None,
             "total": order["total"],
             "status": order["status"],
             "items": [
@@ -604,6 +609,9 @@ async def restore_orders() -> dict[str, int]:
                     "total": int(item.get("total") or 0),
                     "address": item.get("address"),
                     "phone": item.get("phone"),
+                    "delivery_method": item.get("deliveryMethod"),
+                    "delivery_info": item.get("deliveryInfo"),
+                    "payment_method": item.get("paymentMethod"),
                     "status": item.get("status") or "new",
                     "created_at": _created_at(item.get("createdAt")),
                 },

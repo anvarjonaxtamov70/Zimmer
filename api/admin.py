@@ -677,11 +677,20 @@ def _order_row(kind: str, row) -> dict:
             }
         )
     elif kind == "order":
+        # Yetkazib berish va to'lov usulini admin ko'rishi uchun izohga qo'shamiz
+        note_parts = []
+        if values.get("delivery_info"):
+            note_parts.append(f"🚚 {values['delivery_info']}")
+        if values.get("payment_method"):
+            note_parts.append(f"💳 {values['payment_method']}")
         item.update(
             {
                 "total": values.get("total"),
                 "total_label": fmt_price(values.get("total") or 0),
                 "summary": values.get("address") or "",
+                "comment": "\n".join(note_parts) or None,
+                "delivery_method": values.get("delivery_method"),
+                "payment_method": values.get("payment_method"),
             }
         )
     else:

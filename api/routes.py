@@ -157,6 +157,12 @@ async def api_config(_request: web.Request) -> web.Response:
             "work_end_hour": config.work_end_hour,
             "slot_minutes": config.slot_minutes,
             "booking_days_ahead": config.booking_days_ahead,
+            # To'lov (karta) rekvizitlari va yetkazib berish shahri —
+            # savatchadagi to'lov oynasi shulardan foydalanadi.
+            "pay_card_number": config.pay_card_number,
+            "pay_card_holder": config.pay_card_holder,
+            "pay_admin_username": config.pay_admin_username,
+            "delivery_city": config.delivery_city,
         }
     )
 
@@ -756,7 +762,23 @@ async def api_create_order(request: web.Request) -> web.Response:
     if not phone:
         raise bad_request("Telefon raqam noto'g'ri")
 
-    order_id, problems = await q.create_order_from_items(user_id, items, address, phone)
+    # Yetkazib berish va to'lov usuli (Mini App'dagi savatcha oqimidan).
+    delivery_method = str(body.get("delivery_method", "")).strip().lower()
+    if delivery_method not in ("courier", "bts", ""):
+        raise bad_request("Yetkazib berish usuli noto'g'ri")
+    delivery_method = delivery_method or None
+    delivery_info = str(body.get("delivery_info", "")).strip()[:400] or None
+    payment_method = str(body.get("payment_method", "")).strip()[:120] or None
+
+    order_id, problems = await q.create_order_from_items(
+        user_id,
+        items,
+        address,
+        phone,
+        delivery_method=delivery_method,
+        delivery_info=delivery_info,
+        payment_method=payment_method,
+    )
     if order_id is None:
         raise ApiError(
             409,
@@ -773,6 +795,14 @@ async def api_create_order(request: web.Request) -> web.Response:
         for item in order_items
     ]
 
+    # Yetkazib berish/to'lov qatorlari (bo'lsa) — xabarlarga qo'shiladi
+    meta_lines = []
+    if delivery_info:
+        meta_lines.append(f"🚚 {delivery_info}")
+    if payment_method:
+        meta_lines.append(f"💳 To'lov: <b>{payment_method}</b>")
+    meta_block = ("\n" + "\n".join(meta_lines)) if meta_lines else ""
+
     bot = request.app["bot"]
     await notify_admins(
         bot,
@@ -780,7 +810,8 @@ async def api_create_order(request: web.Request) -> web.Response:
         f"🆔 #{order_id}\n"
         f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
         f"📞 {phone}\n"
-        f"📍 {address}\n\n" + "\n".join(lines) + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>",
+        f"📍 {address}"
+        f"{meta_block}\n\n" + "\n".join(lines) + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>",
         admin_new_order_kb(order_id),
     )
     try:
@@ -789,7 +820,8 @@ async def api_create_order(request: web.Request) -> web.Response:
             f"✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n🆔 #{order_id}\n"
             + "\n".join(lines)
             + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>\n"
-            f"📍 {address}\n\nOperator tez orada bog'lanadi.",
+            f"📍 {address}"
+            f"{meta_block}\n\nOperator tez orada bog'lanadi.",
         )
     except Exception as error:
         logger.warning("Buyurtma tasdiqi yuborilmadi: %s", error)
@@ -822,6 +854,9 @@ async def api_my_orders(request: web.Request) -> web.Response:
                 "status": order["status"],
                 "status_label": ORDER_STATUS.get(order["status"], order["status"]),
                 "address": order["address"],
+                "delivery_method": order["delivery_method"],
+                "delivery_info": order["delivery_info"],
+                "payment_method": order["payment_method"],
                 "created_at": order["created_at"],
                 "items": [
                     {

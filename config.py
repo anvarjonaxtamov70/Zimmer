@@ -121,6 +121,11 @@ class Config:
     firebase_root: str
     service_account_file: str
     init_data_max_age_hours: int
+    # To'lov (karta o'tkazma) va yetkazib berish sozlamalari
+    pay_card_number: str
+    pay_card_holder: str
+    pay_admin_username: str
+    delivery_city: str
 
     @property
     def has_mini_app(self) -> bool:
@@ -168,6 +173,17 @@ config = Config(
     # Telegram ilova sahifasini keshlaydi va eski imzoni yuboradi, 24 soat
     # kam edi — mijoz "tasdiqlanmadi" ekranida qolib ketardi. 0 — cheksiz.
     init_data_max_age_hours=_int_env("INIT_DATA_MAX_AGE_HOURS", 24 * 7),
+    # ---- To'lov va yetkazib berish ----
+    # Karta orqali o'tkazma uchun rekvizitlar. Mijoz "Karta orqali" ni
+    # tanlasa, shu raqamni ko'radi va nusxalaydi. Chekni yuborish uchun
+    # `pay_admin_username` chati ochiladi. Hammasi env'dan boshqariladi.
+    pay_card_number=os.getenv("PAY_CARD_NUMBER", "5614 6818 7479 6349").strip(),
+    pay_card_holder=os.getenv("PAY_CARD_HOLDER", "AXTAMOV ANVARJON").strip(),
+    pay_admin_username=os.getenv("PAY_ADMIN_USERNAME", "anvaraxtamov2004")
+    .strip()
+    .lstrip("@"),
+    # Kuryer faqat shu shahar ichida ishlaydi (BTS pochta — boshqa hududlarga).
+    delivery_city=os.getenv("DELIVERY_CITY", "Toshkent").strip(),
 )
 
 
