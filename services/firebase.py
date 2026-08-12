@@ -37,25 +37,64 @@ _creds = None
 _warned = False
 _session: aiohttp.ClientSession | None = None
 
+# Oxirgi muvaffaqiyatsizlik sababi (adminga ko'rsatiladi). Loglarga qarash
+# shart bo'lmasin — nima xato ekani bevosita aytiladi.
+_last_error: str | None = None
+
+
+def last_error() -> str | None:
+    return _last_error
+
+
+def diagnose() -> str:
+    """Firebase holati haqida odam tushunadigan qisqa izoh."""
+    if not config.firebase_db_url:
+        return "FIREBASE_DB_URL berilmagan."
+    if is_enabled():
+        return "Firebase ulangan — ma'lumotlar doimiy saqlanadi. ✅"
+    if _last_error:
+        return _last_error
+    return "Firebase tokeni hali olinmadi (ulanish kutilmoqda)."
+
 
 # --------------------------------------------------------------------- token
 
 
 def _service_account_info() -> dict | None:
     """Service-account ma'lumotini env yoki fayldan o'qiydi."""
+    global _last_error
     raw = os.getenv("SERVICE_ACCOUNT_JSON", "").strip()
     if raw:
         if not raw.lstrip().startswith("{"):
             try:
                 raw = base64.b64decode(raw).decode("utf-8")
             except Exception as error:
+                _last_error = (
+                    "SERVICE_ACCOUNT_JSON base64 sifatida ochilmadi. Butun "
+                    "serviceAccount.json faylini base64 ga o'giring yoki JSON "
+                    "matnini to'liq qo'ying."
+                )
                 logger.error("SERVICE_ACCOUNT_JSON base64 dekod xatosi: %s", error)
                 return None
         try:
-            return json.loads(raw)
+            info = json.loads(raw)
         except json.JSONDecodeError as error:
+            _last_error = (
+                "SERVICE_ACCOUNT_JSON yaroqsiz JSON. Odatda sabab: matn to'liq "
+                "nusxalanmagan yoki private_key dagi yangi qatorlar buzilgan. "
+                "Eng ishonchli yo'l — faylni base64 ga o'girib qo'yish."
+            )
             logger.error("SERVICE_ACCOUNT_JSON yaroqsiz JSON: %s", error)
             return None
+        if not isinstance(info, dict) or "private_key" not in info or "client_email" not in info:
+            _last_error = (
+                "SERVICE_ACCOUNT_JSON to'liq emas (private_key / client_email yo'q). "
+                "Firebase Console → Project settings → Service accounts → "
+                "«Generate new private key» dan olingan faylni to'liq qo'ying."
+            )
+            logger.error("SERVICE_ACCOUNT_JSON to'liq emas")
+            return None
+        return info
 
     path = config.service_account_file
     if path and os.path.exists(path):
@@ -63,21 +102,26 @@ def _service_account_info() -> dict | None:
             with open(path, encoding="utf-8") as file:
                 return json.load(file)
         except Exception as error:
+            _last_error = f"serviceAccount.json fayli o'qilmadi: {error}"
             logger.error("serviceAccount.json o'qilmadi: %s", error)
+            return None
+
+    _last_error = (
+        "SERVICE_ACCOUNT_JSON berilmagan. Render panelida shu o'zgaruvchini "
+        "qo'shing (serviceAccount.json ning base64 ko'rinishi)."
+    )
     return None
 
 
 def _refresh_blocking() -> str | None:
     """BLOKLAYDI — faqat asyncio.to_thread ichida chaqirilsin."""
-    global _creds, _warned
+    global _creds, _warned, _last_error
 
     info = _service_account_info()
     if not info:
+        # _last_error _service_account_info ichida aniq sabab bilan qo'yiladi
         if not _warned:
-            logger.info(
-                "Firebase sozlanmagan (SERVICE_ACCOUNT_JSON yo'q) — "
-                "ma'lumotlar faqat mahalliy bazada saqlanadi."
-            )
+            logger.info("Firebase sozlanmagan — ma'lumotlar faqat mahalliy bazada saqlanadi.")
             _warned = True
         return None
 
@@ -85,6 +129,7 @@ def _refresh_blocking() -> str | None:
         import google.auth.transport.requests
         from google.oauth2 import service_account
     except ImportError:
+        _last_error = "google-auth kutubxonasi o'rnatilmagan (requirements.txt ni tekshiring)."
         if not _warned:
             logger.warning("google-auth o'rnatilmagan — Firebase sinxronizatsiyasi o'chirilgan.")
             _warned = True
@@ -95,8 +140,23 @@ def _refresh_blocking() -> str | None:
             _creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
         if not _creds.valid:
             _creds.refresh(google.auth.transport.requests.Request())
+        _last_error = None  # muvaffaqiyat — eski xatoni tozalaymiz
         return _creds.token
     except Exception as error:
+        _creds = None  # buzuq creds keshda qolmasin, keyingi urinishда qayta yasaladi
+        text = str(error).lower()
+        if "invalid_grant" in text or "jwt" in text or "signature" in text:
+            _last_error = (
+                "Firebase kaliti rad etildi (invalid_grant). Ehtimol kalit eski/o'chirilgan "
+                "yoki server vaqti noto'g'ri. Firebase'da yangi private key oling."
+            )
+        elif "could not" in text or "unpad" in text or "padding" in text or "key" in text:
+            _last_error = (
+                "private_key o'qilmadi — matn buzilgan bo'lishi mumkin. "
+                "serviceAccount.json ni base64 ga o'girib qo'ying."
+            )
+        else:
+            _last_error = f"Firebase token olinmadi: {error}"
         logger.error("Firebase token olinmadi: %s", error)
         return None
 

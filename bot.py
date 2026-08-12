@@ -34,18 +34,14 @@ async def _startup_report(bot: Bot) -> None:
     if config.has_firebase and firebase.is_enabled():
         return
 
-    reason = (
-        "<code>FIREBASE_DB_URL</code> berilmagan"
-        if not config.has_firebase
-        else "<code>SERVICE_ACCOUNT_JSON</code> bilan token olinmadi"
-    )
     await notify_admins(
         bot,
         "⚠️ <b>Diqqat: doimiy saqlash o'chiq</b>\n\n"
-        f"Sabab: {reason}.\n\n"
+        f"Sabab: {firebase.diagnose()}\n\n"
         "Bot ishlaydi, lekin mijozlar ro'yxati faqat vaqtinchalik bazada. "
         "Render bepul tarifida qayta deployda u tozalanadi — mijozlar "
         "qaytadan ro'yxatdan o'tishga majbur bo'ladi.\n\n"
+        "Tuzatgandan keyin /firebase buyrug'i bilan tekshiring.\n\n"
         f"Adminlar hozir: {len(all_admins())} ta (ular yo'qolmaydi — kodda saqlangan).",
     )
 

@@ -22,7 +22,7 @@ from keyboards.inline import (
 )
 from keyboards.reply import cancel_kb, main_menu
 from services import admins as admin_registry
-from services import orders
+from services import firebase, orders, sync
 from states import Broadcast
 from utils.commands import apply_admin_commands, reset_user_commands
 from utils.filters import IsAdmin
@@ -506,6 +506,41 @@ async def _known_name(user_id: int) -> str | None:
 async def cmd_admins(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(await admin_registry.describe(), reply_markup=admin_back_kb())
+
+
+@router.message(Command("firebase"))
+async def cmd_firebase(message: Message, state: FSMContext) -> None:
+    """Doimiy saqlash (Firebase) holatini tekshiradi va tiklashga urinadi.
+
+    Sozlamani o'zgartirgandan keyin qayta deploy kutmasdan shu buyruq
+    bilan tekshirish mumkin — token qaytadan olinishga urinib ko'riladi.
+    """
+    await state.clear()
+    status = await message.answer("⏳ Firebase tekshirilmoqda...")
+
+    await firebase.refresh_token()
+    if firebase.is_enabled():
+        restored = await sync.restore_users()
+        await status.edit_text(
+            "✅ <b>Firebase ulangan.</b>\n\n"
+            "Mijozlar va tovarlar doimiy saqlanadi — qayta deployda yo'qolmaydi.\n"
+            f"Firebase'dan tiklangan mijozlar: {restored} ta."
+        )
+        return
+
+    await status.edit_text(
+        "⚠️ <b>Firebase hali ulanmadi.</b>\n\n"
+        f"Sabab: {firebase.diagnose()}\n\n"
+        "<b>Nima qilish kerak:</b>\n"
+        "1. Firebase Console → Project settings → Service accounts → "
+        "«Generate new private key» — JSON fayl yuklanadi.\n"
+        "2. Faylni base64 ga o'giring (kompyuterda):\n"
+        "<code>base64 -w0 serviceAccount.json</code>\n"
+        "3. Chiqqan uzun matnni Render → Environment → "
+        "<code>SERVICE_ACCOUNT_JSON</code> ga qo'ying.\n"
+        "4. <code>FIREBASE_DB_URL</code> to'g'riligini tekshiring.\n"
+        "5. Saqlab, xizmat qayta ishga tushgach yana /firebase yuboring."
+    )
 
 
 @router.callback_query(F.data == "adm:admins")
