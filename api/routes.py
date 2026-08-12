@@ -462,6 +462,7 @@ async def api_home(request: web.Request) -> web.Response:
 
     banners = await q.get_banners(car_id)
     stories = await q.get_stories()
+    promos = await q.get_promos()
     catalog = await q.get_catalog(car_id)
 
     _decorate_catalog(catalog)
@@ -494,8 +495,16 @@ async def api_home(request: web.Request) -> web.Response:
                 }
                 for s in stories
             ],
-            # Aksiyalar bo'limi olib tashlandi — chegirma tovarning o'zida
-            # (eski narx + belgi), Avto A1 dagi kabi.
+            "promos": [
+                {
+                    "id": p["id"],
+                    "title": p["title"],
+                    "text": p["text"],
+                    "discount": p["discount"],
+                    "until_date": p["until_date"],
+                }
+                for p in promos
+            ],
             "catalog": catalog,
         }
     )

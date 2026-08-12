@@ -155,14 +155,9 @@ ENTITIES: dict[str, Entity] = {
             Field("car_id", "Mashina", "choice", choices=car_choices),
             Field("description", "Tavsif", "long"),
             Field("price", "Narx", "money", required=True),
-            Field(
-                "old_price",
-                "Eski narx (aksiya)",
-                "money",
-                hint="Kiritsangiz chegirma foizi o'zi hisoblanadi. Aksiya bo'lmasa — bo'sh",
-            ),
+            Field("old_price", "Eski narx", "money", hint="Chegirma ko'rsatish uchun"),
             Field("stock", "Ombor (dona)", "int"),
-            Field("badge", "Belgi", hint="Masalan: Yangi, TOP tanlov"),
+            Field("badge", "Belgi (badge)", hint="Chegirma, Yangi..."),
             *MEDIA,
             Field("sort", "Tartib", "int"),
         ),
@@ -230,14 +225,22 @@ ENTITIES: dict[str, Entity] = {
         label=lambda r: f"{r['emoji'] or '📸'} {r['title']}",
         create=("title", "emoji", "heading", "body"),
     ),
+    "pro": Entity(
+        key="pro",
+        table="promos",
+        title="Aksiyalar",
+        icon="🎁",
+        fields=(
+            Field("title", "Sarlavha", required=True),
+            Field("text", "Matn", "long"),
+            Field("discount", "Chegirma belgisi", hint="Masalan: -15%"),
+            Field("until_date", "Muddat", hint="Masalan: 31.12.2026"),
+            Field("sort", "Tartib", "int"),
+        ),
+        label=lambda r: r["title"],
+        create=("title", "text", "discount"),
+    ),
 }
-
-# DIQQAT: «Aksiyalar» (promos) bo'limi ataylab olib tashlandi.
-# Chegirma endi TOVARNING o'zida beriladi (Avto A1 dagi kabi):
-#   • «Eski narx» ni kiritasiz — ilova chegirma foizini o'zi hisoblab,
-#     qizil «-15%» yorlig'ini va chizilgan eski narxni ko'rsatadi;
-#   • xohlasangiz «Belgi» maydoniga qo'shimcha yozuv qo'yasiz ("Yangi", "TOP").
-# Shu sababli alohida aksiya kartochkalari va ular uchun bo'lim kerak emas.
 
 
 async def prepare_insert(entity: Entity, values: dict) -> dict:
