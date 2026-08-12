@@ -62,6 +62,17 @@
     } catch (_) {}
   }
 
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Bosh menyuga silliq kirish: bloklar navbat bilan ko'tariladi. */
+  function enterHome() {
+    const home = $("home");
+    show("home");
+    home.classList.add("entering");
+    clearTimeout(enterHome._t);
+    enterHome._t = setTimeout(() => home.classList.remove("entering"), 1100);
+  }
+
   function toast(msg, ms) {
     const node = $("toast");
     node.textContent = msg;
@@ -1422,14 +1433,23 @@
       return;
     }
 
+    // «Boshlash» — HAR DOIM bosh menyu. Ilgari mashina tanlanmagan bo'lsa
+    // to'g'ridan-to'g'ri konfigurator ochilardi va mijoz "majburlangan"
+    // hisni olardi. Endi avval do'kon ko'rinadi, konfiguratorga o'zi kiradi.
     $("splash-start").onclick = async () => {
+      const btn = $("splash-start");
+      if (btn.disabled) return;
+      btn.disabled = true;
       haptic("medium");
-      if (S.car) {
-        show("home");
-        await loadHome();
-      } else {
-        await openFlow();
-      }
+
+      // Ma'lumot fonda yuklanadi — animatsiya kutib turmaydi
+      const loading = loadHome();
+      $("splash").classList.add("leaving");
+      await Promise.all([loading, wait(280)]);
+
+      enterHome();
+      $("splash").classList.remove("leaving");
+      btn.disabled = false;
     };
   }
 
@@ -1470,13 +1490,10 @@
     setStep(S.step + 1);
   };
   $("flow-back").onclick = () => setStep(S.step - 1);
+  // Konfiguratorni yopish har doim ishlaydi — mashina tanlash majburiy emas
   $("flow-close").onclick = () => {
-    if (S.me && S.me.car) {
-      show("home");
-      if (!S.home) loadHome();
-    } else {
-      toast("Avval mashinangizni tanlang");
-    }
+    show("home");
+    if (!S.home) loadHome();
   };
 
   $("config-cta").onclick = openFlow;
