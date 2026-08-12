@@ -152,12 +152,18 @@ img, video { display: block; max-width: 100%; }
   width: 200px; height: 20px; margin: 8px auto; border-radius: 8px;
   background: var(--surface-2);
 }
-.splash-btn { max-width: 320px; opacity: 0; animation: fadeUp 0.6s var(--silk) 0.95s forwards; }
-.splash-btn .arrow { font-style: normal; transition: transform 0.25s var(--spring); }
-.splash-btn:active .arrow { transform: translateX(4px); }
+/* Kirish chizig'i: to'lgach bosh menyu o'zi ochiladi (tugma bosish shart emas) */
+.splash-progress {
+  width: 132px; height: 3px; margin-top: 4px;
+  background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden;
+  opacity: 0; animation: fadeUp 0.5s var(--silk) 0.95s forwards;
+}
+.splash-progress i { display: block; height: 100%; width: 0; background: var(--red-grad); }
+.splash-progress.on i { animation: splashFill 1.5s linear forwards; }
+@keyframes splashFill { to { width: 100%; } }
 
 /* ---------------------------------------------- splash -> bosh menyu o'tishi
-   Mijoz «Boshlash» ni bosganda: salom ekrani yumshoq uzoqlashadi, bosh
+   Chiziq to'lgach: salom ekrani yumshoq uzoqlashadi, bosh
    menyu bloklari navbat bilan pastdan ko'tariladi. Faqat transform va
    opacity ishlatiladi — telefon qizmaydi. */
 .splash.leaving {

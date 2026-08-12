@@ -1428,24 +1428,18 @@
       return;
     }
 
-    // «Boshlash» — HAR DOIM bosh menyu. Ilgari mashina tanlanmagan bo'lsa
-    // to'g'ridan-to'g'ri konfigurator ochilardi va mijoz "majburlangan"
-    // hisni olardi. Endi avval do'kon ko'rinadi, konfiguratorga o'zi kiradi.
-    $("splash-start").onclick = async () => {
-      const btn = $("splash-start");
-      if (btn.disabled) return;
-      btn.disabled = true;
-      haptic("medium");
+    // Tugma yo'q: mijoz ismini ko'radi, chiziq to'ladi va bosh menyu O'ZI
+    // ochiladi. Konfigurator hech qachon majburan ochilmaydi.
+    const progress = $("splash-progress");
+    if (progress) progress.classList.add("on");
 
-      // Ma'lumot fonda yuklanadi — animatsiya kutib turmaydi
-      const loading = loadHome();
-      $("splash").classList.add("leaving");
-      await Promise.all([loading, wait(280)]);
+    // Bosh menyu ma'lumoti shu kutish paytida fonda yuklanadi
+    const loading = loadHome();
+    await Promise.all([loading, wait(1500)]);
 
-      enterHome();
-      $("splash").classList.remove("leaving");
-      btn.disabled = false;
-    };
+    $("splash").classList.add("leaving");
+    await wait(280);
+    enterHome();
   }
 
   /* ---------------------------------------------------- admin panel ko'prigi
