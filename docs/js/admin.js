@@ -732,9 +732,12 @@ window.ZimmerAdmin = (function () {
           return `<option value="${esc(c.value)}"${sel}>${esc(c.label)}</option>`;
         })
         .join("");
+      // Mashina maydonida bo'sh qiymat = universal tovar (barcha mashinaga)
+      const emptyLabel =
+        field.column === "car_id" ? "🌐 Barcha mashinaga" : "— tanlanmagan —";
       box.innerHTML = `<span>${esc(field.label)}${req}</span>
         <select data-col="${esc(field.column)}" data-kind="choice">
-          ${field.required ? "" : '<option value="">— tanlanmagan —</option>'}
+          ${field.required ? "" : `<option value="">${esc(emptyLabel)}</option>`}
           ${options}
         </select>${hint}`;
       return box;
@@ -1116,7 +1119,8 @@ window.ZimmerAdmin = (function () {
       <div class="ap-group" id="ap-cars-group">
         <div class="ap-head">
           <span class="ap-ic">🚗</span>
-          <div class="ap-tx"><b>Mos mashina</b><span>Tanlanmasa — barchasi uchun</span></div>
+          <div class="ap-tx"><b>Mos mashina</b>
+            <span>Universal tovar (osvejitel, moy...) — «Barcha mashinaga»</span></div>
         </div>
         <div class="ap-chips" id="ap-cars"></div>
       </div>`;
@@ -1169,23 +1173,45 @@ window.ZimmerAdmin = (function () {
       haptic();
     };
 
-    // mashina chiplari
+    // mashina chiplari: birinchisi — «Barcha mashinaga» (universal tovar)
     const carBox = $("ap-cars");
-    if (!cars.length) {
-      $("ap-cars-group").classList.add("hidden");
-    } else {
-      cars.forEach((c) => {
-        const chip = el("button", "ap-chip", esc(c.name));
-        chip.onclick = () => {
-          S.apCarId = S.apCarId === c.id ? null : c.id;
-          carBox.querySelectorAll(".ap-chip").forEach((n) => n.classList.remove("on"));
-          if (S.apCarId === c.id) chip.classList.add("on");
-          haptic();
-          renderApLive();
-        };
-        carBox.append(chip);
-      });
-    }
+    const chips = [];
+
+    const markCars = () => {
+      chips.forEach((node) =>
+        node.classList.toggle(
+          "on",
+          String(node.dataset.car || "") === String(S.apCarId == null ? "" : S.apCarId)
+        )
+      );
+    };
+
+    // 🌐 Universal: masalan osvejitel, moy, kimyo — barcha mashinaga chiqadi
+    const allChip = el("button", "ap-chip ap-chip-all", "🌐 Barcha mashinaga");
+    allChip.dataset.car = "";
+    allChip.onclick = () => {
+      S.apCarId = null;
+      haptic();
+      markCars();
+      renderApLive();
+    };
+    carBox.append(allChip);
+    chips.push(allChip);
+
+    cars.forEach((c) => {
+      const chip = el("button", "ap-chip", esc(c.name));
+      chip.dataset.car = String(c.id);
+      chip.onclick = () => {
+        // Qayta bosilsa — yana «Barcha mashinaga» holatiga qaytadi
+        S.apCarId = S.apCarId === c.id ? null : c.id;
+        haptic();
+        markCars();
+        renderApLive();
+      };
+      carBox.append(chip);
+      chips.push(chip);
+    });
+    markCars(); // boshlanishida «Barcha mashinaga» tanlangan turadi
 
     renderApPreviews();
     renderApLive();

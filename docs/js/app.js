@@ -985,8 +985,11 @@
     else S.favorites.add(product.id);
     if (button) {
       button.classList.toggle("on", !wasSaved);
-      button.classList.add("pop");
-      setTimeout(() => button.classList.remove("pop"), 320);
+      // Yurak "portlashi" — faqat saqlanganda (Avto_A1 heartBurst)
+      button.classList.remove("pop", "burst");
+      void button.offsetWidth;
+      button.classList.add(wasSaved ? "pop" : "burst");
+      setTimeout(() => button.classList.remove("pop", "burst"), 520);
     }
     haptic(wasSaved ? "light" : "medium");
 
@@ -1119,7 +1122,7 @@
       // Nom "·" bo'yicha ajratiladi: asosiy nom + mashina eslatmasi (Avto_A1)
       const parts = String(p.name || "").split("·");
       const mainName = (parts[0] || p.name || "").trim();
-      const carHint = parts[1] ? `<span class="prod-hint">· ${esc(parts[1].trim())}</span>` : "";
+      const carHint = parts[1] ? `<div class="prod-hint">${esc(parts[1].trim())}</div>` : "";
 
       // Meta: eski narx (chegirma) + kam qolgani
       const metaBits = [];
@@ -1130,8 +1133,8 @@
       const metaHTML = metaBits.length ? `<div class="prod-meta">${metaBits.join("")}</div>` : "";
 
       card.innerHTML = `
-        <div class="prod-art">
-          ${photo ? img(photo) : "💡"}
+        <div class="prod-art${photo ? "" : " empty"}">
+          ${photo ? img(photo, "card-img-lazy") : '<span class="prod-art-ph">💡</span>'}
           ${off ? `<span class="prod-off">-${off}%</span>` : ""}
           ${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}
           ${p.video_url ? '<span class="prod-play">▶</span>' : ""}
@@ -1139,9 +1142,11 @@
                   aria-label="Saqlash">♥</button>
         </div>
         <div class="prod-body">
-          <div class="prod-name">${esc(mainName)}${carHint}</div>
+          <div class="prod-name">${esc(mainName)}</div>
+          ${carHint}
           ${p.car_id ? '<div class="prod-fit">✓ Mashinangizga mos</div>' : ""}
           ${metaHTML}
+          ${p.stock > 0 ? '<div class="prod-trust">🛡 14 kun kafolat</div>' : ""}
         </div>`;
 
       // Butun kartani bosish — tafsilot oynasi (Avto_A1 mantiqi)
@@ -1174,10 +1179,8 @@
           btn.innerHTML = priceInner;
         }, 1100);
       };
-      card.append(btn);
-
-      // Ishonch belgisi (faqat sotuvda bor tovarda)
-      if (p.stock > 0) card.append(el("div", "prod-trust", "🛡 14 kun kafolat"));
+      // Tugma kartochka TANASI ichida — pastga yopishib turadi (Avto_A1 kabi)
+      card.querySelector(".prod-body").append(btn);
 
       box.append(card);
     });
