@@ -51,12 +51,12 @@ window.ZimmerAdmin = (function () {
     busy: false,
   };
 
-  // Bosh menyu: har biri ALOHIDA oyna bo'lib ochiladi
-  const MENU = [
-    { id: "st-products", icon: "📊", title: "Tovarlar savdosi", open: () => openStats("products") },
-    { id: "st-biled", icon: "🔥", title: "Bi-LED o'rnatish", open: () => openStats("biled") },
-    { id: "orders", icon: "📋", title: "Buyurtmalar", open: () => openOrders("biled"), badge: "orders" },
-    { id: "catalog", icon: "🗂", title: "Katalog", open: () => openCatalog(), badge: "catalog" },
+  // Hisobot plitkalari. Katalog bo'limlari bularga QO'SHIB, bitta
+  // ekranda ko'rsatiladi — alohida «Katalog» oynasi yo'q.
+  const REPORTS = [
+    { icon: "📊", title: "Tovarlar", open: () => openStats("products") },
+    { icon: "🔥", title: "Bi-LED", open: () => openStats("biled") },
+    { icon: "📋", title: "Buyurtmalar", open: () => openOrders("biled"), badge: true },
   ];
 
   const ORDER_TABS = [
@@ -151,23 +151,40 @@ window.ZimmerAdmin = (function () {
     };
 
     body().innerHTML = "";
-    const grid = el("div", "adm-tiles");
 
-    MENU.forEach((entry) => {
-      const tile = el("button", "adm-tile");
-      const count = entry.badge ? counts[entry.badge] : 0;
-      tile.innerHTML = `
-        <i>${entry.icon}</i>
-        <b>${esc(entry.title)}</b>
-        ${count ? `<em>${count}</em>` : ""}`;
-      tile.onclick = () => {
+    /** Bitta plitka yasaydi. */
+    const tile = (icon, title, count, soft, onOpen) => {
+      const node = el("button", "adm-tile");
+      node.innerHTML = `
+        <span class="adm-tile-ico">${icon}</span>
+        <b>${esc(title)}</b>
+        ${count ? `<em${soft ? ' class="soft"' : ""}>${count}</em>` : ""}`;
+      node.onclick = () => {
         haptic();
-        entry.open();
+        onOpen();
       };
-      grid.append(tile);
-    });
+      return node;
+    };
 
-    body().append(grid);
+    // ---- Hisobot
+    body().append(el("div", "adm-group", "Hisobot"));
+    const reports = el("div", "adm-tiles enter");
+    REPORTS.forEach((entry) => {
+      reports.append(
+        tile(entry.icon, entry.title, entry.badge ? counts.orders : 0, false, entry.open)
+      );
+    });
+    body().append(reports);
+
+    // ---- Katalog bo'limlari (alohida oyna emas — shu yerda)
+    body().append(el("div", "adm-group", "Katalog"));
+    const sections = el("div", "adm-tiles enter");
+    (data.sections || []).forEach((sec) => {
+      sections.append(
+        tile(esc(sec.icon), sec.title, sec.count, true, () => openList(sec.key))
+      );
+    });
+    body().append(sections);
   }
 
   /* ====================================================================
@@ -247,43 +264,7 @@ window.ZimmerAdmin = (function () {
     if (data.hint) body().append(el("p", "adm-hint-block", esc(data.hint)));
   }
 
-  /* ====================================================================
-     KATALOG — bo'limlar alohida oynada
-     ==================================================================== */
 
-  async function openCatalog() {
-    S.view = "catalog";
-    S.key = null;
-    S.item = null;
-    setHead("Katalog", "");
-    loading();
-
-    let data = S.summary;
-    if (!data) {
-      try {
-        data = await api("/api/admin/summary");
-        S.summary = data;
-      } catch (err) {
-        return fail(err, openCatalog);
-      }
-    }
-
-    body().innerHTML = "";
-    const grid = el("div", "adm-tiles");
-    (data.sections || []).forEach((sec) => {
-      const tile = el("button", "adm-tile");
-      tile.innerHTML = `
-        <i>${esc(sec.icon)}</i>
-        <b>${esc(sec.title)}</b>
-        ${sec.count ? `<em class="soft">${esc(sec.count)}</em>` : ""}`;
-      tile.onclick = () => {
-        haptic();
-        openList(sec.key);
-      };
-      grid.append(tile);
-    });
-    body().append(grid);
-  }
 
   /* ====================================================================
      BO'LIM RO'YXATI
@@ -861,11 +842,7 @@ window.ZimmerAdmin = (function () {
       openList(S.key);
       return true;
     }
-    if (S.view === "list") {
-      openCatalog();
-      return true;
-    }
-    if (S.view === "catalog" || S.view === "orders" || S.view === "stats") {
+    if (S.view === "list" || S.view === "orders" || S.view === "stats") {
       openMenu();
       return true;
     }
