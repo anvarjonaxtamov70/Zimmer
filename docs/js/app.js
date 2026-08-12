@@ -316,7 +316,16 @@
     const n = S.cart.reduce((s, i) => s + i.qty, 0);
     const b = $("cart-badge");
     b.textContent = n;
-    b.classList.toggle("hidden", n === 0);
+    // Aqlli badge: son o'zgarganda "pulse" (Avto_A1 mantiqi)
+    if (n > 0) {
+      b.classList.remove("hidden");
+      b.classList.remove("pulse");
+      void b.offsetWidth; // reflow — animatsiya qayta ishga tushsin
+      b.classList.add("pulse");
+    } else {
+      b.classList.add("hidden");
+      b.classList.remove("pulse");
+    }
   }
   const cartSum = () => S.cart.reduce((s, i) => s + i.price * i.qty, 0);
 
@@ -335,7 +344,10 @@
       .querySelectorAll(".nav-btn")
       .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
 
-    if (page === "cart") renderCart();
+    if (page === "cart") {
+      renderCart();
+      animateCartTotal(); // jami summa 0 dan count-up bo'ladi
+    }
     if (page === "profile") loadProfile();
     if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
@@ -1177,6 +1189,7 @@
         price: product.price,
         qty: 1,
         stock: product.stock,
+        photo_url: product.photo_url || null, // savat qatorida rasm ko'rsatish uchun
       });
     saveCart();
     haptic();
@@ -1193,42 +1206,134 @@
   }
 
   /* ------------------------------------------------------------- savatcha */
+  // Bepul yetkazib berish chegarasi (so'm). Shu summadan oshsa — bepul.
+  const FREE_DELIVERY_TARGET = 3000000;
+
+  /** Chiroyli "bo'sh holat" bloki (Avto_A1 uslubida). */
+  function emptyStatePro(o) {
+    return `<div class="empty-state-pro">
+        <div class="es-icon">${o.icon || "📦"}</div>
+        <h3 class="es-title">${esc(o.title || "")}</h3>
+        <p class="es-desc">${esc(o.desc || "")}</p>
+        ${o.btnText ? `<button class="es-btn">${esc(o.btnText)}</button>` : ""}
+      </div>`;
+  }
+
   function renderCart() {
     const box = $("cart-items");
     box.innerHTML = "";
     const empty = S.cart.length === 0;
-    $("cart-empty").classList.toggle("hidden", !empty);
     $("cart-checkout").classList.toggle("hidden", empty);
+    const emptyP = $("cart-empty");
+    if (emptyP) emptyP.classList.add("hidden");
+
+    if (empty) {
+      box.innerHTML = emptyStatePro({
+        icon: "🧺",
+        title: "Savatingiz bo'sh",
+        desc: "Hozircha hech narsa qo'shmadingiz. Mahsulotlarni tanlab, savatga qo'shing.",
+        btnText: "Xaridni boshlash",
+      });
+      const btn = box.querySelector(".es-btn");
+      if (btn)
+        btn.onclick = () => {
+          haptic();
+          show("home");
+          if (!S.home) loadHome();
+        };
+      renderCartProgress(0);
+      return;
+    }
 
     S.cart.forEach((item) => {
-      const row = el("div", "card");
+      const row = el("div", "cart-row");
+      const photo = abs(item.photo_url);
       row.innerHTML = `
-        <div class="row" style="align-items:flex-start">
-          <div>
-            <b>${esc(item.name)}</b>
-            <div class="item-sub">${esc(fmt(item.price))} × ${item.qty} = <b>${esc(
-        fmt(item.price * item.qty)
-      )}</b></div>
+        <div class="cart-content-wrap">
+          <div class="cart-thumb">${photo ? img(photo) : "💡"}</div>
+          <div class="cart-info">
+            <h4>${esc(item.name)}</h4>
+            <span class="cart-price">${esc(fmt(item.price * item.qty))}</span>
           </div>
-        </div>`;
-      const qty = el("div", "qty");
-      const minus = el("button", null, "−");
-      const plus = el("button", null, "+");
-      const del = el("button", null, "🗑");
-      minus.onclick = () => changeQty(item.id, -1);
-      plus.onclick = () => changeQty(item.id, 1);
-      del.onclick = () => {
-        S.cart = S.cart.filter((i) => i.id !== item.id);
-        saveCart();
-        renderCart();
-      };
-      qty.append(minus, el("span", null, String(item.qty)), plus, del);
-      row.append(qty);
+          <div class="cart-controls">
+            <button data-act="minus" aria-label="Kamaytirish">−</button>
+            <span class="cart-qty">${item.qty}</span>
+            <button data-act="plus" aria-label="Ko'paytirish">+</button>
+          </div>
+        </div>
+        <div class="swipe-delete" title="O'chirish">🗑</div>`;
+      row.querySelector('[data-act="minus"]').onclick = () => changeQty(item.id, -1);
+      row.querySelector('[data-act="plus"]').onclick = () => changeQty(item.id, 1);
+      row.querySelector(".swipe-delete").onclick = () => removeCartItem(item.id);
       box.append(row);
     });
 
-    $("cart-total").textContent = fmt(cartSum());
+    const total = cartSum();
+    const sumEl = $("cart-total-sum");
+    if (sumEl) sumEl.textContent = fmt(total);
+    renderCartProgress(total);
+
     if (S.me && S.me.phone && !$("order-phone").value) $("order-phone").value = S.me.phone;
+  }
+
+  /** Savat qatorini butunlay o'chiradi (swipe → 🗑). */
+  function removeCartItem(id) {
+    S.cart = S.cart.filter((i) => i.id !== id);
+    haptic("light");
+    saveCart();
+    renderCart();
+  }
+
+  /** Bepul yetkazib berishgacha progress bar (rang red→orange→green). */
+  function renderCartProgress(total) {
+    const wrap = $("cart-progress-wrap");
+    const bar = $("cart-progress-bar");
+    const msg = $("cart-progress-msg");
+    if (!wrap || !bar || !msg) return;
+    if (total <= 0) {
+      wrap.classList.add("hidden");
+      delete wrap.dataset.celebrated;
+      return;
+    }
+    wrap.classList.remove("hidden");
+    const percent = Math.min(100, (total / FREE_DELIVERY_TARGET) * 100);
+    if (percent >= 100) {
+      bar.style.width = "100%";
+      bar.classList.add("done");
+      msg.classList.add("done");
+      msg.innerHTML = "🎉 Tabriklaymiz! Yetkazib berish <b>BEPUL</b>!";
+      if (!wrap.dataset.celebrated) {
+        wrap.dataset.celebrated = "1";
+        haptic("ok");
+      }
+    } else {
+      bar.style.width = percent + "%";
+      bar.classList.remove("done");
+      msg.classList.remove("done");
+      msg.innerHTML = `Bepul yetkazishga yana <b>${esc(fmt(FREE_DELIVERY_TARGET - total))}</b> qoldi`;
+      delete wrap.dataset.celebrated;
+    }
+  }
+
+  /** Jami summa "count-up" animatsiyasi (savat ochilganda). */
+  function animateCartTotal() {
+    const obj = $("cart-total-sum");
+    if (!obj) return;
+    const end = cartSum();
+    if (end <= 0) {
+      obj.textContent = fmt(0);
+      return;
+    }
+    let startTime = null;
+    const duration = 1000;
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      const p = Math.min((ts - startTime) / duration, 1);
+      obj.textContent = fmt(Math.floor(p * end));
+      if (p < 1) requestAnimationFrame(step);
+      else obj.textContent = fmt(end);
+    }
+    requestAnimationFrame(step);
   }
 
   function changeQty(id, delta) {
@@ -1236,6 +1341,7 @@
     if (!item) return;
     if (delta > 0 && item.qty + 1 > item.stock) return toast(`Omborda ${item.stock} dona bor`);
     item.qty += delta;
+    haptic(delta > 0 ? "light" : "light");
     if (item.qty < 1) S.cart = S.cart.filter((i) => i.id !== id);
     saveCart();
     renderCart();
@@ -1964,6 +2070,80 @@
     document.body.classList.toggle("paused", document.hidden);
     if (document.hidden) stopVideos();
   });
+
+  /* --------------------------------------------------- savatda swipe → o'chirish
+     Qatorni chapga surib 🗑 tugmasini ochadi (Avto_A1 mantiqi). Passiv touch —
+     skroll buzilmaydi; faqat aniq gorizontal harakatda ishlaydi. */
+  (function cartSwipeInit() {
+    let startX = 0,
+      startY = 0,
+      deltaX = 0,
+      target = null,
+      horizontal = null;
+    const threshold = 50;
+
+    document.addEventListener(
+      "touchstart",
+      (e) => {
+        const row = e.target.closest ? e.target.closest(".cart-row") : null;
+        if (!row) {
+          document
+            .querySelectorAll(".cart-row.show-delete")
+            .forEach((r) => r.classList.remove("show-delete"));
+          return;
+        }
+        document
+          .querySelectorAll(".cart-row.show-delete")
+          .forEach((r) => r !== row && r.classList.remove("show-delete"));
+        target = row;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        deltaX = 0;
+        horizontal = null;
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!target) return;
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        if (horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+          horizontal = Math.abs(dx) > Math.abs(dy);
+        }
+        if (horizontal) {
+          deltaX = Math.min(0, dx);
+          const wrap = target.querySelector(".cart-content-wrap");
+          if (wrap) {
+            wrap.style.transition = "none";
+            wrap.style.transform = `translateX(${Math.max(deltaX, -100)}px)`;
+          }
+        }
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "touchend",
+      () => {
+        if (!target) return;
+        const wrap = target.querySelector(".cart-content-wrap");
+        if (wrap) wrap.style.transition = "";
+        if (horizontal && deltaX < -threshold) {
+          target.classList.add("show-delete");
+        } else {
+          target.classList.remove("show-delete");
+        }
+        if (wrap) wrap.style.transform = "";
+        target = null;
+        deltaX = 0;
+        horizontal = null;
+      },
+      { passive: true }
+    );
+  })();
 
   boot();
 })();

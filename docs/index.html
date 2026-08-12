@@ -180,10 +180,25 @@
     <div class="topbar-mid"><div class="topbar-title">🧺 Savatcha</div></div>
   </header>
   <div class="pad">
-    <div class="list" id="cart-items"></div>
-    <p class="empty hidden" id="cart-empty">Savatchangiz bo'sh.</p>
+    <!-- bepul yetkazib berishgacha progress (animatsiyali) -->
+    <div class="cart-progress-wrap hidden" id="cart-progress-wrap">
+      <div class="cart-progress-text" id="cart-progress-msg"></div>
+      <div class="cart-progress-container"><i class="cart-progress-bar" id="cart-progress-bar"></i></div>
+    </div>
+
+    <div id="cart-items"></div>
+    <p class="empty hidden" id="cart-empty"></p>
+
     <div class="card hidden" id="cart-checkout">
-      <div class="total-row"><span>Jami</span><b id="cart-total">0</b></div>
+      <div class="cart-total-footer">Jami <b id="cart-total-sum">0</b></div>
+
+      <!-- ishonch belgilari -->
+      <div class="cart-trust">
+        <div class="ct-badge"><i>🚚</i><b>1–2 kun</b><small>Yetkazish</small></div>
+        <div class="ct-badge"><i>🛡</i><b>1 yil</b><small>Kafolat</small></div>
+        <div class="ct-badge"><i>↩️</i><b>7 kun</b><small>Qaytarish</small></div>
+      </div>
+
       <label class="field">
         <span>📞 Telefon</span>
         <input id="order-phone" type="tel" inputmode="tel" placeholder="+998901234567">

@@ -1387,3 +1387,120 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .pay-apps { display: flex; gap: 10px; margin-bottom: 12px; }
 .pay-apps .btn { flex: 1; }
 .pay-hint { text-align: center; font-size: 11px; color: var(--dim); margin: 12px 0 0; line-height: 1.5; }
+
+
+/* ==========================================================================
+   SAVATCHA — Avto_A1 ko'rinishi/animatsiyalari, Zimmer ranglarida
+   (qora fon + qizil aksent). Progress, swipe-delete, count-up, trust.
+   ========================================================================== */
+
+/* --- bepul yetkazib berish progress --- */
+.cart-progress-wrap { margin: 4px 0 16px; }
+.cart-progress-text {
+  font-size: 12px; font-weight: 800; text-align: center; margin-bottom: 8px;
+  letter-spacing: 0.3px; color: var(--red); transition: color 0.3s;
+}
+.cart-progress-text.done { color: var(--green); }
+.cart-progress-text b { color: #fff; }
+.cart-progress-container {
+  width: 100%; height: 10px; border-radius: 10px; overflow: hidden; position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+.cart-progress-bar {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--red), #ff9500);
+  transition: width 0.6s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s;
+}
+.cart-progress-bar.done {
+  background: linear-gradient(90deg, #ff9500, var(--green));
+  box-shadow: 0 0 14px rgba(48, 209, 88, 0.6);
+}
+
+/* --- savat qatori (swipe → o'chirish) --- */
+.cart-row {
+  position: relative; overflow: hidden; border-radius: var(--r-md);
+  margin-bottom: 12px; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  animation: cartRowIn 0.35s var(--silk) both;
+}
+@keyframes cartRowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.cart-content-wrap {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--surface); position: relative; z-index: 2;
+  transition: transform 0.25s ease; will-change: transform;
+}
+.cart-row:active .cart-content-wrap { }
+.cart-thumb {
+  width: 60px; height: 60px; border-radius: 13px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+  background: var(--surface-2); overflow: hidden;
+}
+.cart-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cart-info { flex: 1; min-width: 0; }
+.cart-info h4 {
+  margin: 0 0 5px; font-size: 14px; font-weight: 600; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cart-price { color: var(--red); font-weight: 800; font-size: 14px; }
+.cart-controls {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line);
+  padding: 5px; border-radius: 13px;
+}
+.cart-controls button {
+  width: 32px; height: 32px; border-radius: 9px; border: none;
+  background: var(--surface-2); color: var(--red);
+  font-size: 19px; font-weight: 800; line-height: 1; cursor: pointer;
+  transition: transform 0.15s var(--silk), background 0.15s, color 0.15s;
+}
+.cart-controls button:active { background: var(--red-grad); color: #fff; transform: scale(0.85); }
+.cart-qty { min-width: 22px; text-align: center; font-weight: 700; color: #fff; font-size: 15px; }
+
+.swipe-delete {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 80px; z-index: 1;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  color: #fff; background: linear-gradient(135deg, #ff453a, var(--red-2, #c9302c));
+  transform: translateX(100%); transition: transform 0.25s ease; cursor: pointer;
+}
+.cart-row.show-delete .swipe-delete { transform: translateX(0); }
+.cart-row.show-delete .cart-content-wrap { transform: translateX(-80px); }
+
+/* --- jami (count-up) va ishonch belgilari --- */
+.cart-total-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 15px; font-weight: 600; color: var(--muted);
+  padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.cart-total-footer b { font-size: 22px; font-weight: 900; color: var(--red); }
+
+.cart-trust { display: flex; gap: 8px; margin-bottom: 14px; }
+.ct-badge {
+  flex: 1; min-width: 0; text-align: center; padding: 10px 6px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 13px;
+}
+.ct-badge i { font-style: normal; font-size: 18px; display: block; margin-bottom: 4px; }
+.ct-badge b { display: block; font-size: 11px; font-weight: 800; color: var(--text); }
+.ct-badge small { display: block; font-size: 9.5px; color: var(--muted); margin-top: 1px; }
+
+/* --- pro "bo'sh holat" --- */
+.empty-state-pro { text-align: center; padding: 48px 24px; }
+.es-icon {
+  width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 38px;
+  background: var(--red-soft); border: 1px solid rgba(255, 45, 58, 0.25);
+}
+.es-title { margin: 0 0 8px; font-size: 19px; font-weight: 800; color: #fff; }
+.es-desc { margin: 0 auto 20px; max-width: 280px; font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+.es-btn {
+  background: var(--red-grad); color: #fff; border: none;
+  padding: 13px 28px; border-radius: 14px; font-size: 14.5px; font-weight: 700;
+  cursor: pointer; transition: transform 0.15s var(--silk), box-shadow 0.2s;
+  box-shadow: 0 8px 22px var(--red-glow);
+}
+.es-btn:active { transform: scale(0.96); }
+
+/* --- aqlli savat badge (pulse) --- */
+.nav-btn .badge { transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+.nav-btn .badge.pulse { animation: cartBadgePulse 0.4s ease-out; }
+@keyframes cartBadgePulse { 0% { transform: scale(1); } 50% { transform: scale(1.45); } 100% { transform: scale(1); } }
