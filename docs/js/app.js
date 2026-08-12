@@ -42,6 +42,7 @@
     color: null,
     previewTab: "art",
     home: null,
+    favorites: new Set(), // saqlangan tovar ID'lari
     catIndex: 0,
     cart: loadCart(),
     stories: [],
@@ -804,6 +805,7 @@
     }
     try {
       S.home = await api("/api/home");
+      S.favorites = new Set(S.home.favorite_ids || []);
       renderStories();
       renderBanners();
       renderCatalog();
@@ -954,6 +956,91 @@
     }
   }
 
+  /* -------------------------------------------------------- saqlanganlar */
+
+  /** Yurakni bosish: darhol bo'yaladi, so'ng serverga yoziladi. */
+  async function toggleFavorite(product, button) {
+    const wasSaved = S.favorites.has(product.id);
+
+    // Darhol javob beramiz — mijoz kutib turmaydi
+    if (wasSaved) S.favorites.delete(product.id);
+    else S.favorites.add(product.id);
+    if (button) {
+      button.classList.toggle("on", !wasSaved);
+      button.classList.add("pop");
+      setTimeout(() => button.classList.remove("pop"), 320);
+    }
+    haptic(wasSaved ? "light" : "medium");
+
+    try {
+      const res = await api("/api/favorites", {
+        method: "POST",
+        body: { product_id: product.id },
+      });
+      // Server haqiqiy holatni aytadi — moslashtirib qo'yamiz
+      if (res.saved) S.favorites.add(product.id);
+      else S.favorites.delete(product.id);
+      if (button) button.classList.toggle("on", !!res.saved);
+      toast(res.saved ? "Saqlanganlarga qo'shildi ❤️" : "Saqlanganlardan olindi");
+    } catch (err) {
+      // Xato bo'lsa — orqaga qaytaramiz, yolg'on ko'rsatmaymiz
+      if (wasSaved) S.favorites.add(product.id);
+      else S.favorites.delete(product.id);
+      if (button) button.classList.toggle("on", wasSaved);
+      onError(err);
+    }
+  }
+
+  async function renderSaved() {
+    const box = $("my-saved");
+    const empty = $("saved-empty");
+    if (!box) return;
+
+    let items = [];
+    try {
+      const res = await api("/api/favorites");
+      items = res.items || [];
+    } catch (err) {
+      onError(err);
+      return;
+    }
+
+    S.favorites = new Set(items.map((p) => p.id));
+    box.innerHTML = "";
+    empty.classList.toggle("hidden", items.length > 0);
+
+    items.forEach((p) => {
+      const row = el("div", "saved-row");
+      const photo = abs(p.photo_url);
+      row.innerHTML = `
+        <div class="saved-art">${photo ? img(photo) : "💡"}</div>
+        <div class="saved-mid">
+          <b>${esc(p.name)}</b>
+          <span>${esc(p.price_label)}</span>
+        </div>`;
+
+      const add = el("button", "saved-add", p.stock > 0 ? "➕" : "—");
+      add.disabled = p.stock < 1;
+      add.title = "Savatchaga";
+      add.onclick = () => {
+        addToCart(p);
+        add.textContent = "✓";
+        setTimeout(() => (add.textContent = "➕"), 1100);
+      };
+
+      const remove = el("button", "saved-del", "♥");
+      remove.title = "Saqlanganlardan olish";
+      remove.onclick = async () => {
+        await toggleFavorite(p, null);
+        row.remove();
+        empty.classList.toggle("hidden", box.children.length > 0);
+      };
+
+      row.append(add, remove);
+      box.append(row);
+    });
+  }
+
   /** Chegirma foizi: eski va yangi narxdan hisoblanadi (aksiya tovarda). */
   function discountPercent(p) {
     const now = Number(p.price) || 0;
@@ -998,6 +1085,8 @@
           ${off ? `<span class="prod-off">-${off}%</span>` : ""}
           ${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}
           ${p.video_url ? '<span class="prod-play">▶</span>' : ""}
+          <button class="prod-fav${S.favorites.has(p.id) ? " on" : ""}"
+                  aria-label="Saqlash">♥</button>
         </div>
         <div class="prod-body">
           <div class="prod-name">${esc(p.name)}</div>
@@ -1009,6 +1098,11 @@
       if (p.video_url || p.description) {
         card.querySelector(".prod-art").onclick = () => openProduct(p);
       }
+      const fav = card.querySelector(".prod-fav");
+      fav.onclick = (ev) => {
+        ev.stopPropagation(); // rasm bosilishi bilan aralashmasin
+        toggleFavorite(p, fav);
+      };
       const btn = el("button", "prod-add", p.stock > 0 ? "➕ Savatchaga" : "Tugagan");
       btn.disabled = p.stock < 1;
       btn.onclick = () => {
@@ -1051,7 +1145,21 @@
       addToCart(p);
       closeSheet();
     };
-    $("sheet-content").append(add);
+
+    // Saqlash tugmasi — kartochkadagi yurak bilan bir xil ishlaydi
+    const save = el(
+      "button",
+      "btn btn-ghost btn-sm",
+      S.favorites.has(p.id) ? "♥ Saqlanganlarda" : "♡ Saqlash"
+    );
+    save.style.marginTop = "8px";
+    save.onclick = async () => {
+      await toggleFavorite(p, null);
+      save.textContent = S.favorites.has(p.id) ? "♥ Saqlanganlarda" : "♡ Saqlash";
+      renderCatalog();
+    };
+
+    $("sheet-content").append(add, save);
   }
 
   function addToCart(product) {
@@ -1173,6 +1281,7 @@
         : "—";
       renderPhoneWarn();
     }
+    renderSaved();
     try {
       const [biled, bookings, orders] = await Promise.all([
         api("/api/biled-orders"),

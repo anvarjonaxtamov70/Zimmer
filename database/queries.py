@@ -570,6 +570,74 @@ async def get_catalog(car_id: int | None = None) -> list[dict[str, Any]]:
     return catalog
 
 
+# ---------------------------------------------------------- saqlanganlar
+
+
+async def toggle_favorite(user_id: int, product_id: int) -> bool:
+    """Tovarni saqlaydi yoki saqlanganlardan oladi. Qaytaradi: yangi holat."""
+    db = get_db()
+    cur = await db.execute(
+        "DELETE FROM favorites WHERE user_id = ? AND product_id = ?", (user_id, product_id)
+    )
+    if cur.rowcount > 0:
+        await db.commit()
+        return False
+
+    await db.execute(
+        "INSERT OR IGNORE INTO favorites (user_id, product_id) VALUES (?, ?)",
+        (user_id, product_id),
+    )
+    await db.commit()
+    return True
+
+
+async def get_favorite_ids(user_id: int) -> list[int]:
+    """Saqlangan tovar ID'lari (ilovada yurakni bo'yash uchun)."""
+    db = get_db()
+    async with db.execute(
+        "SELECT product_id FROM favorites WHERE user_id = ?", (user_id,)
+    ) as cur:
+        return [row["product_id"] async for row in cur]
+
+
+async def get_favorites(user_id: int) -> list[dict[str, Any]]:
+    """Saqlangan tovarlar — yangi saqlangani birinchi bo'lib."""
+    db = get_db()
+    async with db.execute(
+        "SELECT p.* FROM favorites f JOIN products p ON p.id = f.product_id"
+        " WHERE f.user_id = ? AND p.is_active = 1"
+        " ORDER BY f.created_at DESC, f.product_id DESC",
+        (user_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [product_json(row) for row in rows]
+
+
+async def get_favorite_names(user_id: int) -> list[str]:
+    """Saqlangan tovar NOMLARI — bulutga yozish uchun (ID'lar o'zgaradi)."""
+    db = get_db()
+    async with db.execute(
+        "SELECT p.name FROM favorites f JOIN products p ON p.id = f.product_id"
+        " WHERE f.user_id = ?",
+        (user_id,),
+    ) as cur:
+        return [row["name"] async for row in cur]
+
+
+async def add_favorite_by_name(user_id: int, name: str) -> bool:
+    """Bulutdan tiklash: tovarni nomi bo'yicha topib saqlanganlarga qo'shadi."""
+    product_id = await catalog_find("products", name)
+    if product_id is None:
+        return False
+    db = get_db()
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO favorites (user_id, product_id) VALUES (?, ?)",
+        (user_id, product_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
 async def create_order_from_items(
     user_id: int,
     items: list[tuple[int, int]],

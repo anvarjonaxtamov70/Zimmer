@@ -117,6 +117,56 @@ async def fetch_user(user_id: int) -> dict | None:
     return profile if isinstance(profile, dict) else node
 
 
+async def push_favorites(user_id: int) -> None:
+    """«Saqlanganlar» ro'yxatini bulutga yozadi.
+
+    Tovar ID'lari baza tozalangandan keyin o'zgaradi, shuning uchun
+    NOMLAR saqlanadi — katalog kabi.
+    """
+    try:
+        names = await q.get_favorite_names(user_id)
+    except Exception as error:
+        logger.warning("Saqlanganlar o'qilmadi (%s): %s", user_id, error)
+        return
+    await _write(
+        f"users/{user_id}/favorites",
+        {"names": names, "updatedAt": int(time.time() * 1000)},
+        method="put",
+    )
+
+
+async def restore_favorites() -> int:
+    """Mijozlarning «Saqlanganlar» ro'yxatini bulutdan qaytaradi."""
+    if not firebase.is_enabled():
+        return 0
+
+    node = await firebase.get("users")
+    restored = 0
+    for key, value in firebase.items(node):
+        saved = value.get("favorites")
+        if not isinstance(saved, dict):
+            continue
+        names = saved.get("names")
+        if isinstance(names, dict):
+            names = list(names.values())
+        if not isinstance(names, list):
+            continue
+        try:
+            user_id = int(value.get("profile", {}).get("uid") or key)
+        except (TypeError, ValueError):
+            continue
+        for name in names:
+            try:
+                if await q.add_favorite_by_name(user_id, str(name)):
+                    restored += 1
+            except Exception as error:
+                logger.warning("«%s» saqlanganlarga qo'shilmadi: %s", name, error)
+
+    if restored:
+        logger.info("Firebase'dan %s saqlangan tovar qaytarildi", restored)
+    return restored
+
+
 async def restore_users() -> int:
     """Firebase'dagi mijozlarni mahalliy bazaga qaytaradi. Qaytaradi: soni."""
     if not firebase.is_enabled():
@@ -624,6 +674,8 @@ async def initial_sync() -> None:
         await restore_catalog()
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
+        # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin
+        await restore_favorites()
         await flush_pending()
     except Exception as error:
         logger.warning("Boshlang'ich sinxronizatsiya xatosi: %s", error)

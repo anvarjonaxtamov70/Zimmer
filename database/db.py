@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Mijoz saqlab qo'ygan tovarlar («Saqlanganlar»).
+-- Tovar o'chirilsa yozuv o'zi ketadi (ON DELETE CASCADE).
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id    INTEGER NOT NULL REFERENCES users(user_id),
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, product_id)
+);
+
 -- Bot ichidan qo'shilgan adminlar. Koddagi CORE_ADMINS va env'dagi
 -- ADMINS shu jadvaldan mustaqil — ular har doim admin bo'lib qoladi.
 CREATE TABLE IF NOT EXISTS admins (

@@ -1060,3 +1060,65 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 /* Yopilgan buyurtma (bekor qilingan / topshirilgan) — tugmalari yo'q */
 .adm-order.closed { opacity: 0.62; }
 .adm-order.closed .adm-status { background: rgba(255, 255, 255, 0.06); }
+
+
+/* ======================================================================
+   SAQLANGANLAR
+   Tovar ustidagi yurak va Kabinetdagi ro'yxat.
+   ====================================================================== */
+
+/* Kartochkadagi yurak */
+.prod-fav {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  width: 30px; height: 30px; padding: 0;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 15px; line-height: 1;
+  display: grid; place-items: center;
+  transition: color 0.2s, background 0.2s, transform 0.2s var(--spring);
+}
+.prod-fav.on { color: var(--red); background: rgba(0, 0, 0, 0.55); }
+.prod-fav:active { transform: scale(0.88); }
+.prod-fav.pop { animation: favPop 0.32s var(--spring); }
+@keyframes favPop {
+  40% { transform: scale(1.32); }
+  to  { transform: scale(1); }
+}
+
+/* Kabinetdagi ro'yxat */
+.saved { display: flex; flex-direction: column; gap: 8px; }
+.saved-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  content-visibility: auto;
+}
+.saved-art {
+  width: 46px; height: 46px; flex: none;
+  border-radius: var(--r-sm); overflow: hidden;
+  background: var(--surface-2);
+  display: grid; place-items: center; font-size: 18px;
+}
+.saved-art img { width: 100%; height: 100%; object-fit: cover; }
+.saved-mid { flex: 1; min-width: 0; }
+.saved-mid b {
+  display: block; font-size: 13.5px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.saved-mid span { font-size: 12.5px; color: var(--muted); }
+.saved-add, .saved-del {
+  width: 34px; height: 34px; flex: none;
+  border-radius: 10px; font-size: 15px;
+  display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text);
+}
+.saved-del { color: var(--red); border-color: rgba(255, 45, 58, 0.3); }
+.saved-add:active, .saved-del:active { transform: scale(0.9); }
+.saved-add[disabled] { opacity: 0.4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .prod-fav.pop { animation: none; }
+}

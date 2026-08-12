@@ -233,6 +233,40 @@ async def api_register(request: web.Request) -> web.Response:
     )
 
 
+@routes.get("/api/favorites")
+async def api_favorites(request: web.Request) -> web.Response:
+    """Saqlangan tovarlar (Kabinetdagi «Saqlanganlar» bo'limi)."""
+    user_id, _, _ = await _current_user(request)
+    products = await q.get_favorites(user_id)
+
+    # Narx yorliqlari va rasm manzillarini katalog kabi to'ldiramiz
+    wrapper = [{"products": products}]
+    _decorate_catalog(wrapper)
+
+    return web.json_response({"items": products, "count": len(products)})
+
+
+@routes.post("/api/favorites")
+async def api_favorite_toggle(request: web.Request) -> web.Response:
+    """Tovarni saqlaydi yoki saqlanganlardan oladi (bitta tugma)."""
+    user_id, _, _ = await _current_user(request)
+    body = await _json_body(request)
+    try:
+        product_id = int(body.get("product_id"))
+    except (TypeError, ValueError) as error:
+        raise bad_request("product_id noto'g'ri") from error
+
+    product = await q.get_product(product_id)
+    if not product:
+        raise not_found("Tovar topilmadi")
+
+    saved = await q.toggle_favorite(user_id, product_id)
+    # Bulutga yozamiz — qayta deployda saqlanganlar yo'qolmasin
+    await sync.push_favorites(user_id)
+
+    return web.json_response({"ok": True, "saved": saved, "product_id": product_id})
+
+
 @routes.post("/api/me/car")
 async def api_set_car(request: web.Request) -> web.Response:
     user_id, _, _ = await _current_user(request)
@@ -497,6 +531,8 @@ async def api_home(request: web.Request) -> web.Response:
             # Aksiyalar bo'limi olib tashlandi — chegirma tovarning o'zida
             # (eski narx + belgi), Avto A1 dagi kabi.
             "catalog": catalog,
+            # Saqlangan tovarlar — yuraklarni darhol to'g'ri ko'rsatish uchun
+            "favorite_ids": await q.get_favorite_ids(user_id),
         }
     )
 
