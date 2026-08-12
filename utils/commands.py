@@ -10,7 +10,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from config import config
+from config import all_admins, config
 
 logger = logging.getLogger(__name__)
 
@@ -20,24 +20,36 @@ USER_COMMANDS = [
     BotCommand(command="navbat", description="Navbat olish (botda)"),
     BotCommand(command="dokon", description="Do'kon (botda)"),
     BotCommand(command="menu", description="Asosiy menyu"),
+    BotCommand(command="id", description="Telegram ID'ni bilish"),
 ]
 
 ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin", description="Admin panel"),
     BotCommand(command="katalog", description="Katalogni boshqarish"),
-    BotCommand(command="id", description="Telegram ID'ni bilish"),
+    BotCommand(command="adminlar", description="Adminlar ro'yxati"),
 ]
+
+
+async def apply_admin_commands(bot: Bot, user_id: int) -> None:
+    """Bitta adminga admin buyruqlar menyusini o'rnatadi."""
+    try:
+        await bot.set_my_commands(ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=user_id))
+    except Exception as error:  # admin botni hali start qilmagan bo'lishi mumkin
+        logger.info("Admin (%s) buyruqlari o'rnatilmadi: %s", user_id, error)
+
+
+async def reset_user_commands(bot: Bot, user_id: int) -> None:
+    """Admin huquqi olingandan keyin oddiy menyuni qaytaradi."""
+    try:
+        await bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeChat(chat_id=user_id))
+    except Exception as error:
+        logger.info("Foydalanuvchi (%s) buyruqlari tiklanmadi: %s", user_id, error)
 
 
 async def set_default_commands(bot: Bot) -> None:
     await bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeDefault())
-    for admin_id in config.admins:
-        try:
-            await bot.set_my_commands(
-                ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id)
-            )
-        except Exception:  # admin botni hali start qilmagan bo'lishi mumkin
-            continue
+    for admin_id in all_admins():
+        await apply_admin_commands(bot, admin_id)
 
 
 async def set_menu_button(bot: Bot) -> None:

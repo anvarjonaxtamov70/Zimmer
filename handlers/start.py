@@ -9,8 +9,10 @@ from config import config, is_admin
 from database import queries as q
 from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
-from services import sync
+from services import admins as admin_registry
+from services import identity
 from states import Register
+from utils.filters import NotAdmin
 from utils.helpers import normalize_phone
 from utils.texts import APP_INTRO, BTN_CANCEL, BTN_CONTACT, CONTACT_TEXT, greeting
 
@@ -82,18 +84,11 @@ async def _finish_registration(message: Message, state: FSMContext, raw_phone: s
     phone = normalize_phone(raw_phone) or raw_phone
     await q.add_user(message.from_user.id, full_name, phone, message.from_user.username)
 
-    # Firebase'ga yozamiz — qayta deploydan keyin ham saqlanib qoladi
-    full = await q.get_user_with_car(message.from_user.id)
-    await sync.push_user(
-        message.from_user.id,
-        {
-            "full_name": full_name,
-            "phone": phone,
-            "username": message.from_user.username,
-            "car_id": full["car_id"] if full else None,
-            "car_name": full["car_name"] if full else None,
-        },
-    )
+    # Firebase'ga yozamiz — qayta deploydan keyin ham saqlanib qoladi.
+    # Firebase o'sha paytda tayyor bo'lmasa, yozuv navbatga tushadi va
+    # keyinroq avtomatik yuboriladi (services/sync.py).
+    identity.forget_cache(message.from_user.id)
+    await identity.push_profile(message.from_user.id)
     await state.clear()
     await message.answer(
         f"✅ Ro'yxatdan o'tdingiz!\n📞 Raqam: <b>{phone}</b>",
@@ -138,28 +133,29 @@ async def cmd_id(message: Message) -> None:
     if is_admin(user_id):
         await message.answer(
             f"🆔 Sizning Telegram ID: <code>{user_id}</code>\n\n"
-            "👑 Siz <b>adminsiz</b>. Panelni ochish: /admin\n"
-            "Katalogni boshqarish: /katalog",
+            f"👑 Siz <b>adminsiz</b> — manba: {admin_registry.source_label(user_id)}\n\n"
+            "Panelni ochish: /admin\n"
+            "Katalogni boshqarish: /katalog\n"
+            "Adminlar ro'yxati: /adminlar",
             reply_markup=main_menu(user_id),
         )
         return
 
     await message.answer(
         f"🆔 Sizning Telegram ID: <code>{user_id}</code>\n\n"
-        "Siz hozircha admin emassiz. Admin bo'lish uchun shu ID'ni "
-        "Render panelidagi <code>ADMINS</code> (yoki <code>ADMINS_EXTRA</code>) "
-        "o'zgaruvchisiga qo'shish kerak."
+        "Siz admin emassiz. Mavjud adminlardan biri sizni shu buyruq bilan "
+        f"qo'sha oladi:\n<code>/admin_add {user_id}</code>"
     )
 
 
-@router.message(Command("admin"), ~F.from_user.id.in_(config.admins))
+@router.message(Command("admin"), NotAdmin())
 async def cmd_admin_denied(message: Message) -> None:
     """Admin bo'lmaganlar uchun tushunarli javob (jim turmaslik uchun)."""
     await message.answer(
         "🔒 Admin panel faqat adminlar uchun.\n\n"
         f"Sizning ID: <code>{message.from_user.id}</code>\n"
-        "Agar bu siz bo'lsangiz, ID'ni Render panelidagi "
-        "<code>ADMINS</code> ro'yxatiga qo'shing va xizmatni qayta ishga tushiring."
+        "Agar bu siz bo'lsangiz, mavjud adminlardan biri sizni "
+        f"<code>/admin_add {message.from_user.id}</code> buyrug'i bilan qo'shishi kerak."
     )
 
 

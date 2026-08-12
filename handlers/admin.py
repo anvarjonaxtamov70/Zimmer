@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from config import config
+from config import parse_ids
 from database import queries as q
 from keyboards.inline import (
     admin_back_kb,
@@ -21,8 +21,11 @@ from keyboards.inline import (
     admin_orders_kb,
 )
 from keyboards.reply import cancel_kb, main_menu
+from services import admins as admin_registry
 from services import sync
 from states import Broadcast
+from utils.commands import apply_admin_commands, reset_user_commands
+from utils.filters import IsAdmin
 from utils.helpers import available_dates, date_label, fmt_price, today_iso, user_link
 from utils.texts import (
     BILED_STATUS,
@@ -36,9 +39,10 @@ from utils.ui import edit_or_send
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
-# butun router faqat adminlar uchun
-router.message.filter(F.from_user.id.in_(config.admins))
-router.callback_query.filter(F.from_user.id.in_(config.admins))
+# Butun router faqat adminlar uchun. Tekshiruv JONLI registrdan o'qiladi,
+# shuning uchun yangi admin qo'shilsa darhol ishlaydi (restart kerak emas).
+router.message.filter(IsAdmin())
+router.callback_query.filter(IsAdmin())
 
 ADMIN_TITLE = "⚙️ <b>Admin panel</b>\n\nKerakli bo'limni tanlang:"
 
@@ -434,3 +438,114 @@ async def broadcast_send(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.answer(ADMIN_TITLE, reply_markup=admin_menu_kb())
 
 
+# ==================================================================== adminlar
+#
+# Ilgari yangi admin qo'shishning yagona yo'li Render panelidagi ADMINS
+# o'zgaruvchisini tahrirlab, xizmatni qayta ishga tushirish edi. Endi
+# adminlar bot ichidan boshqariladi: ro'yxat bazada va Firebase'da
+# saqlanadi, shuning uchun qayta deploydan keyin ham yo'qolmaydi.
+
+
+def _target_user_id(message: Message) -> int | None:
+    """Buyruqdan yoki javob berilgan xabardan foydalanuvchi ID'sini oladi.
+
+    Ishlaydigan usullar:
+        /admin_add 5105291033
+        /admin_add @user 5105291033   (matndagi ID olinadi)
+        forward qilingan xabarga javob berib: /admin_add
+    """
+    found = parse_ids(message.text or "")
+    if found:
+        return found[0]
+
+    reply = message.reply_to_message
+    if reply is not None:
+        if reply.forward_from is not None:
+            return reply.forward_from.id
+        if reply.from_user is not None and not reply.from_user.is_bot:
+            return reply.from_user.id
+    return None
+
+
+async def _known_name(user_id: int) -> str | None:
+    row = await q.get_user(user_id)
+    return row["full_name"] if row else None
+
+
+@router.message(Command("adminlar"))
+async def cmd_admins(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(await admin_registry.describe(), reply_markup=admin_back_kb())
+
+
+@router.callback_query(F.data == "adm:admins")
+async def admins_menu_cb(callback: CallbackQuery) -> None:
+    await edit_or_send(callback.message, await admin_registry.describe(), admin_back_kb())
+    await callback.answer()
+
+
+@router.message(Command("admin_add"))
+async def cmd_admin_add(message: Message, bot: Bot) -> None:
+    target = _target_user_id(message)
+    if target is None:
+        await message.answer(
+            "ℹ️ Qo'shish uchun ID kerak:\n"
+            "<code>/admin_add 5105291033</code>\n\n"
+            "Yoki odamning xabarini botga <b>forward</b> qilib, o'sha xabarga "
+            "javob sifatida <code>/admin_add</code> yozing.\n\n"
+            "ID'ni bilish uchun u kishi botga /id yuborsa bo'ladi."
+        )
+        return
+
+    name = await _known_name(target)
+    added = await admin_registry.grant(target, name, message.from_user.id)
+    if not added:
+        await message.answer(
+            f"ℹ️ <code>{target}</code> allaqachon admin "
+            f"({admin_registry.source_label(target)})."
+        )
+        return
+
+    await apply_admin_commands(bot, target)
+    await message.answer(
+        f"✅ Yangi admin qo'shildi: <code>{target}</code>"
+        + (f" — {name}" if name else "")
+        + "\n\nRo'yxat bazada va Firebase'da saqlandi — qayta deploydan keyin ham qoladi.",
+        reply_markup=admin_back_kb(),
+    )
+    try:
+        await bot.send_message(
+            target,
+            "👑 Sizga <b>admin</b> huquqi berildi!\n\n"
+            "Panel: /admin\nKatalog: /katalog\nAdminlar: /adminlar",
+        )
+    except Exception as error:
+        logger.info("Yangi adminga (%s) xabar yuborilmadi: %s", target, error)
+
+
+@router.message(Command("admin_del"))
+async def cmd_admin_del(message: Message, bot: Bot) -> None:
+    target = _target_user_id(message)
+    if target is None:
+        await message.answer("ℹ️ Olib tashlash uchun: <code>/admin_del 5105291033</code>")
+        return
+
+    ok, reason = await admin_registry.revoke(target)
+    if ok:
+        await reset_user_commands(bot, target)
+        await message.answer(
+            f"✅ <code>{target}</code> adminlar ro'yxatidan olib tashlandi.",
+            reply_markup=admin_back_kb(),
+        )
+        return
+
+    if reason == "protected":
+        await message.answer(
+            f"⛔️ <code>{target}</code> — {admin_registry.source_label(target)} admin. "
+            "Uni bot ichidan o'chirib bo'lmaydi.\n\n"
+            "Bu ataylab shunday: asosiy adminlar hech qanday holatda "
+            "(baza tozalansa ham) yo'qolmasligi kerak."
+        )
+        return
+
+    await message.answer(f"ℹ️ <code>{target}</code> admin emas.")

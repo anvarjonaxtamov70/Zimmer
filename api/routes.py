@@ -18,7 +18,7 @@ from keyboards.inline import (
     admin_new_booking_kb,
     admin_new_order_kb,
 )
-from services import sync
+from services import identity, sync
 from utils.helpers import (
     available_dates,
     date_label,
@@ -56,15 +56,18 @@ async def _current_user(request: web.Request, require_phone: bool = False):
 
     tg_user = verified["user"]
     user_id = int(tg_user["id"])
-    row = await q.get_user(user_id)
 
+    # Ilovaga kirgan mijoz ham HAR SAFAR eslab qolinadi: bazada bo'lmasa
+    # Firebase'dan tiklanadi, bo'lsa — profili bulutga yozib turiladi.
+    # Ilgari bu yerda faqat mahalliy bazaga yozilardi va Firebase'ga
+    # tushmasdi, shuning uchun qayta deployda mijoz yo'qolib ketardi.
+    row = await identity.remember(
+        user_id,
+        identity.display_name(tg_user.get("first_name"), tg_user.get("last_name")),
+        tg_user.get("username"),
+    )
     if row is None:
-        name = " ".join(
-            part for part in [tg_user.get("first_name"), tg_user.get("last_name")] if part
-        ).strip() or "Mijoz"
-        await q.add_user(user_id, name, None, tg_user.get("username"))
-        row = await q.get_user(user_id)
-        logger.info("Yangi foydalanuvchi avtomatik qo'shildi: %s (%s)", name, user_id)
+        raise unauthorized()
 
     if require_phone and not row["phone"]:
         raise phone_required()
@@ -203,17 +206,8 @@ async def api_register(request: web.Request) -> web.Response:
         raise bad_request("Telefon raqam noto'g'ri. Masalan: +998901234567")
 
     await q.add_user(user_id, full_name, phone, tg_user.get("username"))
-    full = await q.get_user_with_car(user_id)
-    await sync.push_user(
-        user_id,
-        {
-            "full_name": full_name,
-            "phone": phone,
-            "username": tg_user.get("username"),
-            "car_id": full["car_id"] if full else None,
-            "car_name": full["car_name"] if full else None,
-        },
-    )
+    identity.forget_cache(user_id)
+    await identity.push_profile(user_id)
 
     bot = request.app["bot"]
     await notify_admins(
@@ -251,18 +245,9 @@ async def api_set_car(request: web.Request) -> web.Response:
         raise not_found("Mashina topilmadi")
 
     await q.set_user_car(user_id, car_id)
+    identity.forget_cache(user_id)
+    await identity.push_profile(user_id)
 
-    row = await q.get_user(user_id)
-    await sync.push_user(
-        user_id,
-        {
-            "full_name": row["full_name"],
-            "phone": row["phone"],
-            "username": row["username"],
-            "car_id": car["id"],
-            "car_name": car["name"],
-        },
-    )
     return web.json_response(
         {"ok": True, "car": {"id": car["id"], "name": car["name"], "years": car["years"]}}
     )

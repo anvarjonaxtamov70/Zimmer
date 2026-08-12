@@ -137,7 +137,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="🗓 Navbatlar", callback_data="adm:bookings:today")
     kb.button(text="📦 Do'kon buyurtmalari", callback_data="adm:orders:new")
     kb.button(text="📣 Xabar yuborish", callback_data="adm:broadcast")
-    kb.adjust(1, 1, 2, 1, 1)
+    kb.button(text="👑 Adminlar", callback_data="adm:admins")
+    kb.adjust(1, 1, 2, 1, 1, 1)
     return kb.as_markup()
 
 
