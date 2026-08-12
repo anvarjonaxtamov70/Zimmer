@@ -806,7 +806,6 @@
       S.home = await api("/api/home");
       renderStories();
       renderBanners();
-      renderPromos();
       renderCatalog();
       renderBookCard();
       $("car-chip-name").textContent = (S.me && S.me.car && S.me.car.name) || "Mashina tanlash";
@@ -955,20 +954,12 @@
     }
   }
 
-  function renderPromos() {
-    const box = $("promos");
-    box.innerHTML = "";
-    (S.home.promos || []).forEach((p) => {
-      box.append(
-        el(
-          "div",
-          "promo",
-          `${p.discount ? `<span class="promo-badge">${esc(p.discount)}</span>` : ""}
-           <b>${esc(p.title)}</b><p>${esc(p.text || "")}</p>`
-        )
-      );
-    });
-    $("promos-sec").classList.toggle("hidden", !(S.home.promos || []).length);
+  /** Chegirma foizi: eski va yangi narxdan hisoblanadi (aksiya tovarda). */
+  function discountPercent(p) {
+    const now = Number(p.price) || 0;
+    const was = Number(p.old_price) || 0;
+    if (was <= now || !now) return 0;
+    return Math.round(((was - now) / was) * 100);
   }
 
   /* ---------------------------------------------------------- mahsulotlar */
@@ -998,9 +989,13 @@
     products.forEach((p) => {
       const card = el("div", "prod");
       const photo = abs(p.photo_url);
+      // Aksiya endi TOVARNING o'zida: eski narx kiritilsa, chegirma foizi
+      // avtomatik hisoblanadi va qizil yorliq bo'lib chiqadi.
+      const off = discountPercent(p);
       card.innerHTML = `
         <div class="prod-art">
           ${photo ? img(photo) : "💡"}
+          ${off ? `<span class="prod-off">-${off}%</span>` : ""}
           ${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}
           ${p.video_url ? '<span class="prod-play">▶</span>' : ""}
         </div>

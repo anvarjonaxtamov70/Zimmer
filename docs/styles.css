@@ -624,23 +624,6 @@ img, video { display: block; max-width: 100%; }
 }
 
 /* aksiyalar */
-.promos { display: flex; gap: 11px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
-.promos::-webkit-scrollbar { display: none; }
-.promo {
-  flex: none; width: 200px; padding: 13px;
-  border-radius: var(--r-md);
-  background: var(--surface); border: 1px solid var(--line);
-  position: relative;
-}
-.promo-badge {
-  position: absolute; top: 11px; right: 11px;
-  background: var(--red-grad); color: #fff;
-  font-size: 11px; font-weight: 800;
-  padding: 3px 9px; border-radius: 999px;
-}
-.promo b { display: block; font-size: 13.5px; padding-right: 58px; }
-.promo p { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
-
 /* navbat kartasi */
 .book-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px; }
 .book-line { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 4px 0; }
@@ -677,6 +660,16 @@ img, video { display: block; max-width: 100%; }
   font-size: 9.5px; font-weight: 800;
   padding: 3px 7px; border-radius: 999px;
 }
+/* Chegirma yorlig'i — aksiya tovarning o'zida (eski narxdan hisoblanadi).
+   Matnli belgi ham bo'lsa, u pastga suriladi. */
+.prod-off {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  background: var(--red-grad); color: #fff;
+  font-size: 11px; font-weight: 900; letter-spacing: -0.2px;
+  padding: 3px 8px; border-radius: 999px;
+  box-shadow: 0 2px 10px var(--red-glow);
+}
+.prod-off ~ .prod-badge { top: 34px; font-size: 9px; }
 .prod-play {
   position: absolute; right: 8px; bottom: 8px;
   width: 24px; height: 24px; border-radius: 50%;
