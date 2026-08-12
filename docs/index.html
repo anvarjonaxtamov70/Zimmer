@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#08080a">
-  <title>ZIMMER — Bi-LED avtotuning</title>
+  <title>ZIMMER — Avtotuning</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -34,7 +34,7 @@
       <span>Z</span><span>I</span><span>M</span><span>M</span><span>E</span><span>R</span>
     </div>
     <div class="logo-line"></div>
-    <div class="logo-sub">BI&#8209;LED · AVTOTUNING</div>
+    <div class="logo-sub">ZIMMER · AVTOTUNING</div>
   </div>
 
   <div class="splash-hello" id="splash-hello">
@@ -45,12 +45,6 @@
     <span>Boshlash</span>
     <i class="arrow">→</i>
   </button>
-
-  <div class="splash-feats">
-    <div><b>1 yil</b><small>kafolat</small></div>
-    <div><b>2–3 soat</b><small>o'rnatish</small></div>
-    <div><b>14 000 lm</b><small>gacha</small></div>
-  </div>
 </section>
 
 <!-- ==================== RO'YXATDAN O'TMAGAN ==================== -->
@@ -146,7 +140,7 @@
   <header class="home-header">
     <div class="brand">
       <span class="brand-mark">Z</span>
-      <div class="brand-txt"><b>ZIMMER</b><small>Bi&#8209;LED avtotuning</small></div>
+      <div class="brand-txt"><b>ZIMMER</b><small>Zimmer avtotuning</small></div>
     </div>
     <button class="car-chip" id="car-chip"><i>🚗</i><span id="car-chip-name">—</span><em>▾</em></button>
   </header>
@@ -238,12 +232,26 @@
   </div>
 </section>
 
+<!-- ==================== ADMIN PANEL (faqat adminlarga) ==================== -->
+<section id="admin" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="admin-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="admin-title">Boshqaruv</div>
+      <div class="topbar-sub" id="admin-sub">Zimmer admin</div>
+    </div>
+    <button class="icon-btn ghost" id="admin-reload" aria-label="Yangilash">⟳</button>
+  </header>
+  <div class="pad" id="admin-body"></div>
+</section>
+
 <!-- ==================== NAVIGATSIYA ==================== -->
 <nav class="nav hidden" id="nav">
   <button class="nav-btn active" data-page="home"><i>🏠</i><span>Asosiy</span></button>
   <button class="nav-btn" data-page="flow"><i>🔧</i><span>Konfigurator</span></button>
   <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge">0</b></button>
   <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
+  <button class="nav-btn hidden" id="nav-admin" data-page="admin"><i>⚙️</i><span>Admin</span></button>
 </nav>
 
 <!-- ==================== STORY KO'RUVCHI ==================== -->
@@ -270,9 +278,11 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=6"></script>
-<script src="js/headlight.js?v=6"></script>
-<script src="js/cars.js?v=6"></script>
-<script src="js/app.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="js/headlight.js?v=7"></script>
+<script src="js/cars.js?v=7"></script>
+<!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
+<script src="js/admin.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
 </body>
 </html>

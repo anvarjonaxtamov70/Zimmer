@@ -11,7 +11,7 @@ from aiohttp import web
 from api.auth import extract_init_data, validate_init_data
 from api.errors import ApiError, bad_request, not_found, phone_required, unauthorized
 from api.media import media_fields
-from config import config
+from config import config, is_admin
 from database import queries as q
 from keyboards.inline import (
     admin_new_biled_kb,
@@ -185,6 +185,8 @@ async def api_me(request: web.Request) -> web.Response:
             "full_name": row["full_name"],
             "phone": row["phone"],
             "car": car,
+            # Ilova shu belgiga qarab admin bo'limini ko'rsatadi
+            "is_admin": is_admin(user_id),
         }
     )
 

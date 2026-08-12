@@ -10,6 +10,7 @@ import os
 import aiohttp
 from aiohttp import web
 
+from api.admin import admin_routes
 from api.errors import ApiError
 from api.media import handle_media
 from api.routes import routes
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Telegram-Init-Data",
     "Access-Control-Max-Age": "86400",
 }
@@ -83,6 +84,8 @@ def create_app(bot, bot_username: str | None = None) -> web.Application:
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
     app.add_routes(routes)
+    # Mini App ichidagi admin panel: /api/admin/*
+    app.add_routes(admin_routes)
     # rasm/video: /api/media/{jadval}/{id}/{photo|video}
     app.router.add_get("/api/media/{table}/{row_id}/{kind}", handle_media)
     return app

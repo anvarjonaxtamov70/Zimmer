@@ -37,6 +37,10 @@ def phone_required() -> ApiError:
     )
 
 
+def forbidden(message: str = "Bu bo'lim faqat adminlar uchun.") -> ApiError:
+    return ApiError(403, "forbidden", message)
+
+
 def bad_request(message: str, extra: dict | None = None) -> ApiError:
     return ApiError(400, "bad_request", message, extra)
 
