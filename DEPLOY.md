@@ -19,8 +19,11 @@ qadamlar Avto_A1 botidagi bilan bir xil sxemada ishlaydi:
 | Kalit | Qiymat |
 |---|---|
 | `BOT_TOKEN` | BotFather bergan token |
-| `ADMINS` | Telegram ID'ingiz (bir nechta bo'lsa vergul bilan: `123,456`) |
+| `ADMINS` | Qo'shimcha admin ID'lari (majburiy emas) |
 
+> Avto_A1 dagi adminlar kodda yozilgan va har doim ishlaydi — `ADMINS` ni
+> bo'sh qoldirsangiz ham admin panel ochiladi. Batafsil: "👑 Adminlar" bo'limi.
+>
 > ID'ni bilish: botga `/id` yuboring yoki [@userinfobot](https://t.me/userinfobot).
 
 6. **Deploy** tugashini kutamiz (2-4 daqiqa). **Logs** bo'limida shunday
@@ -107,8 +110,16 @@ Bot uxlagan bo'lsa, "sovuq start" vaqt oladi. Keep-alive workflow yoqilgan
 bo'lsa, bu deyarli bo'lmaydi.
 
 **Admin panel ochilmayapti**
-`ADMINS` ichida sizning ID borligini tekshiring, o'zgartirgandan keyin
-Render xizmatni qayta ishga tushiradi.
+Botga `/id` yuboring — javobda admin ekanligingiz va manbasi yoziladi.
+Admin bo'lmasangiz, mavjud adminlardan biri `/admin_add <ID>` bilan
+sizni qo'shadi (restart kerak emas). Avto_A1 dagi uch ID kodda yozilgan
+va har doim admin bo'ladi.
+
+**Mijoz qaytadan ro'yxatdan o'tishni so'rayapti**
+Bu doimiy saqlash o'chiq degani: `FIREBASE_DB_URL` va
+`SERVICE_ACCOUNT_JSON` to'g'ri kiritilganini tekshiring. Bot ishga
+tushganda adminlarga bu haqda ogohlantirish yuboradi. Render bepul
+tarifida disk saqlanmaydi, shuning uchun Firebase yagona doimiy joy.
 
 
 ---
@@ -400,41 +411,71 @@ keyin yuklanadi, shuning uchun trafik va batareya tejaladi.
 
 # 👑 Adminlar
 
-## Standart adminlar
+## Asosiy adminlar — o'chmaydi
 
-Kodda Avto_A1 loyihasidagi adminlar standart qilib yozilgan:
+Avto_A1 loyihasidagi adminlar **kod ichida** yozilgan
+(`config.py` → `CORE_ADMINS`):
 
 ```
 5105291033, 483425630, 5302078
 ```
 
-`ADMINS` o'zgaruvchisi berilmasa ham **admin panel ishlaydi** — shu uchta ID
-avtomatik admin bo'ladi. (Avvalgi versiyada `ADMINS` bo'sh bo'lsa panel
-umuman ochilmasdi — muammo shunda edi.)
+Bu uch ID **har qanday holatda** admin bo'lib qoladi:
+
+- `ADMINS` o'zgaruvchisi o'chib ketsa ham;
+- `ADMINS` xato yozilgan bo'lsa ham;
+- SQLite bazasi tozalansa ham;
+- Firebase ulanmasa ham.
+
+Adminlar ro'yxati uch qatlamdan yig'iladi:
+
+| Qatlam | Qayerda saqlanadi | O'chirish |
+|---|---|---|
+| Asosiy (`CORE_ADMINS`) | kodda | faqat `config.py` ni tahrirlab |
+| `ADMINS` / `ADMINS_EXTRA` | Render Environment | o'zgaruvchidan olib tashlab |
+| Bot ichidan qo'shilganlar | SQLite `admins` + Firebase | `/admin_del <ID>` |
+
+> `ADMINS` endi asosiy ro'yxatni **almashtirmaydi**, unga **qo'shiladi**.
+> Ilgari `ADMINS` berilgan bo'lsa asosiy ro'yxat butunlay tashlanardi —
+> shuning uchun bitta xato belgi (masalan qator oxiridagi ko'rinmas `\r`)
+> hamma adminni paneldan chiqarib qo'yardi.
 
 ## Tekshirish
 
 Botga **`/id`** yuboring:
 
-- Admin bo'lsangiz: `👑 Siz adminsiz` + panel havolalari chiqadi
-- Admin bo'lmasangiz: ID'ingiz va nima qilish kerakligi yoziladi
+- Admin bo'lsangiz: `👑 Siz adminsiz` + manba (`asosiy` / `env` / `bot ichidan`)
+- Admin bo'lmasangiz: ID'ingiz va tayyor `/admin_add <ID>` buyrug'i
 
-Botga **`/admin`** yuborsangiz ham javob keladi (avval jim turardi — endi
-sababini aytadi).
+Adminlar ro'yxatini ko'rish: **`/adminlar`** (yoki admin panelda 👑 Adminlar).
 
 ## Yangi admin qo'shish
 
-Render panel → xizmat → **Environment**:
+### 1-usul (tavsiya etiladi) — bot ichidan, restart kerak emas
 
-| Variant | Kalit | Qiymat | Natija |
-|---|---|---|---|
-| Standartlarni saqlab qo'shish | `ADMINS_EXTRA` | `123456789` | 3 standart + yangi admin |
-| Ro'yxatni to'liq almashtirish | `ADMINS` | `5105291033,123456789` | Faqat shu ikkisi |
+```
+/admin_add 123456789
+```
 
+Yoki o'sha odamning xabarini botga **forward** qilib, shu xabarga javob
+sifatida `/admin_add` yozing.
+
+- Ro'yxat SQLite `admins` jadvaliga **va** Firebase'ga yoziladi →
+  qayta deployda ham saqlanib qoladi;
+- yangi admin darhol ishlaydi (xizmatni qayta ishga tushirish shart emas);
+- unga xabar boradi va buyruqlar menyusi yangilanadi.
+
+Olib tashlash: `/admin_del 123456789`
+(asosiy va env adminlarini bot ichidan o'chirib bo'lmaydi — bu ataylab shunday).
+
+### 2-usul — Render Environment
+
+Render panel → xizmat → **Environment** → `ADMINS` yoki `ADMINS_EXTRA`.
+Ajratgich muhim emas: vergul, bo'sh joy, yangi qator — hammasi o'qiladi.
 Saqlagandan keyin Render xizmatni qayta ishga tushiradi. Logda ko'rinadi:
 
 ```
-Adminlar (4 ta): 5105291033, 483425630, 5302078, 123456789
+Adminlar (4 ta): 5105291033, 483425630, 5302078, 123456789 | asosiy: 3 ta, env: 1 ta, bazadan: 0 ta
 ```
 
 > Admin panel: `/admin` · Katalogni boshqarish: `/katalog`

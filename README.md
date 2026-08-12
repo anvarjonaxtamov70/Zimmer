@@ -77,6 +77,9 @@ batafsil [DEPLOY.md](DEPLOY.md). Firebase ulanmasa ham hammasi ishlaydi
   - holatlar: 🆕 yangi → ✅ qabul → 🔧 ishda → ✨ topshirildi (mijozga avtomatik xabar)
 - 📊 Statistika — Bi-LED, navbat va do'kon bo'yicha alohida + umumiy savdo
 - 🗓 Kun bo'yicha navbatlar, 📦 do'kon buyurtmalari, 📣 ommaviy xabar
+- 👑 **Adminlar** (`/adminlar`) — ro'yxatni ko'rish, `/admin_add <ID>` bilan
+  yangi admin qo'shish, `/admin_del <ID>` bilan olib tashlash. Ro'yxat bazada
+  va Firebase'da saqlanadi, qayta deployda yo'qolmaydi.
 - 🗂 **Katalogni boshqarish** (`/katalog`) — pastda batafsil
 
 ### 🗂 Katalogni boshqarish — hamma narsa tahrirlanadi
@@ -163,8 +166,9 @@ bazadan** hisoblanadi, mijoz yuborgan qiymatga ishonilmaydi.
 | O'zgaruvchi | Ma'nosi | Standart |
 |---|---|---|
 | `BOT_TOKEN` | BotFather tokeni | — |
-| `ADMINS` | Admin ID'lari, vergul bilan | `5105291033,483425630,5302078` |
-| `ADMINS_EXTRA` | Standartlarga qo'shimcha adminlar | — |
+| `ADMINS` | Qo'shimcha admin ID'lari (asosiylarga **qo'shiladi**) | — |
+| `ADMINS_EXTRA` | Yana qo'shimcha adminlar | — |
+| `STARTUP_REPORT` | Doimiy saqlash o'chiq bo'lsa adminlarga ogohlantirish | `1` |
 | `MINI_APP_URL` | Mini App manzili | `.../Zimmer/` |
 | `SHOP_NAME` | Brend nomi | `Zimmer` |
 | `DB_PATH` | SQLite fayli | `zimmer.db` |
@@ -200,7 +204,11 @@ Zimmer/
 │       └── app.js         # oqim, asosiy menyu, stories
 ├── services/
 │   ├── firebase.py        # RTDB REST + service-account token
-│   └── sync.py            # mijoz/tovar/buyurtma sinxronizatsiyasi
+│   ├── sync.py            # mijoz/tovar/buyurtma sinxronizatsiyasi
+│   ├── identity.py        # mijozni tanish va "bir umr" eslab qolish
+│   └── admins.py          # adminlar registri (kod + env + baza + bulut)
+├── middlewares/
+│   └── identity.py        # har bir xabarda foydalanuvchini eslab qolish
 ├── database/
 │   ├── db.py              # sxema, migratsiya, katalog
 │   └── queries.py         # SQL so'rovlar
@@ -219,7 +227,7 @@ Zimmer/
 **Do'kon:** `categories`, `products` (`car_id` bilan), `cart_items`, `orders`, `order_items`
 **Navbat:** `services`, `bookings`
 **Kontent:** `banners`, `stories`, `promos`
-**Xizmat:** `users` (`car_id`), `meta` (seed versiyasi)
+**Xizmat:** `users` (`car_id`), `admins` (bot ichidan qo'shilganlar), `meta` (seed versiyasi)
 
 Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
 `seed_version` orqali yangilanadi — buyurtmalar bor bo'lsa tegilmaydi.

@@ -6,7 +6,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from config import config
+from config import all_admins
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def notify_admins(
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    for admin_id in config.admins:
+    for admin_id in all_admins():
         try:
             await bot.send_message(admin_id, text, reply_markup=reply_markup)
         except Exception as error:  # admin botni bloklagan bo'lishi mumkin

@@ -23,6 +23,27 @@ async def add_user(user_id: int, full_name: str, phone: str | None, username: st
     await db.commit()
 
 
+async def touch_user(user_id: int, full_name: str, username: str | None) -> None:
+    """Foydalanuvchini "ko'rdim" deb belgilaydi (har bir xabarda chaqiriladi).
+
+    `add_user`dan farqi: ro'yxatdan o'tgan mijozning (telefoni bor)
+    ismini Telegram profilidagi nom bilan ALMASHTIRMAYDI. Ya'ni mijoz
+    "Anvarjon Axtamov" deb yozgan bo'lsa, u shundayligicha qoladi.
+    """
+    db = get_db()
+    await db.execute(
+        "INSERT INTO users (user_id, full_name, username) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id) DO UPDATE SET"
+        " username = COALESCE(excluded.username, users.username),"
+        " full_name = CASE"
+        "   WHEN users.phone IS NULL AND excluded.full_name IS NOT NULL"
+        "        AND TRIM(excluded.full_name) <> ''"
+        "   THEN excluded.full_name ELSE users.full_name END",
+        (user_id, full_name, username),
+    )
+    await db.commit()
+
+
 async def get_user(user_id: int) -> aiosqlite.Row | None:
     db = get_db()
     async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cur:
@@ -51,6 +72,40 @@ async def get_all_user_ids() -> list[int]:
     db = get_db()
     async with db.execute("SELECT user_id FROM users WHERE is_blocked = 0") as cur:
         return [row["user_id"] async for row in cur]
+
+
+# ------------------------------------------------------------------- adminlar
+
+
+async def get_admins() -> list[aiosqlite.Row]:
+    """Bot ichidan qo'shilgan adminlar (kod/env adminlari bu jadvalda yo'q)."""
+    db = get_db()
+    async with db.execute("SELECT * FROM admins ORDER BY created_at") as cur:
+        return await cur.fetchall()
+
+
+async def get_admin_ids() -> list[int]:
+    db = get_db()
+    async with db.execute("SELECT user_id FROM admins ORDER BY created_at") as cur:
+        return [row["user_id"] async for row in cur]
+
+
+async def add_admin(user_id: int, full_name: str | None, added_by: int | None) -> None:
+    db = get_db()
+    await db.execute(
+        "INSERT INTO admins (user_id, full_name, added_by) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id) DO UPDATE SET"
+        " full_name = COALESCE(excluded.full_name, admins.full_name)",
+        (user_id, full_name, added_by),
+    )
+    await db.commit()
+
+
+async def remove_admin(user_id: int) -> bool:
+    db = get_db()
+    cur = await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+    await db.commit()
+    return cur.rowcount > 0
 
 
 # -------------------------------------------------------------------- xizmatlar

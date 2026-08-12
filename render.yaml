@@ -20,8 +20,11 @@ services:
       # ——— MAJBURIY maxfiy qiymatlar (Render panelida kiritiladi) ———
       - key: BOT_TOKEN
         sync: false
-      # Adminlar (Avto_A1 dagi bilan bir xil). Yangi admin qo'shish uchun
-      # shu qatorga vergul bilan ID qo'shing yoki panelda ADMINS_EXTRA yozing.
+      # ——— Adminlar ———
+      # Avto_A1 dagi adminlar KOD ichida (config.py -> CORE_ADMINS) yozilgan
+      # va HAR DOIM admin bo'lib qoladi — bu o'zgaruvchi o'chsa ham.
+      # Bu yerdagi ID'lar ularga QO'SHILADI (almashtirmaydi).
+      # Yangi admin qo'shishning eng oson yo'li — bot ichida: /admin_add <ID>
       - key: ADMINS
         value: "5105291033,483425630,5302078"
 

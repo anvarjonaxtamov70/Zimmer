@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Bot ichidan qo'shilgan adminlar. Koddagi CORE_ADMINS va env'dagi
+-- ADMINS shu jadvaldan mustaqil — ular har doim admin bo'lib qoladi.
+CREATE TABLE IF NOT EXISTS admins (
+    user_id    INTEGER PRIMARY KEY,
+    full_name  TEXT,
+    added_by   INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ------------------------------------------------------------- mashinalar
 CREATE TABLE IF NOT EXISTS cars (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -33,10 +33,10 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import config
 from database import queries as q
 from handlers.admin_schema import ENTITIES, Entity, Field, parse_value
 from keyboards.reply import cancel_kb, main_menu
+from utils.filters import IsAdmin
 from utils.helpers import fmt_price
 from utils.texts import BTN_CANCEL
 from utils.ui import edit_or_send
@@ -44,8 +44,9 @@ from utils.ui import edit_or_send
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin_crud")
-router.message.filter(F.from_user.id.in_(config.admins))
-router.callback_query.filter(F.from_user.id.in_(config.admins))
+# Jonli admin tekshiruvi (utils/filters.py) — import paytida "muzlatilmaydi"
+router.message.filter(IsAdmin())
+router.callback_query.filter(IsAdmin())
 
 
 class EntityEdit(StatesGroup):
