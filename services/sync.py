@@ -16,12 +16,11 @@ Firebase sozlanmagan bo'lsa — hamma funksiya jimgina o'tib ketadi.
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from config import config, remove_runtime_admin, set_runtime_admins
 from database import queries as q
 from services import firebase
-from utils.helpers import TZ
 
 logger = logging.getLogger(__name__)
 
@@ -522,7 +521,9 @@ def _created_at(value) -> str | None:
     if millis <= 0:
         return None
     try:
-        return datetime.fromtimestamp(millis / 1000, tz=TZ).strftime("%Y-%m-%d %H:%M:%S")
+        # UTC da saqlanadi — baza `datetime('now')` ham UTC beradi.
+        # Aks holda tiklangan yozuvlar statistikada boshqa kunga tushardi.
+        return datetime.fromtimestamp(millis / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
     except (OverflowError, OSError, ValueError):
         return None
 

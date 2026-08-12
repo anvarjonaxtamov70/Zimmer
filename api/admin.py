@@ -38,7 +38,7 @@ from config import config, is_admin
 from database import queries as q
 from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
 from services import orders, sync
-from utils.helpers import fmt_price, today_iso
+from utils.helpers import PERIODS, fmt_price, period_start, today_iso
 
 logger = logging.getLogger(__name__)
 
@@ -229,9 +229,12 @@ def _serialize(entity: Entity, row) -> dict:
 
 @admin_routes.get("/api/admin/summary")
 async def admin_summary(request: web.Request) -> web.Response:
-    """Panelning bosh sahifasi: statistika + bo'limlar va ular sonlari."""
+    """Panelning bosh menyusi: bo'limlar va ularning sonlari.
+
+    Ataylab sodda: bu yerda raqamlar yo'q — statistika o'zining alohida
+    oynasida, buyurtmalar va katalog ham alohida oynada ochiladi.
+    """
     await _admin_id(request)
-    stats = await q.get_stats(today_iso())
 
     sections = []
     for entity in ENTITIES.values():
@@ -249,15 +252,92 @@ async def admin_summary(request: web.Request) -> web.Response:
             }
         )
 
+    stats = await q.get_stats(today_iso())
     return web.json_response(
         {
-            "stats": {
-                **{key: int(value) for key, value in stats.items()},
-                "revenue_label": fmt_price(stats["revenue"]),
-                "biled_revenue_label": fmt_price(stats["biled_revenue"]),
-                "total_label": fmt_price(stats["revenue"] + stats["biled_revenue"]),
-            },
             "sections": sections,
+            # Bosh menyudagi kichik belgilar (nechta yangi buyurtma bor)
+            "badges": {
+                "orders_new": int(stats["orders_new"]),
+                "biled_new": int(stats["biled_new"]),
+                "bookings_new": int(stats["bookings_new"]),
+                "catalog": sum(section["count"] for section in sections),
+            },
+        }
+    )
+
+
+STAT_KINDS = ("products", "biled")
+
+
+@admin_routes.get("/api/admin/stats/{kind}")
+async def admin_stats(request: web.Request) -> web.Response:
+    """Statistika. Ikki turi bir-biriga ARALASHMAYDI:
+
+      • products — faqat do'kon (tovar) savdosi;
+      • biled    — faqat topshirilgan Bi-LED o'rnatish ishlari
+                   (usta ishni tugatgach hisoblanadi).
+    """
+    await _admin_id(request)
+
+    kind = request.match_info["kind"]
+    if kind not in STAT_KINDS:
+        raise not_found("Bunday statistika yo'q")
+
+    period = request.query.get("period") or "month"
+    if period not in {key for key, _ in PERIODS}:
+        period = "month"
+    since = period_start(period)
+
+    data = await (q.product_stats(since) if kind == "products" else q.biled_stats(since))
+
+    if kind == "products":
+        cards = [
+            {"label": "Tushum", "value": fmt_price(data["revenue"]), "wide": True},
+            {"label": "Buyurtma", "value": str(data["orders"])},
+            {"label": "Sotilgan", "value": f"{data['units']} dona"},
+            {"label": "O'rtacha", "value": fmt_price(data["average"])},
+            {"label": "Yetkazildi", "value": str(data["delivered"])},
+        ]
+        notes = [
+            {"label": "🆕 Yangi", "value": data["new"]},
+            {"label": "❌ Bekor qilingan", "value": data["cancelled"]},
+        ]
+        lists = [{"title": "Eng ko'p sotilgan", "items": data["top"]}]
+    else:
+        cards = [
+            {"label": "Tushum", "value": fmt_price(data["revenue"]), "wide": True},
+            {"label": "O'rnatilgan", "value": str(data["done"])},
+            {"label": "O'rtacha", "value": fmt_price(data["average"])},
+        ]
+        notes = [
+            {"label": "🔧 Ish jarayonida", "value": data["in_work"]},
+            {"label": "⏳ Navbatda", "value": data["waiting"]},
+            {"label": "❌ Bekor qilingan", "value": data["cancelled"]},
+        ]
+        lists = [
+            {"title": "Eng ko'p tanlangan linza", "items": data["top"]},
+            {"title": "Mashinalar", "items": data["cars"]},
+        ]
+
+    for block in lists:
+        for item in block["items"]:
+            item["total_label"] = fmt_price(item["total"])
+
+    return web.json_response(
+        {
+            "kind": kind,
+            "title": "Tovarlar savdosi" if kind == "products" else "Bi-LED o'rnatish",
+            "hint": (
+                "Faqat do'kon buyurtmalari. Bekor qilinganlar tushumga kirmaydi."
+                if kind == "products"
+                else "Faqat topshirilgan ishlar — usta tugatgandan keyin hisoblanadi."
+            ),
+            "period": period,
+            "periods": [{"value": key, "label": label} for key, label in PERIODS],
+            "cards": cards,
+            "notes": notes,
+            "lists": lists,
         }
     )
 

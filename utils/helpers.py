@@ -1,6 +1,6 @@
 """Vaqt, narx va navbat slotlari bilan ishlash uchun yordamchilar."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from config import config
@@ -11,6 +11,31 @@ TZ = ZoneInfo(config.timezone)
 
 def now() -> datetime:
     return datetime.now(TZ)
+
+
+# Statistika davrlari (admin panelda tanlanadi)
+PERIODS = (
+    ("today", "Bugun"),
+    ("week", "7 kun"),
+    ("month", "30 kun"),
+    ("all", "Hammasi"),
+)
+
+
+def period_start(period: str) -> str | None:
+    """Davr boshlanishini UTC matn ko'rinishida qaytaradi.
+
+    Baza `created_at` ni UTC da saqlaydi (`datetime('now')`), do'kon esa
+    Toshkent vaqtida yashaydi. Shuning uchun chegara mahalliy vaqtda
+    hisoblanib, so'ng UTC ga o'giriladi — «bugun» haqiqatan bugun bo'ladi.
+
+    "all" yoki notanish davr uchun None (cheklamasdan).
+    """
+    days = {"today": 0, "week": 6, "month": 29}.get(period)
+    if days is None:
+        return None
+    start = (now() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def today_iso() -> str:

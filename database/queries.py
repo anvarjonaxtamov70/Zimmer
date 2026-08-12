@@ -496,6 +496,133 @@ async def restore_order_stock(order_id: int) -> int:
 # -------------------------------------------------------------------- statistika
 
 
+async def _scalar(sql: str, params: Sequence[Any] = ()) -> int:
+    db = get_db()
+    async with db.execute(sql, tuple(params)) as cur:
+        row = await cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+async def product_stats(since: str | None = None) -> dict[str, Any]:
+    """TOVARLAR savdosi statistikasi (do'kon buyurtmalari).
+
+    Bi-LED o'rnatish ishlari bu hisobga KIRMAYDI — ular alohida.
+    Bekor qilingan buyurtmalar tushumga qo'shilmaydi.
+    """
+    where = " AND created_at >= ?" if since else ""
+    args = [since] if since else []
+
+    revenue = await _scalar(
+        f"SELECT COALESCE(SUM(total), 0) FROM orders WHERE status != 'cancelled'{where}", args
+    )
+    total_orders = await _scalar(f"SELECT COUNT(*) FROM orders WHERE 1=1{where}", args)
+    paid_orders = await _scalar(
+        f"SELECT COUNT(*) FROM orders WHERE status != 'cancelled'{where}", args
+    )
+    delivered = await _scalar(
+        f"SELECT COUNT(*) FROM orders WHERE status = 'delivered'{where}", args
+    )
+    cancelled = await _scalar(
+        f"SELECT COUNT(*) FROM orders WHERE status = 'cancelled'{where}", args
+    )
+    new_orders = await _scalar(f"SELECT COUNT(*) FROM orders WHERE status = 'new'{where}", args)
+
+    item_where = " AND o.created_at >= ?" if since else ""
+    units = await _scalar(
+        "SELECT COALESCE(SUM(oi.qty), 0) FROM order_items oi"
+        " JOIN orders o ON o.id = oi.order_id"
+        f" WHERE o.status != 'cancelled'{item_where}",
+        args,
+    )
+
+    db = get_db()
+    async with db.execute(
+        "SELECT oi.name AS name, SUM(oi.qty) AS units,"
+        " SUM(oi.qty * oi.price) AS total"
+        " FROM order_items oi JOIN orders o ON o.id = oi.order_id"
+        f" WHERE o.status != 'cancelled'{item_where}"
+        " GROUP BY lower(TRIM(oi.name)) ORDER BY units DESC, total DESC LIMIT 5",
+        tuple(args),
+    ) as cur:
+        top = await cur.fetchall()
+
+    return {
+        "revenue": revenue,
+        "orders": total_orders,
+        "paid_orders": paid_orders,
+        "delivered": delivered,
+        "cancelled": cancelled,
+        "new": new_orders,
+        "units": units,
+        "average": int(revenue / paid_orders) if paid_orders else 0,
+        "top": [
+            {"name": row["name"], "units": int(row["units"]), "total": int(row["total"] or 0)}
+            for row in top
+        ],
+    }
+
+
+async def biled_stats(since: str | None = None) -> dict[str, Any]:
+    """Bi-LED O'RNATISH statistikasi — faqat topshirilgan ishlar.
+
+    Ya'ni usta ishni tugatib, buyurtma «✨ Topshirildi» bo'lganda
+    hisoblanadi. Tovar sotilishi bu hisobga kirmaydi.
+    """
+    where = " AND created_at >= ?" if since else ""
+    args = [since] if since else []
+
+    revenue = await _scalar(
+        f"SELECT COALESCE(SUM(total), 0) FROM biled_orders WHERE status = 'done'{where}", args
+    )
+    done = await _scalar(f"SELECT COUNT(*) FROM biled_orders WHERE status = 'done'{where}", args)
+    in_work = await _scalar(
+        f"SELECT COUNT(*) FROM biled_orders WHERE status = 'in_work'{where}", args
+    )
+    waiting = await _scalar(
+        f"SELECT COUNT(*) FROM biled_orders WHERE status IN ('new', 'accepted'){where}", args
+    )
+    cancelled = await _scalar(
+        f"SELECT COUNT(*) FROM biled_orders WHERE status = 'cancelled'{where}", args
+    )
+
+    db = get_db()
+    top_where = " AND b.created_at >= ?" if since else ""
+    async with db.execute(
+        "SELECT t.name AS name, COUNT(*) AS units, COALESCE(SUM(b.total), 0) AS total"
+        " FROM biled_orders b JOIN biled_types t ON t.id = b.biled_id"
+        f" WHERE b.status = 'done'{top_where}"
+        " GROUP BY t.id ORDER BY units DESC, total DESC LIMIT 5",
+        tuple(args),
+    ) as cur:
+        lenses = await cur.fetchall()
+
+    async with db.execute(
+        "SELECT c.name AS name, COUNT(*) AS units, COALESCE(SUM(b.total), 0) AS total"
+        " FROM biled_orders b JOIN cars c ON c.id = b.car_id"
+        f" WHERE b.status = 'done'{top_where}"
+        " GROUP BY c.id ORDER BY units DESC LIMIT 5",
+        tuple(args),
+    ) as cur:
+        cars = await cur.fetchall()
+
+    def rows(items):
+        return [
+            {"name": row["name"], "units": int(row["units"]), "total": int(row["total"] or 0)}
+            for row in items
+        ]
+
+    return {
+        "revenue": revenue,
+        "done": done,
+        "in_work": in_work,
+        "waiting": waiting,
+        "cancelled": cancelled,
+        "average": int(revenue / done) if done else 0,
+        "top": rows(lenses),
+        "cars": rows(cars),
+    }
+
+
 async def get_stats(today: str) -> dict[str, int]:
     db = get_db()
     queries = {

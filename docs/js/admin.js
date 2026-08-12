@@ -30,13 +30,24 @@ window.ZimmerAdmin = (function () {
   const S = {
     schema: null, // /api/admin/schema natijasi
     sections: {}, // key -> bo'lim tavsifi
-    view: "dash", // dash | list | form | orders
+    view: "menu", // menu | stats | orders | catalog | list | form
     key: null, // joriy bo'lim
     item: null, // tahrirlanayotgan element
+    statKind: "products",
+    statPeriod: "month",
     orderKind: "biled",
     orderStatus: null, // joriy filtr — holat o'zgargandan keyin saqlanadi
+    newMedia: {}, // yangi element uchun tanlangan fayllar (kind -> File)
     busy: false,
   };
+
+  // Bosh menyu: har biri ALOHIDA oyna bo'lib ochiladi
+  const MENU = [
+    { id: "st-products", icon: "📊", title: "Tovarlar savdosi", open: () => openStats("products") },
+    { id: "st-biled", icon: "🔥", title: "Bi-LED o'rnatish", open: () => openStats("biled") },
+    { id: "orders", icon: "📋", title: "Buyurtmalar", open: () => openOrders("biled"), badge: "orders" },
+    { id: "catalog", icon: "🗂", title: "Katalog", open: () => openCatalog(), badge: "catalog" },
+  ];
 
   const ORDER_TABS = [
     { kind: "biled", icon: "🔥", title: "Bi-LED" },
@@ -95,90 +106,173 @@ window.ZimmerAdmin = (function () {
     return data;
   }
 
+  /** Rasm/videoni serverga yuklaydi (qo'shish va tahrirlashda bir xil). */
+  function uploadMedia(key, rowId, kind, file) {
+    const fd = new FormData();
+    fd.append("kind", kind);
+    fd.append("file", file, file.name);
+    return upload(`/api/admin/section/${encodeURIComponent(key)}/${rowId}/media`, fd);
+  }
+
   /* ====================================================================
-     BOSH SAHIFA (dashboard)
+     BOSH MENYU
      ==================================================================== */
 
-  async function openDash() {
-    S.view = "dash";
+  /** Bosh menyu — sodda ro'yxat. Har bir band alohida oyna ochadi. */
+  async function openMenu() {
+    S.view = "menu";
     S.key = null;
     S.item = null;
-    setHead("Boshqaruv", "Zimmer admin paneli");
+    setHead("Boshqaruv", "");
     loading();
 
     let data;
     try {
       data = await api("/api/admin/summary");
     } catch (err) {
-      return fail(err, openDash);
+      return fail(err, openMenu);
     }
 
-    const st = data.stats || {};
-    const cards = [
-      { icon: "🔥", label: "Bi-LED buyurtma", value: st.biled_total, hint: `${st.biled_new || 0} yangi` },
-      { icon: "🗓", label: "Navbatlar", value: st.bookings_total, hint: `bugun ${st.bookings_today || 0}` },
-      { icon: "📦", label: "Do'kon", value: st.orders_total, hint: `${st.orders_new || 0} yangi` },
-      { icon: "👥", label: "Mijozlar", value: st.users, hint: `${st.products || 0} faol mahsulot` },
-    ];
+    S.summary = data;
+    const badges = data.badges || {};
+    const counts = {
+      orders: (badges.orders_new || 0) + (badges.biled_new || 0) + (badges.bookings_new || 0),
+      catalog: badges.catalog || 0,
+    };
 
-    body().innerHTML = `
-      <div class="adm-money">
-        <span>Umumiy savdo</span>
-        <b>${esc(st.total_label || "0")}</b>
-      </div>
+    body().innerHTML = "";
+    const list = el("div", "adm-menu");
 
-      <div class="adm-stats">
-        ${cards
-          .map(
-            (c) => `<div class="adm-stat">
-                      <i>${c.icon}</i>
-                      <b>${esc(c.value == null ? 0 : c.value)}</b>
-                      <span>${esc(c.label)}</span>
-                      <small>${esc(c.hint)}</small>
-                    </div>`
-          )
-          .join("")}
-      </div>
+    MENU.forEach((entry) => {
+      const row = el("button", "adm-menu-row");
+      const count = entry.badge ? counts[entry.badge] : 0;
+      row.innerHTML = `
+        <i>${entry.icon}</i>
+        <b>${esc(entry.title)}</b>
+        ${count ? `<em>${count}</em>` : ""}
+        <span>›</span>`;
+      row.onclick = () => {
+        haptic();
+        entry.open();
+      };
+      list.append(row);
+    });
 
-      <h3 class="sec-title">📋 Buyurtmalar</h3>
-      <div class="adm-orders-tabs">
-        ${ORDER_TABS.map(
-          (t) =>
-            `<button class="adm-tab" data-kind="${t.kind}">${t.icon} ${esc(t.title)}</button>`
-        ).join("")}
-      </div>
+    body().append(list);
+  }
 
-      <h3 class="sec-title">🗂 Katalogni boshqarish</h3>
-      <div class="adm-grid" id="adm-sections"></div>
+  /* ====================================================================
+     STATISTIKA — ikki turi alohida, aralashmaydi
+     ==================================================================== */
 
-      <p class="adm-note">
-        Har bir bo'limda element qo'shish, tahrirlash, rasm/video yuklash,
-        yashirish va o'chirish mumkin. O'zgarish darhol ilovada ko'rinadi.
-      </p>`;
+  async function openStats(kind, period) {
+    S.view = "stats";
+    S.statKind = kind || S.statKind;
+    S.statPeriod = period || S.statPeriod;
+    loading();
 
-    body()
-      .querySelectorAll(".adm-tab")
-      .forEach((btn) => {
-        btn.onclick = () => {
-          haptic();
-          openOrders(btn.dataset.kind);
-        };
+    let data;
+    try {
+      data = await api(
+        `/api/admin/stats/${encodeURIComponent(S.statKind)}?period=${encodeURIComponent(
+          S.statPeriod
+        )}`
+      );
+    } catch (err) {
+      return fail(err, () => openStats(S.statKind, S.statPeriod));
+    }
+
+    setHead(data.title, "");
+    body().innerHTML = "";
+
+    // Davr tanlash
+    const tabs = el("div", "adm-periods");
+    (data.periods || []).forEach((p) => {
+      const b = el("button", "adm-period" + (p.value === data.period ? " on" : ""), esc(p.label));
+      b.onclick = () => {
+        haptic();
+        openStats(S.statKind, p.value);
+      };
+      tabs.append(b);
+    });
+    body().append(tabs);
+
+    // Asosiy raqamlar
+    const grid = el("div", "adm-figures");
+    (data.cards || []).forEach((c) => {
+      const box = el("div", "adm-figure" + (c.wide ? " wide" : ""));
+      box.innerHTML = `<b>${esc(c.value)}</b><span>${esc(c.label)}</span>`;
+      grid.append(box);
+    });
+    body().append(grid);
+
+    // Qo'shimcha holatlar
+    if ((data.notes || []).length) {
+      const notes = el("div", "adm-notes");
+      data.notes.forEach((n) => {
+        notes.append(el("div", "adm-note-row", `<span>${esc(n.label)}</span><b>${n.value}</b>`));
       });
+      body().append(notes);
+    }
 
-    const grid = $("adm-sections");
+    // Reytinglar
+    (data.lists || []).forEach((block) => {
+      if (!(block.items || []).length) return;
+      body().append(el("div", "adm-list-title", esc(block.title)));
+      const box = el("div", "adm-rank");
+      block.items.forEach((item, index) => {
+        box.append(
+          el(
+            "div",
+            "adm-rank-row",
+            `<i>${index + 1}</i>
+             <b>${esc(item.name)}</b>
+             <span>${item.units} ta</span>
+             <em>${esc(item.total_label)}</em>`
+          )
+        );
+      });
+      body().append(box);
+    });
+
+    if (data.hint) body().append(el("p", "adm-hint-block", esc(data.hint)));
+  }
+
+  /* ====================================================================
+     KATALOG — bo'limlar alohida oynada
+     ==================================================================== */
+
+  async function openCatalog() {
+    S.view = "catalog";
+    S.key = null;
+    S.item = null;
+    setHead("Katalog", "");
+    loading();
+
+    let data = S.summary;
+    if (!data) {
+      try {
+        data = await api("/api/admin/summary");
+        S.summary = data;
+      } catch (err) {
+        return fail(err, openCatalog);
+      }
+    }
+
+    body().innerHTML = "";
+    const grid = el("div", "adm-grid");
     (data.sections || []).forEach((sec) => {
-      const card = document.createElement("button");
-      card.className = "adm-card";
-      card.innerHTML = `
-        <i>${esc(sec.icon)}</i>
-        <b>${esc(sec.title)}</b>
-        <small>${esc(sec.count)} ta</small>`;
+      const card = el("button", "adm-card");
+      card.innerHTML = `<i>${esc(sec.icon)}</i><b>${esc(sec.title)}</b><small>${esc(
+        sec.count
+      )}</small>`;
       card.onclick = () => {
         haptic();
         openList(sec.key);
       };
       grid.append(card);
     });
+    body().append(grid);
   }
 
   /* ====================================================================
@@ -311,6 +405,8 @@ window.ZimmerAdmin = (function () {
      ==================================================================== */
 
   async function openForm(key, id) {
+    // Boshqa bo'limga o'tilsa tanlangan fayllar saqlanib qolmasin
+    if (S.key !== key || (id != null && S.view !== "form")) S.newMedia = {};
     S.view = "form";
     S.key = key;
     loading();
@@ -446,35 +542,32 @@ window.ZimmerAdmin = (function () {
         ? `<span class="adm-media-ok">🎬 video yuklangan</span>`
         : `<span class="adm-thumb-empty">${kind === "photo" ? "🖼" : "🎬"}</span>`;
 
+    // Qo'shish va tahrirlash BIR XIL ko'rinadi: ikkisida ham fayl darhol
+    // tanlanadi. Yangi elementda fayl xotirada turadi va element
+    // saqlangandan keyin o'zi yuklanadi.
+    const chosen = !item && S.newMedia[kind] ? S.newMedia[kind].name : null;
+
     box.innerHTML = `
       <span>${esc(field.label)}</span>
       <div class="adm-media-row">
-        <div class="adm-thumb big">${preview}</div>
+        <div class="adm-thumb big">${chosen ? "✓" : preview}</div>
         <div class="adm-media-btns">
+          <button class="btn btn-ghost btn-sm" data-role="pick">
+            ${chosen ? "Almashtirish" : state.empty ? "Fayl tanlash" : "Almashtirish"}</button>
           ${
-            item
-              ? `<button class="btn btn-ghost btn-sm" data-role="pick">
-                   ${state.empty ? "Fayl yuklash" : "Almashtirish"}</button>
-                 ${
-                   state.empty
-                     ? ""
-                     : '<button class="btn btn-ghost btn-sm danger" data-role="clear">O\'chirish</button>'
-                 }`
-              : `<small class="adm-hint">Faylni element qo'shilgandan keyin yuklaysiz</small>`
+            item && !state.empty
+              ? '<button class="btn btn-ghost btn-sm danger" data-role="clear">O\'chirish</button>'
+              : ""
           }
         </div>
       </div>
+      ${chosen ? `<small class="adm-hint">Tanlandi: ${esc(chosen)}</small>` : ""}
       <input type="text" value="${esc(state.raw_url || "")}"
              data-col="${esc(field.column)}" data-kind="media" data-media="${esc(kind)}"
              data-initial="${esc(state.raw_url || "")}"
              placeholder="yoki https://... manzil">
-      <small class="adm-hint">${esc(
-        field.hint || "Telefondan fayl yuklang yoki tashqi manzil yozing"
-      )}</small>
       <input type="file" class="hidden" data-role="file"
              accept="${kind === "photo" ? "image/*" : "video/*"}">`;
-
-    if (!item) return box;
 
     const fileInput = box.querySelector('[data-role="file"]');
     const pick = box.querySelector('[data-role="pick"]');
@@ -485,19 +578,22 @@ window.ZimmerAdmin = (function () {
     fileInput.onchange = async () => {
       const file = fileInput.files && fileInput.files[0];
       if (!file) return;
-      const fd = new FormData();
-      fd.append("kind", kind);
-      fd.append("file", file, file.name);
+
+      // Yangi element: hali id yo'q — faylni eslab qolamiz
+      if (!item) {
+        S.newMedia[kind] = file;
+        haptic("ok");
+        toast("Fayl tanlandi — saqlaganda yuklanadi");
+        openForm(section.key, null);
+        return;
+      }
 
       if (pick) {
         pick.disabled = true;
         pick.textContent = "Yuklanmoqda...";
       }
       try {
-        await upload(
-          `/api/admin/section/${encodeURIComponent(section.key)}/${item.id}/media`,
-          fd
-        );
+        await uploadMedia(section.key, item.id, kind, file);
         haptic("ok");
         toast("Fayl yuklandi ✅");
         openForm(section.key, item.id);
@@ -506,7 +602,7 @@ window.ZimmerAdmin = (function () {
         toast((err && err.message) || "Yuklanmadi");
         if (pick) {
           pick.disabled = false;
-          pick.textContent = "Fayl yuklash";
+          pick.textContent = "Fayl tanlash";
         }
       }
     };
@@ -578,10 +674,26 @@ window.ZimmerAdmin = (function () {
           method: "POST",
           body: { values: values },
         });
+        const newId = res.item && res.item.id;
+
+        // Tanlangan fayllarni saqlangandan keyin o'zi yuklaydi —
+        // shuning uchun qo'shish va tahrirlash mijoz uchun bir xil.
+        const pending = Object.keys(S.newMedia);
+        if (newId && pending.length) {
+          btn.textContent = "Fayl yuklanmoqda...";
+          for (const kind of pending) {
+            try {
+              await uploadMedia(section.key, newId, kind, S.newMedia[kind]);
+            } catch (err) {
+              toast((err && err.message) || "Fayl yuklanmadi");
+            }
+          }
+        }
+        S.newMedia = {};
+
         haptic("ok");
         toast("Qo'shildi ✅");
-        // Rasm yuklash uchun darhol tahrirlash oynasiga o'tamiz
-        openForm(section.key, res.item && res.item.id);
+        openList(section.key);
       }
     } catch (err) {
       haptic("err");
@@ -730,7 +842,7 @@ window.ZimmerAdmin = (function () {
 
   function open() {
     if (S.view === "list" && S.key) return openList(S.key);
-    return openDash();
+    return openMenu();
   }
 
   /** Panel ichida bir qadam orqaga. true — panel o'zi hal qildi. */
@@ -739,8 +851,12 @@ window.ZimmerAdmin = (function () {
       openList(S.key);
       return true;
     }
-    if (S.view === "list" || S.view === "orders") {
-      openDash();
+    if (S.view === "list") {
+      openCatalog();
+      return true;
+    }
+    if (S.view === "catalog" || S.view === "orders" || S.view === "stats") {
+      openMenu();
       return true;
     }
     return false;
@@ -760,8 +876,10 @@ window.ZimmerAdmin = (function () {
         if (S.view === "list") return openList(S.key);
         if (S.view === "orders") return openOrders(S.orderKind, S.orderStatus);
         if (S.view === "form") return openForm(S.key, S.item && S.item.id);
+        if (S.view === "stats") return openStats(S.statKind, S.statPeriod);
         S.schema = null;
-        openDash();
+        S.summary = null;
+        openMenu();
       };
   }
 
@@ -771,5 +889,5 @@ window.ZimmerAdmin = (function () {
     bind();
   }
 
-  return { open: open, back: back, openDash: openDash };
+  return { open: open, back: back, openMenu: openMenu };
 })();
