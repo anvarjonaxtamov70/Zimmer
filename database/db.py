@@ -553,6 +553,9 @@ MEDIA_COLUMNS = [
 # mumkin bo'lsin.
 MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "users": [("car_id", "INTEGER")],
+    # DIQQAT: bu lug'atda har bir jadval FAQAT BIR MARTA bo'lishi kerak.
+    # Kalit takrorlansa, Python oxirgisini oladi va oldingi migratsiyalar
+    # jimgina yo'qoladi (masalan `sort` ustuni yaratilmay qoladi).
     "products": [
         ("car_id", "INTEGER"),
         ("old_price", "INTEGER"),
@@ -560,10 +563,7 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("external_id", "TEXT"),
         ("sort", "INTEGER NOT NULL DEFAULT 0"),
         *MEDIA_COLUMNS,
-    ],
-    "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
-    # Ombor va "yangi tovar qo'shish" uchun qo'shimcha maydonlar
-    "products": [
+        # Ombor va "yangi tovar qo'shish" uchun qo'shimcha maydonlar
         ("code", "TEXT"),
         ("unit", "TEXT"),
         ("product_type", "TEXT"),
@@ -573,6 +573,7 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("photo3_id", "TEXT"),
         ("photo3_url", "TEXT"),
     ],
+    "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
     # Eski bazalarga yetkazib berish/to'lov ustunlarini qo'shamiz.
     "orders": [
         ("delivery_method", "TEXT"),

@@ -732,12 +732,14 @@ window.ZimmerAdmin = (function () {
           return `<option value="${esc(c.value)}"${sel}>${esc(c.label)}</option>`;
         })
         .join("");
-      // Mashina maydonida bo'sh qiymat = universal tovar (barcha mashinaga)
+      // Ba'zi maydonlar (masalan Mashina) bo'sh variantni O'ZI beradi —
+      // u holda ikkinchisini qo'shmaymiz, aks holda ro'yxat ikkilanadi.
+      const hasEmpty = (field.choices || []).some((c) => String(c.value) === "");
       const emptyLabel =
         field.column === "car_id" ? "🌐 Barcha mashinaga" : "— tanlanmagan —";
       box.innerHTML = `<span>${esc(field.label)}${req}</span>
         <select data-col="${esc(field.column)}" data-kind="choice">
-          ${field.required ? "" : `<option value="">${esc(emptyLabel)}</option>`}
+          ${field.required || hasEmpty ? "" : `<option value="">${esc(emptyLabel)}</option>`}
           ${options}
         </select>${hint}`;
       return box;
