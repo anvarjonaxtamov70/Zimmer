@@ -806,7 +806,6 @@
       S.home = await api("/api/home");
       renderStories();
       renderBanners();
-      renderPromos();
       renderCatalog();
       renderBookCard();
       $("car-chip-name").textContent = (S.me && S.me.car && S.me.car.name) || "Mashina tanlash";
@@ -955,20 +954,12 @@
     }
   }
 
-  function renderPromos() {
-    const box = $("promos");
-    box.innerHTML = "";
-    (S.home.promos || []).forEach((p) => {
-      box.append(
-        el(
-          "div",
-          "promo",
-          `${p.discount ? `<span class="promo-badge">${esc(p.discount)}</span>` : ""}
-           <b>${esc(p.title)}</b><p>${esc(p.text || "")}</p>`
-        )
-      );
-    });
-    $("promos-sec").classList.toggle("hidden", !(S.home.promos || []).length);
+  /** Chegirma foizi: eski va yangi narxdan hisoblanadi (aksiya tovarda). */
+  function discountPercent(p) {
+    const now = Number(p.price) || 0;
+    const was = Number(p.old_price) || 0;
+    if (was <= now || !now) return 0;
+    return Math.round(((was - now) / was) * 100);
   }
 
   /* ---------------------------------------------------------- mahsulotlar */
@@ -998,9 +989,13 @@
     products.forEach((p) => {
       const card = el("div", "prod");
       const photo = abs(p.photo_url);
+      // Aksiya endi TOVARNING o'zida: eski narx kiritilsa, chegirma foizi
+      // avtomatik hisoblanadi va qizil yorliq bo'lib chiqadi.
+      const off = discountPercent(p);
       card.innerHTML = `
         <div class="prod-art">
           ${photo ? img(photo) : "💡"}
+          ${off ? `<span class="prod-off">-${off}%</span>` : ""}
           ${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}
           ${p.video_url ? '<span class="prod-play">▶</span>' : ""}
         </div>
@@ -1433,24 +1428,18 @@
       return;
     }
 
-    // «Boshlash» — HAR DOIM bosh menyu. Ilgari mashina tanlanmagan bo'lsa
-    // to'g'ridan-to'g'ri konfigurator ochilardi va mijoz "majburlangan"
-    // hisni olardi. Endi avval do'kon ko'rinadi, konfiguratorga o'zi kiradi.
-    $("splash-start").onclick = async () => {
-      const btn = $("splash-start");
-      if (btn.disabled) return;
-      btn.disabled = true;
-      haptic("medium");
+    // Tugma yo'q: salomlashuv ko'rinadi, so'ng bosh menyu O'ZI ochiladi.
+    // Konfigurator hech qachon majburan ochilmaydi — mijoz o'zi kiradi.
+    const progress = $("splash-progress");
+    if (progress) progress.classList.add("on");
 
-      // Ma'lumot fonda yuklanadi — animatsiya kutib turmaydi
-      const loading = loadHome();
-      $("splash").classList.add("leaving");
-      await Promise.all([loading, wait(280)]);
+    // Bosh menyu ma'lumoti kutish paytida fonda yuklanadi
+    const loading = loadHome();
+    await Promise.all([loading, wait(1500)]);
 
-      enterHome();
-      $("splash").classList.remove("leaving");
-      btn.disabled = false;
-    };
+    $("splash").classList.add("leaving");
+    await wait(280);
+    enterHome();
   }
 
   /* ---------------------------------------------------- admin panel ko'prigi
