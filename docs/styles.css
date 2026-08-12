@@ -1504,3 +1504,95 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .nav-btn .badge { transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
 .nav-btn .badge.pulse { animation: cartBadgePulse 0.4s ease-out; }
 @keyframes cartBadgePulse { 0% { transform: scale(1); } 50% { transform: scale(1.45); } 100% { transform: scale(1); } }
+
+
+/* ==========================================================================
+   PROFIL HUB — Avto_A1 ko'rinishi/animatsiyalari, Zimmer ranglarida
+   VIP karta + statistika + mashinam + menyu (kesh tozalash bilan).
+   ========================================================================== */
+.pf-card {
+  position: relative; overflow: hidden; border-radius: 22px; padding: 22px 18px;
+  margin-bottom: 16px;
+  background: linear-gradient(145deg, var(--red-soft), rgba(0, 0, 0, 0.4));
+  border: 1px solid rgba(255, 45, 58, 0.22);
+}
+.pf-glow {
+  position: absolute; top: -30%; right: -10%; width: 150px; height: 150px;
+  background: radial-gradient(circle, rgba(255, 45, 58, 0.16), transparent 70%);
+  pointer-events: none;
+}
+.pf-head { display: flex; align-items: center; gap: 15px; position: relative; z-index: 1; }
+.pf-avatar-wrap { position: relative; flex-shrink: 0; }
+.pf-avatar {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; font-weight: 900; color: #fff; text-transform: uppercase;
+  background: var(--red-grad); box-shadow: 0 0 0 4px rgba(255, 45, 58, 0.18);
+}
+.pf-vip-ring { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--red); opacity: 0; }
+.pf-card.is-vip .pf-vip-ring { opacity: 1; animation: pfRing 2s ease-in-out infinite; }
+@keyframes pfRing {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.08); opacity: 0.25; }
+}
+.pf-meta { flex: 1; min-width: 0; }
+.pf-meta h3 {
+  margin: 0 0 3px; font-size: 18px; font-weight: 800; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pf-meta p { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+.pf-since { font-size: 10.5px; color: #ff9b8a; font-weight: 700; }
+.pf-edit {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); color: var(--red);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: transform 0.15s var(--silk);
+}
+.pf-edit:active { transform: scale(0.9); }
+
+.pf-stats { display: flex; gap: 10px; margin-bottom: 16px; }
+.pf-stat {
+  flex: 1; text-align: center; padding: 14px 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+}
+.pf-stat b { display: block; font-size: 22px; font-weight: 900; color: var(--red); line-height: 1; }
+.pf-stat span { display: block; font-size: 10.5px; color: var(--muted); margin-top: 5px; font-weight: 600; }
+
+.pf-block {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 16px; margin-bottom: 16px;
+}
+.pf-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.pf-block-head h4 { margin: 0; font-size: 14px; font-weight: 800; color: #fff; }
+.pf-mini-btn {
+  background: var(--red-soft); border: 1px solid rgba(255, 45, 58, 0.3); color: var(--red);
+  padding: 6px 13px; border-radius: 10px; font-size: 11.5px; font-weight: 700;
+  cursor: pointer; transition: transform 0.15s var(--silk);
+}
+.pf-mini-btn:active { transform: scale(0.94); }
+.pf-car-info { font-size: 13.5px; color: var(--muted); }
+
+.pf-menu { margin-top: 20px; }
+.pf-menu-item {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 16px 18px; margin-bottom: 10px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  color: var(--text); cursor: pointer;
+  transition: transform 0.15s var(--silk), background 0.2s;
+}
+.pf-menu-item:active { transform: scale(0.98); background: var(--surface-2); }
+.pf-menu-item .left { display: flex; align-items: center; gap: 13px; font-weight: 600; font-size: 14.5px; }
+.pf-menu-item .left i { font-style: normal; font-size: 18px; width: 22px; text-align: center; }
+.pf-menu-item em { font-style: normal; color: var(--dim); font-size: 20px; }
+.pf-menu-item.danger { border-color: rgba(255, 45, 58, 0.28); }
+.pf-menu-item.danger .left, .pf-menu-item.danger em { color: var(--red); }
+
+.contact-rows { margin-top: 14px; }
+.trust-list { display: grid; gap: 12px; }
+.trust-item {
+  display: flex; gap: 13px; align-items: flex-start; padding: 13px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+}
+.trust-item i { font-style: normal; font-size: 22px; flex-shrink: 0; }
+.trust-item b { display: block; font-size: 14px; color: #fff; margin-bottom: 3px; }
+.trust-item small { font-size: 12px; color: var(--muted); line-height: 1.5; }

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=15">
+  <link rel="stylesheet" href="styles.css?v=16">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -215,14 +215,42 @@
     <div class="topbar-mid"><div class="topbar-title">👤 Kabinet</div></div>
   </header>
   <div class="pad">
-    <div class="card profile-card">
-      <div class="row"><span>Ism</span><b id="profile-name">—</b></div>
-      <div class="row"><span>Telefon</span><b id="profile-phone">—</b></div>
-      <div class="row"><span>Mashina</span><b id="profile-car">—</b></div>
-      <button class="btn btn-ghost btn-sm" id="change-car">Mashinani o'zgartirish</button>
+    <!-- VIP mijoz kartasi -->
+    <div class="pf-card">
+      <div class="pf-glow"></div>
+      <div class="pf-head">
+        <div class="pf-avatar-wrap">
+          <div class="pf-avatar" id="pf-avatar">M</div>
+          <div class="pf-vip-ring"></div>
+        </div>
+        <div class="pf-meta">
+          <h3 id="pf-name">Mijoz</h3>
+          <p id="pf-id">ID: —</p>
+          <div class="pf-since" id="pf-since">Zimmer mijozi</div>
+        </div>
+        <button class="pf-edit" id="pf-edit" aria-label="Tahrirlash">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- statistika (count-up) -->
+    <div class="pf-stats">
+      <div class="pf-stat"><b id="pf-stat-orders">0</b><span>Buyurtma</span></div>
+      <div class="pf-stat"><b id="pf-stat-bookings">0</b><span>Navbat</span></div>
+      <div class="pf-stat"><b id="pf-stat-saved">0</b><span>Saqlangan</span></div>
     </div>
 
     <div id="phone-warn" class="hidden"></div>
+
+    <!-- mening mashinam -->
+    <div class="pf-block">
+      <div class="pf-block-head">
+        <h4>🚗 Mening mashinam</h4>
+        <button class="pf-mini-btn" id="change-car">O'zgartirish</button>
+      </div>
+      <div class="pf-car-info" id="profile-car">Belgilanmagan</div>
+    </div>
 
     <h3 class="sec-title">❤️ Saqlanganlar</h3>
     <div class="saved" id="my-saved"></div>
@@ -239,6 +267,19 @@
     <h3 class="sec-title">📦 Mahsulot buyurtmalari</h3>
     <div class="list" id="my-orders"></div>
     <p class="empty hidden" id="orders-empty">Buyurtma yo'q.</p>
+
+    <!-- profil menyusi -->
+    <div class="pf-menu">
+      <button class="pf-menu-item" id="pf-contact">
+        <span class="left"><i>📞</i> Biz bilan aloqa</span><em>›</em>
+      </button>
+      <button class="pf-menu-item" id="pf-trust">
+        <span class="left"><i>🛡</i> Kafolat va yetkazib berish</span><em>›</em>
+      </button>
+      <button class="pf-menu-item danger" id="pf-clear-cache">
+        <span class="left"><i>↻</i> Ilovani yangilash</span><em>↻</em>
+      </button>
+    </div>
   </div>
 </section>
 
@@ -288,13 +329,13 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=15"></script>
-<script src="js/headlight.js?v=15"></script>
-<script src="js/cars.js?v=15"></script>
+<script src="config.js?v=16"></script>
+<script src="js/headlight.js?v=16"></script>
+<script src="js/cars.js?v=16"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=15"></script>
+<script src="js/bts.js?v=16"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
+<script src="js/admin.js?v=16"></script>
+<script src="js/app.js?v=16"></script>
 </body>
 </html>
