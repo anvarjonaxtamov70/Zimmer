@@ -177,13 +177,16 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER NOT NULL REFERENCES users(user_id),
-    total      INTEGER NOT NULL DEFAULT 0,
-    address    TEXT,
-    phone      TEXT,
-    status     TEXT NOT NULL DEFAULT 'new',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(user_id),
+    total           INTEGER NOT NULL DEFAULT 0,
+    address         TEXT,
+    phone           TEXT,
+    delivery_method TEXT,              -- 'courier' | 'bts' | NULL
+    delivery_info   TEXT,              -- yetkazib berish tafsiloti (matn)
+    payment_method  TEXT,              -- to'lov usuli (matn)
+    status          TEXT NOT NULL DEFAULT 'new',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 
@@ -551,6 +554,12 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         *MEDIA_COLUMNS,
     ],
     "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
+    # Eski bazalarga yetkazib berish/to'lov ustunlarini qo'shamiz.
+    "orders": [
+        ("delivery_method", "TEXT"),
+        ("delivery_info", "TEXT"),
+        ("payment_method", "TEXT"),
+    ],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
     "shrouds": [*MEDIA_COLUMNS],

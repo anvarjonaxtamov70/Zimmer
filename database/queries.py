@@ -770,10 +770,16 @@ async def create_order_from_items(
     items: list[tuple[int, int]],
     address: str,
     phone: str,
+    delivery_method: str | None = None,
+    delivery_info: str | None = None,
+    payment_method: str | None = None,
 ) -> tuple[int | None, list[dict[str, Any]]]:
     """Mini App'dan kelgan ro'yxat asosida buyurtma yaratadi.
 
     items -- [(product_id, qty), ...]
+    delivery_method -- 'courier' | 'bts' | None (yetkazib berish usuli)
+    delivery_info -- yetkazib berish tafsiloti (matn)
+    payment_method -- to'lov usuli (matn)
     Qaytaradi: (order_id, muammolar). Muammo bo'lsa order_id = None.
     """
     problems: list[dict[str, Any]] = []
@@ -805,8 +811,10 @@ async def create_order_from_items(
     db = get_db()
     total = sum(int(product["price"]) * qty for product, qty in prepared)
     cur = await db.execute(
-        "INSERT INTO orders (user_id, total, address, phone) VALUES (?, ?, ?, ?)",
-        (user_id, total, address, phone),
+        "INSERT INTO orders"
+        " (user_id, total, address, phone, delivery_method, delivery_info, payment_method)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, total, address, phone, delivery_method, delivery_info, payment_method),
     )
     order_id = int(cur.lastrowid)
 
@@ -1549,8 +1557,10 @@ async def restore_shop_order(data: dict[str, Any], items: Sequence[dict]) -> boo
     db = get_db()
     cur = await db.execute(
         "INSERT OR IGNORE INTO orders"
-        " (id, user_id, total, address, phone, status, created_at)"
-        " VALUES (:id, :user_id, :total, :address, :phone, :status,"
+        " (id, user_id, total, address, phone, delivery_method, delivery_info,"
+        "  payment_method, status, created_at)"
+        " VALUES (:id, :user_id, :total, :address, :phone, :delivery_method,"
+        "         :delivery_info, :payment_method, :status,"
         "         COALESCE(:created_at, datetime('now')))",
         data,
     )

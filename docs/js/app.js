@@ -50,6 +50,9 @@
     storyTimer: null,
     bannerTimer: null,
     booking: { service: null, date: null },
+    delivery: null, // {method, address, summary}
+    dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
+    pay: {}, // karta rekvizitlari (/api/config dan)
   };
 
   const fmt = (v) =>
@@ -1238,35 +1241,374 @@
     renderCart();
   }
 
-  function submitOrder() {
-    const address = $("order-address").value.trim();
-    if (address.length < 5) return toast("Manzilni to'liqroq yozing");
+  /* ==================================================================
+     RASMIYLASHTIRISH: savatcha → yetkazib berish → to'lov → buyurtma
+     (Avto_A1 dagi mantiq, Zimmer dizaynida)
+     ================================================================== */
+
+  const dcity = () => (S.pay && S.pay.city) || "Toshkent";
+
+  /** "Rasmiylashtirish" tugmasi: avval yetkazib berish usulini so'raymiz. */
+  function startCheckout() {
+    if (!S.cart.length) return toast("Savatcha bo'sh");
+    // Telefon majburiy — bo'lmasa avval so'raymiz, keyin qaytamiz
+    if (!S.me || !S.me.phone) {
+      const typed = ($("order-phone").value || "").trim();
+      if (typed.replace(/\D/g, "").length < 9) return openPhoneSheet(startCheckout);
+    }
+    S.delivery = null;
+    S.dlvMethod = null;
+    haptic();
+    openDeliverySheet();
+  }
+
+  /* --------------------------------------------------------- yetkazib berish */
+  function openDeliverySheet() {
+    openSheet(
+      "🚚 Yetkazib berish",
+      `<p class="step-sub">Buyurtmani qanday qabul qilmoqchisiz?</p>
+       <div class="dlv-methods">
+         <button class="dlv-card" id="dlv-courier">
+           <span class="dlv-ico">🚖</span>
+           <span class="dlv-txt"><b>Kuryer — manzilga</b>
+             <small>Faqat ${esc(dcity())} shahar ichida · 1–2 kun</small></span>
+           <span class="dlv-check">✓</span>
+         </button>
+         <button class="dlv-card" id="dlv-bts">
+           <span class="dlv-ico">📦</span>
+           <span class="dlv-txt"><b>BTS Pochta filialiga</b>
+             <small>Butun O'zbekiston · 2–4 kun · filialdan olasiz</small></span>
+           <span class="dlv-check">✓</span>
+         </button>
+       </div>
+
+       <div id="dlv-courier-box" class="hidden">
+         <label class="field"><span>📍 Yetkazish manzili</span>
+           <textarea id="dlv-address" rows="2"
+             placeholder="${esc(dcity())}, Chilonzor 9-kvartal, 25-uy, 12-xonadon"></textarea></label>
+         <p class="dlv-note">ℹ️ Kuryer faqat <b>${esc(dcity())} shahar ichida</b> ishlaydi.
+           Boshqa hududda bo'lsangiz, 📦 <b>BTS Pochta</b> ni tanlang.</p>
+       </div>
+
+       <div id="dlv-bts-box" class="hidden">
+         <label class="field"><span>📦 Viloyat</span>
+           <select id="bts-region" class="dlv-select"><option value="">— Viloyatni tanlang —</option></select></label>
+         <label class="field hidden" id="bts-district-f"><span>Tuman / shahar</span>
+           <select id="bts-district" class="dlv-select"><option value="">— Tumanni tanlang —</option></select></label>
+         <label class="field hidden" id="bts-branch-f"><span>Filial</span>
+           <select id="bts-branch" class="dlv-select"><option value="">— Filialni tanlang —</option></select></label>
+         <div class="bts-info hidden" id="bts-info"></div>
+       </div>
+
+       <button class="btn btn-primary" id="dlv-continue">To'lovga o'tish →</button>`
+    );
+
+    const B = window.BTS_BRANCHES || {};
+    const regSel = $("bts-region");
+    Object.keys(B).forEach((r) => {
+      const o = el("option");
+      o.value = r;
+      o.textContent = r;
+      regSel.append(o);
+    });
+
+    $("dlv-courier").onclick = () => pickDelivery("courier");
+    $("dlv-bts").onclick = () => pickDelivery("bts");
+    regSel.onchange = btsRegionChange;
+    $("bts-district").onchange = btsDistrictChange;
+    $("bts-branch").onchange = btsBranchChange;
+    $("dlv-continue").onclick = confirmDelivery;
+  }
+
+  function pickDelivery(method) {
+    S.dlvMethod = method;
+    haptic("selection");
+    $("dlv-courier").classList.toggle("on", method === "courier");
+    $("dlv-bts").classList.toggle("on", method === "bts");
+    $("dlv-courier-box").classList.toggle("hidden", method !== "courier");
+    $("dlv-bts-box").classList.toggle("hidden", method !== "bts");
+  }
+
+  function btsRegionChange() {
+    const B = window.BTS_BRANCHES || {};
+    const region = $("bts-region").value;
+    const distF = $("bts-district-f");
+    const distSel = $("bts-district");
+    $("bts-info").classList.add("hidden");
+    $("bts-branch-f").classList.add("hidden");
+    distSel.innerHTML = '<option value="">— Tumanni tanlang —</option>';
+    if (!region || !B[region]) {
+      distF.classList.add("hidden");
+      return;
+    }
+    Object.keys(B[region]).forEach((d) => {
+      const o = el("option");
+      o.value = d;
+      o.textContent = d;
+      distSel.append(o);
+    });
+    distF.classList.remove("hidden");
+  }
+
+  function btsDistrictChange() {
+    const B = window.BTS_BRANCHES || {};
+    const region = $("bts-region").value;
+    const district = $("bts-district").value;
+    const brF = $("bts-branch-f");
+    const brSel = $("bts-branch");
+    $("bts-info").classList.add("hidden");
+    brSel.innerHTML = '<option value="">— Filialni tanlang —</option>';
+    const branches = (B[region] || {})[district] || [];
+    if (!branches.length) {
+      brF.classList.add("hidden");
+      return;
+    }
+    branches.forEach((b, i) => {
+      const o = el("option");
+      o.value = String(i);
+      o.textContent = "📦 " + b.name;
+      brSel.append(o);
+    });
+    brF.classList.remove("hidden");
+  }
+
+  function btsBranchChange() {
+    const B = window.BTS_BRANCHES || {};
+    const region = $("bts-region").value;
+    const district = $("bts-district").value;
+    const idx = $("bts-branch").value;
+    const info = $("bts-info");
+    const b = ((B[region] || {})[district] || [])[parseInt(idx, 10)];
+    if (!b) {
+      info.classList.add("hidden");
+      return;
+    }
+    info.innerHTML = `<b>📦 BTS ${esc(b.name)}</b>
+      <div>📍 ${esc(b.address)}</div>
+      ${b.landmark ? `<div class="bts-landmark">🏷 ${esc(b.landmark)}</div>` : ""}
+      ${b.hours ? `<div class="bts-hours">🕒 ${esc(b.hours)}</div>` : ""}`;
+    info.classList.remove("hidden");
+    haptic("light");
+  }
+
+  function confirmDelivery() {
+    const method = S.dlvMethod;
+    if (!method) return toast("Yetkazib berish usulini tanlang");
+
+    if (method === "courier") {
+      const address = ($("dlv-address").value || "").trim();
+      if (address.length < 5) return toast("Manzilni to'liqroq yozing");
+      S.delivery = { method: "courier", address, summary: `Kuryer (manzilga): ${address}` };
+    } else {
+      const B = window.BTS_BRANCHES || {};
+      const region = $("bts-region").value;
+      if (!region) return toast("Viloyatni tanlang");
+      const district = $("bts-district").value;
+      if (!district) return toast("Tuman / shaharni tanlang");
+      const idx = $("bts-branch").value;
+      if (idx === "") return toast("Filialni tanlang");
+      const b = ((B[region] || {})[district] || [])[parseInt(idx, 10)];
+      if (!b) return toast("Filial topilmadi");
+      S.delivery = {
+        method: "bts",
+        address: `BTS ${b.name}, ${district}, ${region}`,
+        summary:
+          `BTS Pochta: ${b.name} filiali — ${b.address}` +
+          `${b.landmark ? " (" + b.landmark + ")" : ""}, ${district}, ${region}`,
+      };
+    }
+    haptic("medium");
+    openPaymentSheet();
+  }
+
+  /* ---------------------------------------------------------------- to'lov */
+  function openPaymentSheet() {
+    const sum = cartSum();
+    const isBts = S.delivery && S.delivery.method === "bts";
+    openSheet(
+      "💳 To'lov",
+      `<div class="pay-total">
+         <div><small>To'lov summasi</small><b>${esc(fmt(sum))}</b></div>
+         <span class="pay-total-ico">🛒</span>
+       </div>
+       <div id="pay-options">
+         <button class="pay-card" id="pay-card">
+           <span class="pay-ico blue">💳</span>
+           <span class="pay-txt"><b>Karta orqali o'tkazma</b><small>Uzcard / Humo kartaga</small></span>
+           <span class="pay-go">›</span>
+         </button>
+         <button class="pay-card" id="pay-app">
+           <span class="pay-ico cyan">📱</span>
+           <span class="pay-txt"><b>Ilova orqali to'lash</b><small>Payme, Click yoki boshqa</small></span>
+           <span class="pay-go">›</span>
+         </button>
+         <button class="pay-card${isBts ? " hidden" : ""}" id="pay-cash">
+           <span class="pay-ico green">💵</span>
+           <span class="pay-txt"><b>Naqd pul</b><small>Tovar kelganda to'laysiz</small></span>
+           <span class="pay-go">›</span>
+         </button>
+         ${
+           isBts
+             ? '<p class="dlv-note">ℹ️ BTS Pochta orqali yuborishdan oldin to\'lov qilinadi — shuning uchun "Naqd" mavjud emas.</p>'
+             : ""
+         }
+       </div>
+       <div id="pay-detail" class="hidden"></div>`
+    );
+    $("pay-card").onclick = () => showPayDetail("card");
+    $("pay-app").onclick = () => showPayDetail("app");
+    const cash = $("pay-cash");
+    if (cash) cash.onclick = payCash;
+  }
+
+  const cardDigits = () => ((S.pay && S.pay.card) || "").replace(/\s/g, "");
+
+  function copyCard() {
+    const digits = cardDigits();
+    const done = () => {
+      haptic("ok");
+      toast("Karta raqami nusxalandi ✅");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(digits).then(done, () => fallbackCopy(digits, done));
+    } else {
+      fallbackCopy(digits, done);
+    }
+  }
+  function fallbackCopy(text, done) {
+    const t = el("textarea");
+    t.value = text;
+    t.style.position = "fixed";
+    t.style.opacity = "0";
+    document.body.append(t);
+    t.select();
+    try {
+      document.execCommand("copy");
+      done();
+    } catch (_) {}
+    t.remove();
+  }
+
+  function showPayDetail(kind) {
+    haptic();
+    const sum = cartSum();
+    const card = (S.pay && S.pay.card) || "";
+    const holder = (S.pay && S.pay.holder) || "";
+    const label = kind === "card" ? "Karta orqali o'tkazma" : "Ilova orqali (Payme/Click)";
+    const steps =
+      kind === "card"
+        ? `<ol class="pay-steps">
+             <li>Yuqoridagi karta raqamini <b>nusxalang</b> (raqamga bosing)</li>
+             <li>Bank ilovangizda (Apelsin, Click, Payme...) <b>pul o'tkazing</b></li>
+             <li>Pastdagi <b>«To'ladim»</b> tugmasini bosing</li>
+           </ol>`
+        : `<div class="pay-apps">
+             <button class="btn btn-ghost btn-sm" id="open-payme">Payme ochish</button>
+             <button class="btn btn-ghost btn-sm" id="open-click">Click ochish</button>
+           </div>
+           <ol class="pay-steps">
+             <li>Ilovada yuqoridagi <b>kartaga</b> summani o'tkazing</li>
+             <li>So'ng <b>«To'ladim»</b> tugmasini bosing</li>
+           </ol>`;
+
+    $("pay-options").classList.add("hidden");
+    const box = $("pay-detail");
+    box.classList.remove("hidden");
+    box.innerHTML = `
+      <button class="pay-back" id="pay-back">‹ Boshqa usul</button>
+      <div class="bank-card">
+        <div class="bank-chip"></div>
+        <div class="bank-num" id="bank-num">${esc(card)}</div>
+        <div class="bank-bottom"><span>${esc(holder)}</span><em>UZCARD</em></div>
+      </div>
+      <div class="pay-amount"><small>O'tkaziladigan summa</small><b>${esc(fmt(sum))}</b></div>
+      ${steps}
+      <button class="btn btn-primary" id="pay-done">✓ To'ladim</button>
+      <p class="pay-hint">🛡 Admin to'lovni tekshirgach buyurtma tasdiqlanadi.</p>`;
+
+    $("pay-back").onclick = () => {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      $("pay-options").classList.remove("hidden");
+    };
+    $("bank-num").onclick = copyCard;
+    $("pay-done").onclick = () => placeOrder(label, kind === "card");
+    if (kind === "app") {
+      const pm = $("open-payme");
+      const ck = $("open-click");
+      if (pm) pm.onclick = () => openPayApp("payme");
+      if (ck) ck.onclick = () => openPayApp("click");
+    }
+  }
+
+  function openPayApp(provider) {
+    haptic("medium");
+    const url =
+      provider === "payme"
+        ? "https://payme.uz/home/main"
+        : "https://my.click.uz/app/transfer";
+    try {
+      tg.openLink(url);
+    } catch (_) {
+      window.open(url, "_blank");
+    }
+    toast((provider === "payme" ? "Payme" : "Click") + " ochildi. Kartaga o'tkazing!");
+  }
+
+  function payCash() {
+    const sum = cartSum();
+    ask(
+      `Buyurtmani tasdiqlaysizmi?\n\nJami: ${fmt(sum)}\nTo'lov: Naqd pul (yetkazilganda)`
+    ).then((ok) => {
+      if (ok) placeOrder("Naqd pul (yetkazilganda)", false);
+    });
+  }
+
+  /** Yakuniy qadam: buyurtmani serverga yuboradi. */
+  function placeOrder(paymentLabel, openAdminChat) {
+    if (!S.delivery) return toast("Yetkazib berish usulini tanlang");
     if (!S.cart.length) return toast("Savatcha bo'sh");
 
     return withPhone(async () => {
-      const btn = $("order-submit");
-      btn.disabled = true;
-      btn.textContent = "Yuborilmoqda...";
+      const btn = $("pay-done"); // naqdda bu tugma bo'lmaydi
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Yuborilmoqda...";
+      }
       try {
         const res = await api("/api/orders", {
           method: "POST",
           body: {
             items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
-            address,
-            phone: $("order-phone").value.trim() || (S.me && S.me.phone) || "",
+            address: S.delivery.address,
+            phone: ($("order-phone").value || "").trim() || (S.me && S.me.phone) || "",
+            delivery_method: S.delivery.method,
+            delivery_info: S.delivery.summary,
+            payment_method: paymentLabel,
           },
         });
         S.cart = [];
         saveCart();
         renderCart();
-        $("order-address").value = "";
+        S.delivery = null;
+        S.dlvMethod = null;
         haptic("ok");
+        closeSheet();
         burst();
         toast(`✅ Buyurtma #${res.order.id} qabul qilindi`, 3400);
         show("profile");
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Buyurtma berish";
+        // Karta to'lovi: chekni yuborish uchun admin chatini ochamiz
+        if (openAdminChat && S.pay && S.pay.admin) {
+          try {
+            tg.openTelegramLink("https://t.me/" + S.pay.admin);
+          } catch (_) {}
+        }
+      } catch (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "✓ To'ladim";
+        }
+        throw err;
       }
     });
   }
@@ -1363,7 +1705,9 @@
              <b>#${o.id} · ${esc(o.total_label)}</b>
              <span class="status ${esc(o.status)}">${esc(o.status_label)}</span>
            </div>
-           <div class="item-sub">🛍 ${goods}</div>`
+           <div class="item-sub">🛍 ${goods}</div>
+           ${o.delivery_info ? `<div class="item-sub">🚚 ${esc(o.delivery_info)}</div>` : ""}
+           ${o.payment_method ? `<div class="item-sub">💳 ${esc(o.payment_method)}</div>` : ""}`
         )
       );
     });
@@ -1511,6 +1855,12 @@
     try {
       const [cfg, me] = await Promise.all([api("/api/config"), api("/api/me")]);
       S.currency = cfg.currency || "so'm";
+      S.pay = {
+        card: cfg.pay_card_number || "",
+        holder: cfg.pay_card_holder || "",
+        admin: cfg.pay_admin_username || "",
+        city: cfg.delivery_city || "Toshkent",
+      };
       S.me = me;
       renderPhoneWarn();
 
@@ -1597,7 +1947,7 @@
   $("config-cta").onclick = openFlow;
   $("car-chip").onclick = openCarSheet;
   $("change-car").onclick = openCarSheet;
-  $("order-submit").onclick = submitOrder;
+  $("order-submit").onclick = startCheckout;
 
   $("sheet-close").onclick = closeSheet;
   $("sheet-backdrop").onclick = closeSheet;
