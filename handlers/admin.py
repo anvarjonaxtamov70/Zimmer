@@ -520,11 +520,18 @@ async def cmd_firebase(message: Message, state: FSMContext) -> None:
 
     await firebase.refresh_token()
     if firebase.is_enabled():
-        restored = await sync.restore_users()
+        users = await sync.restore_users()
+        history = await sync.restore_orders()
         await status.edit_text(
             "✅ <b>Firebase ulangan.</b>\n\n"
-            "Mijozlar va tovarlar doimiy saqlanadi — qayta deployda yo'qolmaydi.\n"
-            f"Firebase'dan tiklangan mijozlar: {restored} ta."
+            "Mijozlar, tovarlar va buyurtmalar tarixi doimiy saqlanadi — "
+            "qayta deployda yo'qolmaydi.\n\n"
+            "<b>Bulutdan tiklandi:</b>\n"
+            f"👥 Mijozlar: {users} ta\n"
+            f"🔥 Bi-LED buyurtmalar: {history.get('biled', 0)} ta\n"
+            f"📦 Do'kon buyurtmalari: {history.get('orders', 0)} ta\n"
+            f"🗓 Navbatlar: {history.get('bookings', 0)} ta\n\n"
+            "<i>0 bo'lsa — hammasi allaqachon bazada bor, demak yo'qolmagan.</i>"
         )
         return
 

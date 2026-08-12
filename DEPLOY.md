@@ -315,6 +315,25 @@ Firebase'dan M tovar import qilindi
 > Zimmer endi **o'zining alohida Firebase loyihasida** — Avto_A1 ma'lumotlariga
 > umuman tegmaydi.
 
+### Nima saqlanadi va nima tiklanadi
+
+| Ma'lumot | Bulutga yoziladi | Bot ishga tushganda tiklanadi |
+|---|---|---|
+| Mijozlar (ism, telefon, mashina) | ✅ | ✅ |
+| Tovarlar (rasm URL bilan) | — (saytdan boshqariladi) | ✅ |
+| Adminlar (bot ichidan qo'shilgan) | ✅ | ✅ |
+| Bi-LED buyurtmalari | ✅ | ✅ |
+| Do'kon buyurtmalari (tarkibi bilan) | ✅ | ✅ |
+| O'rnatish navbatlari | ✅ | ✅ |
+
+Buyurtmalar bulutda **katalog ID'lari bilan emas, nomlar bilan** saqlanadi
+("Cobalt", "Aozoom A5+"). Sababi: baza tozalangandan keyin katalog qaytadan
+ekiladi va ID'lar o'zgaradi — nom esa o'zgarmaydi. Tiklashda nom bo'yicha
+topiladi; agar element o'chirilgan bo'lsa, u **yashirin** (mijozga
+ko'rinmaydigan) holda qayta yaratiladi, shunda tarix to'liq ko'rinadi.
+
+Buyurtma **asl raqami** bilan tiklanadi — mijoz uchun `#12` hamon `#12`.
+
 ## Ma'lumot tuzilishi
 
 ```
