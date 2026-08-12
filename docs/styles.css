@@ -902,26 +902,46 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .adm-fail-icon { font-size: 40px; margin-bottom: 8px; }
 .adm-fail p { margin: 0 0 14px; }
 
-/* --------------------------------------------------------------- bosh menyu
-   Ataylab sodda: to'rt qator, har biri alohida oyna ochadi. Raqamlar va
-   uzun izohlar yo'q — ular o'z oynasida. */
-.adm-menu { display: flex; flex-direction: column; gap: 8px; }
-.adm-menu-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 15px 14px; text-align: left;
+/* ------------------------------------------------------------ plitkalar
+   Bosh menyu va katalog bo'limlari — alohida KVADRAT tugmalar.
+   Har biri o'z oynasini ochadi. */
+.adm-tiles {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+.adm-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  padding: 14px 12px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 11px;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-md); color: var(--text);
-  transition: transform 0.15s var(--spring), border-color 0.2s;
+  border-radius: var(--r-lg); color: var(--text);
+  transition: transform 0.16s var(--spring), border-color 0.2s, background 0.2s;
 }
-.adm-menu-row:active { transform: scale(0.985); border-color: var(--line-2); }
-.adm-menu-row i { font-style: normal; font-size: 20px; line-height: 1; }
-.adm-menu-row b { flex: 1; font-size: 14.5px; font-weight: 600; }
-.adm-menu-row em {
-  font-style: normal; min-width: 20px; padding: 2px 7px;
+.adm-tile:active {
+  transform: scale(0.955);
+  border-color: rgba(255, 75, 62, 0.4);
+  background: var(--surface-2);
+}
+.adm-tile i { font-style: normal; font-size: 30px; line-height: 1; }
+.adm-tile b {
+  font-size: 13px; font-weight: 600; text-align: center; line-height: 1.3;
+}
+/* Yangi buyurtma soni — burchakdagi qizil belgi */
+.adm-tile em {
+  position: absolute; top: 10px; right: 10px;
+  min-width: 20px; height: 20px; padding: 0 6px;
   background: var(--red-grad); color: #fff;
-  font-size: 11px; font-weight: 800; border-radius: 999px;
+  font-style: normal; font-size: 11px; font-weight: 800;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 8px var(--red-glow);
 }
-.adm-menu-row span { color: var(--dim); font-size: 19px; line-height: 1; }
+/* Katalogdagi element soni — urg'usiz */
+.adm-tile em.soft {
+  background: var(--surface-3); color: var(--muted);
+  font-weight: 700; box-shadow: none;
+}
 
 /* --------------------------------------------------------------- statistika */
 .adm-periods { display: flex; gap: 6px; margin-bottom: 14px; }
@@ -991,20 +1011,9 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   margin: 16px 2px 0; font-size: 11.5px; color: var(--dim); line-height: 1.6;
 }
 
-/* ------------------------------------------------------------------ bo'limlar */
-.adm-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+@media (prefers-reduced-motion: reduce) {
+  .adm-tile { transition: none; }
 }
-.adm-card {
-  padding: 14px 12px; text-align: left;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-md); color: var(--text);
-  transition: transform 0.15s var(--spring), border-color 0.2s;
-}
-.adm-card:active { transform: scale(0.97); border-color: var(--line-2); }
-.adm-card i { font-style: normal; font-size: 22px; }
-.adm-card b { display: block; font-size: 13.5px; margin-top: 6px; font-weight: 700; }
-.adm-card small { display: block; font-size: 11px; color: var(--dim); margin-top: 1px; }
 
 /* --------------------------------------------------------------- ro'yxat */
 .adm-add { margin-bottom: 12px; }

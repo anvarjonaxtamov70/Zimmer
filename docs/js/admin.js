@@ -151,24 +151,23 @@ window.ZimmerAdmin = (function () {
     };
 
     body().innerHTML = "";
-    const list = el("div", "adm-menu");
+    const grid = el("div", "adm-tiles");
 
     MENU.forEach((entry) => {
-      const row = el("button", "adm-menu-row");
+      const tile = el("button", "adm-tile");
       const count = entry.badge ? counts[entry.badge] : 0;
-      row.innerHTML = `
+      tile.innerHTML = `
         <i>${entry.icon}</i>
         <b>${esc(entry.title)}</b>
-        ${count ? `<em>${count}</em>` : ""}
-        <span>›</span>`;
-      row.onclick = () => {
+        ${count ? `<em>${count}</em>` : ""}`;
+      tile.onclick = () => {
         haptic();
         entry.open();
       };
-      list.append(row);
+      grid.append(tile);
     });
 
-    body().append(list);
+    body().append(grid);
   }
 
   /* ====================================================================
@@ -270,17 +269,18 @@ window.ZimmerAdmin = (function () {
     }
 
     body().innerHTML = "";
-    const grid = el("div", "adm-grid");
+    const grid = el("div", "adm-tiles");
     (data.sections || []).forEach((sec) => {
-      const card = el("button", "adm-card");
-      card.innerHTML = `<i>${esc(sec.icon)}</i><b>${esc(sec.title)}</b><small>${esc(
-        sec.count
-      )}</small>`;
-      card.onclick = () => {
+      const tile = el("button", "adm-tile");
+      tile.innerHTML = `
+        <i>${esc(sec.icon)}</i>
+        <b>${esc(sec.title)}</b>
+        ${sec.count ? `<em class="soft">${esc(sec.count)}</em>` : ""}`;
+      tile.onclick = () => {
         haptic();
         openList(sec.key);
       };
-      grid.append(card);
+      grid.append(tile);
     });
     body().append(grid);
   }
