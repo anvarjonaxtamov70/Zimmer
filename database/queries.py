@@ -1,11 +1,15 @@
 """Bazaga so'rovlar. Har bir funksiya aiosqlite.Row yoki oddiy tip qaytaradi."""
 
+import logging
+import re
 from collections.abc import Sequence
 from typing import Any
 
 import aiosqlite
 
 from database.db import get_db
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- foydalanuvchi
 
@@ -1055,6 +1059,167 @@ async def admin_count(table: str) -> int:
     async with db.execute(f"SELECT COUNT(*) FROM {table}") as cur:
         row = await cur.fetchone()
     return int(row[0])
+
+
+# ========================================================================
+#      TARIXNI BULUTDAN TIKLASH (buyurtmalar, navbatlar)
+#
+# Firebase'da buyurtmalar katalog ID'lari bilan emas, NOMLAR bilan
+# saqlanadi ("Cobalt", "Aozoom A5+"). Sababi: baza tozalangandan keyin
+# katalog qaytadan ekiladi va ID'lar o'zgarib ketadi — nom esa o'zgarmaydi.
+#
+# Shuning uchun tiklashda nom bo'yicha ID topamiz. Agar element o'chirilgan
+# bo'lsa, uni YASHIRIN (is_active = 0) holda qayta yaratamiz: shunda
+# buyurtma tarixi to'liq ko'rinadi, lekin mijozga katalogda ko'rinmaydi.
+# ========================================================================
+
+_NAME_TABLES = {"cars", "biled_types", "shrouds", "optic_colors", "services"}
+
+
+async def find_by_name(table: str, name: str) -> int | None:
+    """Nom bo'yicha ID topadi (katta-kichik harf va bo'shliqqa e'tibor bermaydi)."""
+    if table not in _NAME_TABLES:
+        raise ValueError(f"Ruxsat berilmagan jadval: {table}")
+    if not name or not str(name).strip():
+        return None
+    db = get_db()
+    async with db.execute(
+        f"SELECT id FROM {table} WHERE lower(TRIM(name)) = lower(TRIM(?)) ORDER BY id LIMIT 1",
+        (str(name),),
+    ) as cur:
+        row = await cur.fetchone()
+    return int(row["id"]) if row else None
+
+
+async def ensure_car(name: str | None) -> int | None:
+    """Mashinani nom bo'yicha topadi, bo'lmasa yashirin holda yaratadi."""
+    if not name or not str(name).strip():
+        return None
+    found = await find_by_name("cars", name)
+    if found:
+        return found
+
+    base = re.sub(r"[^a-z0-9]+", "", str(name).lower()) or "car"
+    existing = {row["slug"] for row in await get_cars(active_only=False)}
+    slug, index = base, 1
+    while slug in existing:
+        index += 1
+        slug = f"{base}{index}"
+
+    db = get_db()
+    cur = await db.execute(
+        "INSERT INTO cars (name, slug, is_active) VALUES (?, ?, 0)", (str(name).strip(), slug)
+    )
+    await db.commit()
+    logger.info("Tarix uchun yashirin mashina yaratildi: %s", name)
+    return int(cur.lastrowid)
+
+
+async def _ensure_simple(table: str, name: str | None) -> int | None:
+    """Nomi bor jadvallar uchun umumiy "topib ol yoki yashirin yarat"."""
+    if not name or not str(name).strip():
+        return None
+    found = await find_by_name(table, name)
+    if found:
+        return found
+    db = get_db()
+    cur = await db.execute(
+        f"INSERT INTO {table} (name, is_active) VALUES (?, 0)", (str(name).strip(),)
+    )
+    await db.commit()
+    logger.info("Tarix uchun yashirin yozuv yaratildi: %s.%s", table, name)
+    return int(cur.lastrowid)
+
+
+async def ensure_biled(name: str | None) -> int | None:
+    return await _ensure_simple("biled_types", name)
+
+
+async def ensure_shroud(name: str | None) -> int | None:
+    return await _ensure_simple("shrouds", name)
+
+
+async def ensure_color(name: str | None) -> int | None:
+    return await _ensure_simple("optic_colors", name)
+
+
+async def ensure_service(name: str | None) -> int | None:
+    return await _ensure_simple("services", name)
+
+
+async def ensure_user(user_id: int, full_name: str | None, phone: str | None) -> None:
+    """Buyurtma egasini yaratadi (agar hali bazada bo'lmasa).
+
+    Buyurtmalar `users` ga bog'langan, shuning uchun tarixni tiklashdan
+    oldin mijoz qatori bo'lishi kerak. Mavjud ma'lumot ustidan YOZMAYDI.
+    """
+    db = get_db()
+    await db.execute(
+        "INSERT INTO users (user_id, full_name, phone) VALUES (?, ?, ?)"
+        " ON CONFLICT(user_id) DO NOTHING",
+        (user_id, (full_name or "Mijoz").strip(), phone),
+    )
+    await db.commit()
+
+
+async def restore_biled_order(data: dict[str, Any]) -> bool:
+    """Bi-LED buyurtmasini asl ID'si bilan tiklaydi. True — yangi qo'shildi."""
+    db = get_db()
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO biled_orders"
+        " (id, user_id, car_id, biled_id, shroud_id, color_id, total, phone,"
+        "  comment, status, created_at)"
+        " VALUES (:id, :user_id, :car_id, :biled_id, :shroud_id, :color_id, :total,"
+        "         :phone, :comment, :status, COALESCE(:created_at, datetime('now')))",
+        data,
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def restore_shop_order(data: dict[str, Any], items: Sequence[dict]) -> bool:
+    """Do'kon buyurtmasini va tarkibini tiklaydi. True — yangi qo'shildi."""
+    db = get_db()
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO orders"
+        " (id, user_id, total, address, phone, status, created_at)"
+        " VALUES (:id, :user_id, :total, :address, :phone, :status,"
+        "         COALESCE(:created_at, datetime('now')))",
+        data,
+    )
+    await db.commit()
+    if cur.rowcount <= 0:
+        return False
+
+    # Tovar ID'lari bulutda saqlanmaydi (ular o'zgarib ketadi) — nomi,
+    # narxi va soni saqlanadi, shuning uchun product_id = NULL.
+    rows = [
+        (data["id"], str(item.get("name") or "Tovar"), int(item.get("price") or 0),
+         int(item.get("qty") or 1))
+        for item in items
+    ]
+    if rows:
+        await db.executemany(
+            "INSERT INTO order_items (order_id, product_id, name, price, qty)"
+            " VALUES (?, NULL, ?, ?, ?)",
+            rows,
+        )
+        await db.commit()
+    return True
+
+
+async def restore_booking(data: dict[str, Any]) -> bool:
+    """Navbatni asl ID'si bilan tiklaydi. True — yangi qo'shildi."""
+    db = get_db()
+    cur = await db.execute(
+        "INSERT OR IGNORE INTO bookings"
+        " (id, user_id, service_id, date, time, status, created_at)"
+        " VALUES (:id, :user_id, :service_id, :date, :time, :status,"
+        "         COALESCE(:created_at, datetime('now')))",
+        data,
+    )
+    await db.commit()
+    return cur.rowcount > 0
 
 
 def media_of(row: aiosqlite.Row, kind: str = "photo") -> tuple[str | None, str | None]:

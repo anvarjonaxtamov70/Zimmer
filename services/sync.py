@@ -16,10 +16,12 @@ Firebase sozlanmagan bo'lsa — hamma funksiya jimgina o'tib ketadi.
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 from config import config, remove_runtime_admin, set_runtime_admins
 from database import queries as q
 from services import firebase
+from utils.helpers import TZ
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +341,143 @@ async def push_booking(booking) -> None:
     )
 
 
+def _created_at(value) -> str | None:
+    """Firebase'dagi millisekundni bazaning matn formatiga o'giradi."""
+    try:
+        millis = int(value)
+    except (TypeError, ValueError):
+        return None
+    if millis <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(millis / 1000, tz=TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _order_id(value, key: str) -> int | None:
+    try:
+        return int(value if value is not None else key)
+    except (TypeError, ValueError):
+        return None
+
+
+async def restore_orders() -> dict[str, int]:
+    """Buyurtmalar va navbatlar TARIXINI Firebase'dan qaytaradi.
+
+    Ilgari faqat mijozlar va tovarlar tiklanardi — buyurtmalar bulutga
+    yozilsa ham qaytmasdi. Natijada baza tozalangandan keyin mijoz
+    "Kabinetim" da eski buyurtmalarini ko'rmay qolardi.
+
+    Buyurtma asl raqami (#12) bilan tiklanadi, shuning uchun mijoz uchun
+    hech narsa o'zgarmaydi. Mavjud yozuvlar ustidan yozilmaydi
+    (INSERT OR IGNORE).
+    """
+    if not firebase.is_enabled():
+        return {}
+
+    counts = {"biled": 0, "orders": 0, "bookings": 0}
+
+    # ---------------------------------------------- Bi-LED buyurtmalari
+    for key, item in firebase.items(await firebase.get("biled_orders")):
+        order_id = _order_id(item.get("id"), key)
+        uid = _order_id(item.get("uid"), "")
+        if order_id is None or uid is None:
+            continue
+        try:
+            await q.ensure_user(uid, item.get("name"), item.get("phone"))
+            car_id = await q.ensure_car(item.get("car"))
+            biled_id = await q.ensure_biled(item.get("biled"))
+            if not car_id or not biled_id:
+                # Bu ikkisi majburiy — bo'lmasa yozuvni tiklab bo'lmaydi
+                logger.warning("Bi-LED #%s tiklanmadi: mashina/linza nomi yo'q", order_id)
+                continue
+            added = await q.restore_biled_order(
+                {
+                    "id": order_id,
+                    "user_id": uid,
+                    "car_id": car_id,
+                    "biled_id": biled_id,
+                    "shroud_id": await q.ensure_shroud(item.get("shroud")),
+                    "color_id": await q.ensure_color(item.get("color")),
+                    "total": int(item.get("total") or 0),
+                    "phone": item.get("phone"),
+                    "comment": item.get("comment"),
+                    "status": item.get("status") or "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                }
+            )
+            counts["biled"] += 1 if added else 0
+        except Exception as error:
+            logger.warning("Bi-LED #%s tiklanmadi: %s", order_id, error)
+
+    # ---------------------------------------------- do'kon buyurtmalari
+    for key, item in firebase.items(await firebase.get("orders")):
+        order_id = _order_id(item.get("id"), key)
+        uid = _order_id(item.get("uid"), "")
+        if order_id is None or uid is None:
+            continue
+        try:
+            await q.ensure_user(uid, item.get("name"), item.get("phone"))
+            raw_items = item.get("items")
+            if isinstance(raw_items, dict):
+                raw_items = list(raw_items.values())
+            elif not isinstance(raw_items, list):
+                raw_items = []
+            added = await q.restore_shop_order(
+                {
+                    "id": order_id,
+                    "user_id": uid,
+                    "total": int(item.get("total") or 0),
+                    "address": item.get("address"),
+                    "phone": item.get("phone"),
+                    "status": item.get("status") or "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                },
+                [row for row in raw_items if isinstance(row, dict)],
+            )
+            counts["orders"] += 1 if added else 0
+        except Exception as error:
+            logger.warning("Buyurtma #%s tiklanmadi: %s", order_id, error)
+
+    # ---------------------------------------------------------- navbatlar
+    for key, item in firebase.items(await firebase.get("bookings")):
+        booking_id = _order_id(item.get("id"), key)
+        uid = _order_id(item.get("uid"), "")
+        if booking_id is None or uid is None:
+            continue
+        try:
+            await q.ensure_user(uid, item.get("name"), item.get("phone"))
+            service_id = await q.ensure_service(item.get("service"))
+            if not service_id or not item.get("date") or not item.get("time"):
+                logger.warning("Navbat #%s tiklanmadi: xizmat/sana yo'q", booking_id)
+                continue
+            added = await q.restore_booking(
+                {
+                    "id": booking_id,
+                    "user_id": uid,
+                    "service_id": service_id,
+                    "date": str(item.get("date")),
+                    "time": str(item.get("time")),
+                    "status": item.get("status") or "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                }
+            )
+            counts["bookings"] += 1 if added else 0
+        except Exception as error:
+            logger.warning("Navbat #%s tiklanmadi: %s", booking_id, error)
+
+    total = sum(counts.values())
+    if total:
+        logger.info(
+            "Firebase'dan tarix tiklandi: %s Bi-LED, %s buyurtma, %s navbat",
+            counts["biled"],
+            counts["orders"],
+            counts["bookings"],
+        )
+    return counts
+
+
 async def push_status(kind: str, order_id: int, status: str) -> None:
     """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi."""
     if not firebase.is_enabled():
@@ -352,13 +491,15 @@ async def push_status(kind: str, order_id: int, status: str) -> None:
 
 
 async def initial_sync() -> None:
-    """Ishga tushganda: adminlar → mijozlar → tovarlar qaytariladi."""
+    """Ishga tushganda: adminlar → mijozlar → tovarlar → tarix qaytariladi."""
     if not firebase.is_enabled():
         return
     try:
         await restore_admins()
         await restore_users()
         await import_products()
+        # Tovarlar tiklangandan KEYIN — buyurtmalar katalogga bog'lanadi
+        await restore_orders()
         await flush_pending()
     except Exception as error:
         logger.warning("Boshlang'ich sinxronizatsiya xatosi: %s", error)
