@@ -1225,6 +1225,9 @@
     box.innerHTML = "";
     const empty = S.cart.length === 0;
     $("cart-checkout").classList.toggle("hidden", empty);
+    // savat sahifasiga "has-bar" — pastdagi yopishgan panel joyini ochadi
+    const cartSec = $("cart");
+    if (cartSec) cartSec.classList.toggle("has-bar", !empty);
     const emptyP = $("cart-empty");
     if (emptyP) emptyP.classList.add("hidden");
 
@@ -1273,8 +1276,6 @@
     const sumEl = $("cart-total-sum");
     if (sumEl) sumEl.textContent = fmt(total);
     renderCartProgress(total);
-
-    if (S.me && S.me.phone && !$("order-phone").value) $("order-phone").value = S.me.phone;
   }
 
   /** Savat qatorini butunlay o'chiradi (swipe → 🗑). */
@@ -1358,11 +1359,8 @@
   /** "Rasmiylashtirish" tugmasi: avval yetkazib berish usulini so'raymiz. */
   function startCheckout() {
     if (!S.cart.length) return toast("Savatcha bo'sh");
-    // Telefon majburiy — bo'lmasa avval so'raymiz, keyin qaytamiz
-    if (!S.me || !S.me.phone) {
-      const typed = ($("order-phone").value || "").trim();
-      if (typed.replace(/\D/g, "").length < 9) return openPhoneSheet(startCheckout);
-    }
+    // Telefon profilda bo'lmasa — bir marta so'raymiz, keyin davom etamiz
+    if (!S.me || !S.me.phone) return openPhoneSheet(startCheckout);
     S.delivery = null;
     S.dlvMethod = null;
     haptic();
@@ -1688,7 +1686,7 @@
           body: {
             items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
             address: S.delivery.address,
-            phone: ($("order-phone").value || "").trim() || (S.me && S.me.phone) || "",
+            phone: (S.me && S.me.phone) || "",
             delivery_method: S.delivery.method,
             delivery_info: S.delivery.summary,
             payment_method: paymentLabel,
