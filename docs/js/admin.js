@@ -19,6 +19,16 @@ window.ZimmerAdmin = (function () {
   /* ------------------------------------------------------------- ko'prik */
   const app = () => window.ZIMMER_APP || {};
   const $ = (id) => document.getElementById(id);
+
+  /** Element yasash yordamchisi. app.js dagi `el` alohida ko'lamda —
+      shuning uchun bu fayl o'zinikini ishlatadi. */
+  const el = (tag, cls, html) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (html !== undefined) node.innerHTML = html;
+    return node;
+  };
+
   const esc = (v) => (app().esc ? app().esc(v) : String(v == null ? "" : v));
   const toast = (m) => (app().toast ? app().toast(m) : void 0);
   const haptic = (k) => (app().haptic ? app().haptic(k) : void 0);
