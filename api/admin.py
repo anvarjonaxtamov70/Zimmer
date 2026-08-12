@@ -37,9 +37,8 @@ from api.media import media_url
 from config import config, is_admin
 from database import queries as q
 from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
-from services import sync
+from services import orders
 from utils.helpers import fmt_price, today_iso
-from utils.texts import BILED_STATUS, BOOKING_STATUS, ORDER_STATUS
 
 logger = logging.getLogger(__name__)
 
@@ -544,27 +543,29 @@ async def section_media_clear(request: web.Request) -> web.Response:
 
 # ------------------------------------------------------------------ buyurtmalar
 
-ORDER_KINDS = {
-    "biled": {"title": "Bi-LED buyurtmalar", "icon": "🔥", "statuses": BILED_STATUS},
-    "shop": {"title": "Do'kon buyurtmalari", "icon": "📦", "statuses": ORDER_STATUS},
-    "booking": {"title": "O'rnatish navbatlari", "icon": "🗓", "statuses": BOOKING_STATUS},
-}
-
-
 def _order_kind(request: web.Request) -> str:
-    kind = request.match_info.get("kind") or request.query.get("kind") or "biled"
-    if kind not in ORDER_KINDS:
+    raw = request.match_info.get("kind") or request.query.get("kind") or "biled"
+    kind = orders.resolve(raw)
+    if not orders.known(kind):
         raise bad_request("Noto'g'ri buyurtma turi")
     return kind
 
 
 def _order_row(kind: str, row) -> dict:
     values = {key: row[key] for key in row.keys()}
-    statuses = ORDER_KINDS[kind]["statuses"]
+    status = values.get("status")
     item = {
         "id": values.get("id"),
-        "status": values.get("status"),
-        "status_label": statuses.get(values.get("status"), values.get("status")),
+        "status": status,
+        "status_label": orders.label(kind, status),
+        # Faqat shu holatdan o'tish MUMKIN bo'lgan tugmalar yuboriladi.
+        # Ya'ni bekor qilingan buyurtmada «Qabul qilish» tugmasi umuman
+        # ko'rinmaydi (ilgari ko'rinardi va bosilardi).
+        "next": [
+            {"value": target, "label": orders.flow(kind).buttons.get(target, target)}
+            for target in orders.allowed_targets(kind, status)
+        ],
+        "closed": orders.is_final(kind, status),
         "user_id": values.get("user_id"),
         "name": values.get("full_name"),
         "phone": values.get("phone"),
@@ -585,7 +586,7 @@ def _order_row(kind: str, row) -> dict:
                 "comment": values.get("comment"),
             }
         )
-    elif kind == "shop":
+    elif kind == "order":
         item.update(
             {
                 "total": values.get("total"),
@@ -614,7 +615,7 @@ async def admin_orders(request: web.Request) -> web.Response:
 
     if kind == "biled":
         rows = await q.get_biled_orders(status, limit=40)
-    elif kind == "shop":
+    elif kind == "order":
         rows = await q.get_orders(status, limit=40)
     else:
         date_iso = request.query.get("date") or today_iso()
@@ -622,14 +623,15 @@ async def admin_orders(request: web.Request) -> web.Response:
         if status:
             rows = [row for row in rows if row["status"] == status]
 
+    flow = orders.flow(kind)
     return web.json_response(
         {
             "kind": kind,
-            "title": ORDER_KINDS[kind]["title"],
-            "icon": ORDER_KINDS[kind]["icon"],
+            "title": flow.title,
+            "icon": flow.icon,
+            # Filtrlar uchun barcha holatlar
             "statuses": [
-                {"value": value, "label": label}
-                for value, label in ORDER_KINDS[kind]["statuses"].items()
+                {"value": value, "label": label} for value, label in flow.labels.items()
             ],
             "items": [_order_row(kind, row) for row in rows],
         }
@@ -644,41 +646,50 @@ async def admin_order_status(request: web.Request) -> web.Response:
 
     body = await _body(request)
     status = str(body.get("status") or "").strip()
-    statuses = ORDER_KINDS[kind]["statuses"]
-    if status not in statuses:
+    flow = orders.flow(kind)
+    if status not in flow.labels:
         raise bad_request("Noto'g'ri holat")
 
     if kind == "biled":
         order = await q.get_biled_order(row_id)
-        if not order:
-            raise not_found("Buyurtma topilmadi")
-        await q.set_biled_order_status(row_id, status)
-        await sync.push_status("biled", row_id, status)
-    elif kind == "shop":
+    elif kind == "order":
         order = await q.get_order(row_id)
-        if not order:
-            raise not_found("Buyurtma topilmadi")
-        await q.set_order_status(row_id, status)
-        await sync.push_status("order", row_id, status)
     else:
         order = await q.get_booking(row_id)
-        if not order:
-            raise not_found("Navbat topilmadi")
-        await q.set_booking_status(row_id, status)
-        await sync.push_status("booking", row_id, status)
+    if not order:
+        raise not_found("Buyurtma topilmadi")
+
+    # Bekor qilingan yoki yopilgan buyurtmani qayta ochib bo'lmaydi
+    allowed, reason = orders.check(kind, order["status"], status)
+    if not allowed:
+        raise bad_request(
+            orders.reason_text(kind, order["status"], status, reason),
+            {"status": order["status"], "status_label": orders.label(kind, order["status"])},
+        )
+
+    # Baza + ombor (bekor qilinsa tovar qaytadi) + Firebase
+    await orders.apply(kind, row_id, status)
 
     # Mijozga xabar beramiz — holat o'zgargani bilinib turishi kerak
     bot = request.app["bot"]
     try:
         await bot.send_message(
             order["user_id"],
-            f"{ORDER_KINDS[kind]['icon']} <b>#{row_id}</b> holati yangilandi:\n"
-            f"{statuses[status]}",
+            f"{flow.icon} <b>#{row_id}</b> holati yangilandi:\n{flow.labels[status]}",
         )
     except Exception as error:
         logger.info("Mijozga (%s) holat xabari yuborilmadi: %s", order["user_id"], error)
 
     logger.info("Admin %s %s #%s holatini «%s» qildi", admin_id, kind, row_id, status)
     return web.json_response(
-        {"ok": True, "status": status, "status_label": statuses[status]}
+        {
+            "ok": True,
+            "status": status,
+            "status_label": flow.labels[status],
+            "next": [
+                {"value": target, "label": flow.buttons.get(target, target)}
+                for target in orders.allowed_targets(kind, status)
+            ],
+            "closed": orders.is_final(kind, status),
+        }
     )

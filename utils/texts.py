@@ -3,7 +3,14 @@
 from config import config
 
 # --- asosiy menyu tugmalari
-BTN_APP = "🚀 Ilovani ochish"
+# BTN_APP — pastdagi klaviaturadagi tugma. U Mini App'ni O'ZI ochmaydi:
+# bosilganda bot chatga inline «Do'konni ochish» tugmasini yuboradi va
+# ilova shu tugmadan ochiladi. Sabab: inline tugma (va ko'k «Open» menyu
+# tugmasi) Telegram'ning eng ishonchli ochish yo'li — `initData` imzosi
+# har doim to'liq keladi. Klaviaturadagi web_app tugmasi ba'zi
+# mijozlarda ID'ni to'liq bermaydi va «tasdiqlanmadi» xatosi chiqadi.
+BTN_APP = "🛍 Do'konni ochish"
+BTN_OPEN_APP = "🛍 Do'konni ochish"  # chatdagi inline tugma yozuvi
 BTN_QUEUE = "🗓 Navbat olish"
 BTN_SHOP = "🛍 Do'kon"
 BTN_MY_QUEUE = "📅 Mening navbatlarim"
@@ -74,15 +81,15 @@ def greeting(name: str) -> str:
         "• 💡 <b>Bi-LED linza</b> turini tanlaysiz\n"
         "• 🕶 <b>Ochki</b> (maska) va 🎨 <b>optika rangini</b> tanlaysiz\n"
         "• Faraning ko'rinishini <b>real vaqtda</b> ko'rib turasiz\n\n"
-        "Pastdagi <b>🚀 Ilovani ochish</b> tugmasini bosing 👇"
+        f"Pastdagi <b>{BTN_APP}</b> tugmasini bosing 👇"
     )
 
 
 APP_INTRO = (
-    "🚀 <b>{shop}</b> — Bi-LED konfigurator\n\n"
+    "🛍 <b>{shop}</b> — do'kon va Bi-LED konfigurator\n\n"
     "Mashina → Bi-LED linza → ochki → optika rangi.\n"
     "Har bir qadamda fara ko'rinishi jonli o'zgaradi.\n\n"
-    "Ilovani ochish uchun tugmani bosing:"
+    "Pastdagi tugmani bosib ochasiz 👇"
 )
 
 

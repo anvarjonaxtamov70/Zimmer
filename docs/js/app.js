@@ -161,7 +161,13 @@
       return;
     }
     if (err && err.code === "invalid_init_data") {
-      gate("Telegram ma'lumotlari tasdiqlanmadi. Ilovani bot ichidagi tugma orqali oching.");
+      // Bu odatda ilova uzoq vaqt fonda turib, imzo eskirganda bo'ladi.
+      // Sahifani yangilash yordam bermaydi — ilovani YOPIB, botdagi
+      // «🛍 Do'konni ochish» tugmasidan qayta ochish kerak.
+      gate(
+        "Sessiya eskirgan.\n\nIlovani yopib, botdagi «🛍 Do'konni ochish» " +
+          "tugmasi orqali qaytadan oching."
+      );
       return;
     }
     haptic("err");
@@ -1380,7 +1386,7 @@
 
     if (!tg || !tg.initData) {
       gate(
-        "Ilovani Telegram ichidan oching — botga /start yuborib «🚀 Ilovani ochish» tugmasini bosing."
+        "Do'konni Telegram ichidan oching — botga /start yuborib «🛍 Do'konni ochish» tugmasini bosing."
       );
       return;
     }

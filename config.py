@@ -120,6 +120,7 @@ class Config:
     firebase_db_url: str
     firebase_root: str
     service_account_file: str
+    init_data_max_age_hours: int
 
     @property
     def has_mini_app(self) -> bool:
@@ -128,6 +129,11 @@ class Config:
     @property
     def has_firebase(self) -> bool:
         return bool(self.firebase_db_url)
+
+    @property
+    def init_data_max_age(self) -> int:
+        """Mini App `initData` qancha soniya amal qiladi (0 — cheklamasdan)."""
+        return max(0, self.init_data_max_age_hours) * 3600
 
 
 def _db_path() -> str:
@@ -158,6 +164,10 @@ config = Config(
     service_account_file=os.getenv(
         "SERVICE_ACCOUNT_FILE", str(BASE_DIR / "serviceAccount.json")
     ).strip(),
+    # Mini App imzosi (initData) necha soat amal qiladi. Standart 7 kun:
+    # Telegram ilova sahifasini keshlaydi va eski imzoni yuboradi, 24 soat
+    # kam edi — mijoz "tasdiqlanmadi" ekranida qolib ketardi. 0 — cheksiz.
+    init_data_max_age_hours=_int_env("INIT_DATA_MAX_AGE_HOURS", 24 * 7),
 )
 
 

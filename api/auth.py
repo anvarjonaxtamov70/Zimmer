@@ -17,20 +17,35 @@ import logging
 import time
 from urllib.parse import parse_qsl
 
+from config import config
+
 logger = logging.getLogger(__name__)
 
-# initData qancha vaqt amal qiladi (24 soat)
-MAX_AGE_SECONDS = 24 * 60 * 60
+# initData qancha vaqt amal qiladi.
+#
+# NEGA 24 SOAT KAM EDI: `initData` ilova OCHILGAN paytda beriladi va keyin
+# o'zgarmaydi. Telegram ilova sahifasini keshda saqlaydi — foydalanuvchi
+# ilovani fonda qoldirib, ertasi kuni qaytib ochsa, o'sha eski `initData`
+# yuboriladi. 24 soat o'tgan bo'lsa server uni rad etardi va mijoz
+# «ma'lumotlar tasdiqlanmadi» ekranida qolib ketardi.
+#
+# Xavfsizlik HMAC imzosi bilan ta'minlanadi (uni qalbakilashtirib
+# bo'lmaydi); `auth_date` faqat o'g'irlangan satrni qayta ishlatishni
+# cheklaydi. Shuning uchun muddatni uzaytirish xavfsiz, lekin baribir
+# sozlanadigan qilib qo'yildi: INIT_DATA_MAX_AGE_HOURS (0 — cheklamasdan).
+MAX_AGE_SECONDS = config.init_data_max_age
 
 
 def validate_init_data(
     init_data: str,
     bot_token: str,
-    max_age: int = MAX_AGE_SECONDS,
+    max_age: int | None = None,
 ) -> dict | None:
     """To'g'ri bo'lsa {"user": {...}, "auth_date": int} qaytaradi, aks holda None."""
     if not init_data or not bot_token:
         return None
+    if max_age is None:
+        max_age = config.init_data_max_age
 
     try:
         pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)

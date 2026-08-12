@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 USER_COMMANDS = [
     BotCommand(command="start", description="Botni ishga tushirish"),
-    BotCommand(command="app", description="Ilovani ochish"),
+    BotCommand(command="app", description="Do'konni ochish"),
     BotCommand(command="navbat", description="Navbat olish (botda)"),
     BotCommand(command="dokon", description="Do'kon (botda)"),
     BotCommand(command="menu", description="Asosiy menyu"),
@@ -58,7 +58,7 @@ async def set_menu_button(bot: Bot) -> None:
         if config.has_mini_app:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
-                    text="Ilova",
+                    text="Do'kon",
                     web_app=WebAppInfo(url=config.mini_app_url),
                 )
             )

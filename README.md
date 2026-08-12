@@ -78,7 +78,7 @@ Ilovaning pastidagi menyuda adminlarga **⚙️ Admin** tugmasi ko'rinadi
 
 - **Statistika** — savdo, buyurtmalar, mijozlar soni;
 - **Buyurtmalar** — Bi-LED, do'kon va navbatlar; holatni bir bosishda
-  o'zgartirasiz, mijozga xabar avtomatik ketadi;
+  o'zgartirasiz, mijozga xabar avtomatik ketadi (qoidalar pastda);
 - **Katalogni boshqarish** — 10 bo'limning hammasi: Bi-LED linzalar,
   ochkilar, optika ranglari, mashinalar, mahsulotlar, kategoriyalar,
   xizmatlar, bannerlar, stories, aksiyalar.
@@ -93,6 +93,27 @@ o'chirish va yangi qo'shish.
 >
 > Yuklangan fayllar Telegram'da saqlanadi (`file_id`), shuning uchun
 > alohida fayl ombori (S3 va h.k.) kerak emas.
+
+## 🔁 Buyurtma holatlari — qoidalar
+
+Holat faqat **oldinga** siljiydi va yakuniy holatdan qaytmaydi. Qoidalar
+bitta joyda — `services/orders.py` — bot paneli ham, ilova paneli ham
+shundan foydalanadi.
+
+| Tur | Bosqichlar |
+|---|---|
+| Bi-LED | 🆕 yangi → ✅ qabul → 🔧 ishda → ✨ topshirildi |
+| Do'kon | 🆕 yangi → ✅ qabul → 🚚 yetkazildi |
+| Navbat | 🆕 yangi → ✅ tasdiqlangan → ✔️ bajarilgan |
+
+- **Bekor qilingan buyurtma yopiladi** — «Qabul qilish» tugmasi umuman
+  ko'rinmaydi, uni qayta ochib bo'lmaydi. Oxirgi bosqich (topshirildi /
+  yetkazildi / bajarilgan) ham shunday.
+- **Orqaga qaytish yo'q** — «ishda» dan «qabul» ga tushirib bo'lmaydi.
+- **Bir xil holatni ikki marta qo'yish yo'q** — mijozga takroriy xabar
+  bormaydi.
+- **Do'kon buyurtmasi bekor qilinsa, tovarlar omborga qaytadi**
+  (`restore_order_stock`). Ilgari qaytmasdi va ombor soni tekinga kamayardi.
 
 ## ⚙️ Admin panel — bot ichida (`/admin`)
 
@@ -192,6 +213,7 @@ bazadan** hisoblanadi, mijoz yuborgan qiymatga ishonilmaydi.
 | `ADMINS` | Qo'shimcha admin ID'lari (asosiylarga **qo'shiladi**) | — |
 | `ADMINS_EXTRA` | Yana qo'shimcha adminlar | — |
 | `STARTUP_REPORT` | Doimiy saqlash o'chiq bo'lsa adminlarga ogohlantirish | `1` |
+| `INIT_DATA_MAX_AGE_HOURS` | Mini App imzosi amal qilish muddati (`0` — cheksiz) | `168` |
 | `MINI_APP_URL` | Mini App manzili | `.../Zimmer/` |
 | `SHOP_NAME` | Brend nomi | `Zimmer` |
 | `DB_PATH` | SQLite fayli | `zimmer.db` |

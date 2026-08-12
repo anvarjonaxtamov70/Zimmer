@@ -458,6 +458,37 @@ async def set_order_status(order_id: int, status: str) -> None:
     await db.commit()
 
 
+async def restore_order_stock(order_id: int) -> int:
+    """Bekor qilingan buyurtmadagi tovarlarni omborga qaytaradi.
+
+    Buyurtma berilganda ombor soni kamaytiriladi (`create_order`). Buyurtma
+    bekor qilinsa, o'sha sonni qaytarish kerak — aks holda tovar bazada
+    "yo'qolib" qoladi va sotuvda ko'rinmay qoladi.
+
+    Qaytaradi: omborga qaytarilgan umumiy dona soni.
+    """
+    db = get_db()
+    async with db.execute(
+        "SELECT product_id, qty FROM order_items WHERE order_id = ? AND product_id IS NOT NULL",
+        (order_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+
+    restored = 0
+    for row in rows:
+        qty = int(row["qty"] or 0)
+        if qty <= 0:
+            continue
+        await db.execute(
+            "UPDATE products SET stock = stock + ? WHERE id = ?", (qty, row["product_id"])
+        )
+        restored += qty
+
+    if restored:
+        await db.commit()
+    return restored
+
+
 # -------------------------------------------------------------------- statistika
 
 
