@@ -7,7 +7,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import config
+from services import orders
 from utils.helpers import encode_time, fmt_price, short_date_label
+from utils.texts import BTN_OPEN_APP
 
 # ------------------------------------------------------------------- navbat
 
@@ -170,13 +172,13 @@ def admin_bookings_kb(
     return kb.as_markup()
 
 
-def admin_booking_actions_kb(booking_id: int, date_iso: str) -> InlineKeyboardMarkup:
+def admin_booking_actions_kb(
+    booking_id: int, date_iso: str, status: str = "new"
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Tasdiqlash", callback_data=f"adm:bkst:{booking_id}:confirmed")
-    kb.button(text="✔️ Bajarildi", callback_data=f"adm:bkst:{booking_id}:done")
-    kb.button(text="❌ Bekor qilish", callback_data=f"adm:bkst:{booking_id}:cancelled")
+    count = _status_buttons(kb, "adm:bkst", "booking", booking_id, status)
     kb.button(text="⬅️ Orqaga", callback_data=f"adm:bookings:{date_iso}")
-    kb.adjust(2, 1, 1)
+    kb.adjust(*([2] * (count // 2) + [1] * (count % 2) + [1]))
     return kb.as_markup()
 
 
@@ -209,11 +211,9 @@ def admin_orders_kb(orders: Sequence[aiosqlite.Row], status: str) -> InlineKeybo
 
 def admin_order_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Qabul qilish", callback_data=f"adm:ordst:{order_id}:accepted")
-    kb.button(text="🚚 Yetkazildi", callback_data=f"adm:ordst:{order_id}:delivered")
-    kb.button(text="❌ Bekor qilish", callback_data=f"adm:ordst:{order_id}:cancelled")
+    count = _status_buttons(kb, "adm:ordst", "order", order_id, status)
     kb.button(text="⬅️ Buyurtmalar", callback_data=f"adm:orders:{status}")
-    kb.adjust(2, 1, 1)
+    kb.adjust(*([2] * (count // 2) + [1] * (count % 2) + [1]))
     return kb.as_markup()
 
 
@@ -223,16 +223,14 @@ def admin_order_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
 
 def admin_new_booking_kb(booking_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Tasdiqlash", callback_data=f"adm:bkst:{booking_id}:confirmed")
-    kb.button(text="❌ Bekor qilish", callback_data=f"adm:bkst:{booking_id}:cancelled")
+    _status_buttons(kb, "adm:bkst", "booking", booking_id, "new")
     kb.adjust(2)
     return kb.as_markup()
 
 
 def admin_new_order_kb(order_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Qabul qilish", callback_data=f"adm:ordst:{order_id}:accepted")
-    kb.button(text="❌ Bekor qilish", callback_data=f"adm:ordst:{order_id}:cancelled")
+    _status_buttons(kb, "adm:ordst", "order", order_id, "new")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -241,8 +239,13 @@ def admin_new_order_kb(order_id: int) -> InlineKeyboardMarkup:
 # ------------------------------------------------------------------- Mini App
 
 
-def open_app_kb(text: str = "🚀 Ilovani ochish") -> InlineKeyboardMarkup:
-    """Mini App'ni ochadigan inline tugma."""
+def open_app_kb(text: str = BTN_OPEN_APP) -> InlineKeyboardMarkup:
+    """Mini App'ni ochadigan inline tugma.
+
+    Ilovani ochishning eng ishonchli yo'li: inline `web_app` tugmasi.
+    Ko'k «Open» menyu tugmasi bilan bir xil ishlaydi — `initData` imzosi
+    to'liq keladi, shuning uchun foydalanuvchi ID'si har doim taniladi.
+    """
     kb = InlineKeyboardBuilder()
     kb.button(text=text, web_app=WebAppInfo(url=config.mini_app_url))
     return kb.as_markup()
@@ -252,11 +255,25 @@ def open_app_kb(text: str = "🚀 Ilovani ochish") -> InlineKeyboardMarkup:
 # ------------------------------------------------------- Bi-LED buyurtmalari
 
 
+def _status_buttons(kb: InlineKeyboardBuilder, prefix: str, kind: str, row_id: int, status: str):
+    """Faqat RUXSAT ETILGAN holat tugmalarini qo'shadi.
+
+    Ya'ni bekor qilingan buyurtmada «Qabul» tugmasi umuman chiqmaydi —
+    bosib bo'lmaydigan tugma ko'rsatmaymiz.
+    """
+    targets = orders.allowed_targets(kind, status)
+    flow = orders.flow(kind)
+    for target in targets:
+        kb.button(
+            text=flow.buttons.get(target, flow.labels.get(target, target)),
+            callback_data=f"{prefix}:{row_id}:{target}",
+        )
+    return len(targets)
+
+
 def admin_new_biled_kb(order_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Qabul qilish", callback_data=f"adm:bilst:{order_id}:accepted")
-    kb.button(text="🔧 Ishga olish", callback_data=f"adm:bilst:{order_id}:in_work")
-    kb.button(text="❌ Bekor qilish", callback_data=f"adm:bilst:{order_id}:cancelled")
+    _status_buttons(kb, "adm:bilst", "biled", order_id, "new")
     kb.adjust(2, 1)
     return kb.as_markup()
 
@@ -292,10 +309,7 @@ def admin_biled_orders_kb(
 
 def admin_biled_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Qabul", callback_data=f"adm:bilst:{order_id}:accepted")
-    kb.button(text="🔧 Ishda", callback_data=f"adm:bilst:{order_id}:in_work")
-    kb.button(text="✨ Topshirildi", callback_data=f"adm:bilst:{order_id}:done")
-    kb.button(text="❌ Bekor", callback_data=f"adm:bilst:{order_id}:cancelled")
+    count = _status_buttons(kb, "adm:bilst", "biled", order_id, status)
     kb.button(text="⬅️ Ro'yxat", callback_data=f"adm:bileds:{status}")
-    kb.adjust(2, 2, 1)
+    kb.adjust(*([2] * (count // 2) + [1] * (count % 2) + [1]))
     return kb.as_markup()

@@ -22,7 +22,7 @@ from keyboards.inline import (
 )
 from keyboards.reply import cancel_kb, main_menu
 from services import admins as admin_registry
-from services import sync
+from services import orders
 from states import Broadcast
 from utils.commands import apply_admin_commands, reset_user_commands
 from utils.filters import IsAdmin
@@ -115,15 +115,9 @@ async def admin_bookings(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("adm:bk:"))
-async def admin_booking_detail(callback: CallbackQuery) -> None:
-    booking_id = int(callback.data.split(":")[2])
-    bk = await q.get_booking(booking_id)
-    if not bk:
-        await callback.answer("Navbat topilmadi", show_alert=True)
-        return
-
-    text = (
+def _booking_detail_text(bk) -> str:
+    """Navbat kartochkasi — ikki joyda bir xil ko'rinishi uchun bitta funksiya."""
+    return (
         f"🗓 <b>Navbat #{bk['id']}</b>\n\n"
         f"👤 {user_link(bk['full_name'], bk['username'], bk['user_id'])}\n"
         f"📞 {bk['phone']}\n"
@@ -132,7 +126,25 @@ async def admin_booking_detail(callback: CallbackQuery) -> None:
         f"📌 Holat: {BOOKING_STATUS.get(bk['status'], bk['status'])}\n"
         f"🕓 Yaratilgan: {bk['created_at']}"
     )
-    await edit_or_send(callback.message, text, admin_booking_actions_kb(booking_id, bk["date"]))
+
+
+async def _show_booking(callback: CallbackQuery, bk) -> None:
+    await edit_or_send(
+        callback.message,
+        _booking_detail_text(bk),
+        admin_booking_actions_kb(bk["id"], bk["date"], bk["status"]),
+    )
+
+
+@router.callback_query(F.data.startswith("adm:bk:"))
+async def admin_booking_detail(callback: CallbackQuery) -> None:
+    booking_id = int(callback.data.split(":")[2])
+    bk = await q.get_booking(booking_id)
+    if not bk:
+        await callback.answer("Navbat topilmadi", show_alert=True)
+        return
+
+    await _show_booking(callback, bk)
     await callback.answer()
 
 
@@ -145,8 +157,16 @@ async def admin_booking_status(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Navbat topilmadi", show_alert=True)
         return
 
-    await q.set_booking_status(booking_id, status)
-    await sync.push_status("booking", booking_id, status)
+    # Bekor qilingan navbatni qayta tasdiqlab bo'lmaydi
+    allowed, reason = orders.check("booking", bk["status"], status)
+    if not allowed:
+        await callback.answer(
+            orders.reason_text("booking", bk["status"], status, reason), show_alert=True
+        )
+        await _show_booking(callback, bk)
+        return
+
+    await orders.apply("booking", booking_id, status)
     label = BOOKING_STATUS.get(status, status)
 
     messages = {
@@ -173,17 +193,7 @@ async def admin_booking_status(callback: CallbackQuery, bot: Bot) -> None:
 
     await callback.answer(f"Holat: {label}")
     updated = await q.get_booking(booking_id)
-    text = (
-        f"🗓 <b>Navbat #{updated['id']}</b>\n\n"
-        f"👤 {user_link(updated['full_name'], updated['username'], updated['user_id'])}\n"
-        f"📞 {updated['phone']}\n"
-        f"🛠 {updated['service_name']}\n"
-        f"📅 {date_label(updated['date'])} · 🕐 <b>{updated['time']}</b>\n"
-        f"📌 Holat: {BOOKING_STATUS.get(updated['status'], updated['status'])}"
-    )
-    await edit_or_send(
-        callback.message, text, admin_booking_actions_kb(booking_id, updated["date"])
-    )
+    await _show_booking(callback, updated)
 
 
 # ------------------------------------------------------- Bi-LED buyurtmalari
@@ -255,8 +265,20 @@ async def admin_biled_status(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Buyurtma topilmadi", show_alert=True)
         return
 
-    await q.set_biled_order_status(order_id, status)
-    await sync.push_status("biled", order_id, status)
+    # Bekor qilingan / yopilgan buyurtma qayta o'zgarmaydi
+    allowed, reason = orders.check("biled", order["status"], status)
+    if not allowed:
+        await callback.answer(
+            orders.reason_text("biled", order["status"], status, reason), show_alert=True
+        )
+        await edit_or_send(
+            callback.message,
+            _biled_detail_text(order),
+            admin_biled_actions_kb(order_id, order["status"]),
+        )
+        return
+
+    await orders.apply("biled", order_id, status)
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\n\n"
@@ -352,8 +374,16 @@ async def admin_order_status(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Buyurtma topilmadi", show_alert=True)
         return
 
-    await q.set_order_status(order_id, status)
-    await sync.push_status("order", order_id, status)
+    allowed, reason = orders.check("order", order["status"], status)
+    if not allowed:
+        await callback.answer(
+            orders.reason_text("order", order["status"], status, reason), show_alert=True
+        )
+        await admin_order_detail_refresh(callback, order_id)
+        return
+
+    # Bekor qilinsa tovarlar omborga qaytadi (services/orders.py)
+    await orders.apply("order", order_id, status)
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\nTez orada yetkazib beramiz. 🚚"

@@ -34,12 +34,13 @@ window.ZimmerAdmin = (function () {
     key: null, // joriy bo'lim
     item: null, // tahrirlanayotgan element
     orderKind: "biled",
+    orderStatus: null, // joriy filtr — holat o'zgargandan keyin saqlanadi
     busy: false,
   };
 
   const ORDER_TABS = [
     { kind: "biled", icon: "🔥", title: "Bi-LED" },
-    { kind: "shop", icon: "📦", title: "Do'kon" },
+    { kind: "order", icon: "📦", title: "Do'kon" },
     { kind: "booking", icon: "🗓", title: "Navbat" },
   ];
 
@@ -599,6 +600,7 @@ window.ZimmerAdmin = (function () {
   async function openOrders(kind, status) {
     S.view = "orders";
     S.orderKind = kind || "biled";
+    S.orderStatus = status || null;
     loading();
 
     let data;
@@ -664,6 +666,8 @@ window.ZimmerAdmin = (function () {
       ? `<a href="tel:${esc(order.phone)}" class="adm-phone">📞 ${esc(order.phone)}</a>`
       : "";
 
+    if (order.closed) card.classList.add("closed");
+
     card.innerHTML = `
       <div class="adm-order-head">
         <b>#${esc(order.id)}</b>
@@ -679,12 +683,26 @@ window.ZimmerAdmin = (function () {
       <div class="adm-order-acts"></div>`;
 
     const acts = card.querySelector(".adm-order-acts");
-    (data.statuses || []).forEach((st) => {
-      if (st.value === order.status) return;
+
+    // MUHIM: tugmalar serverdan keladigan `next` ro'yxatidan yasaladi.
+    // Bekor qilingan yoki topshirilgan buyurtmada `next` bo'sh bo'ladi —
+    // shuning uchun «Qabul qilish» tugmasi umuman chiqmaydi.
+    if (order.closed || !(order.next || []).length) {
+      acts.innerHTML = `<small class="adm-hint">Bu buyurtma yopilgan — holati o'zgarmaydi.</small>`;
+      return card;
+    }
+
+    (order.next || []).forEach((st) => {
       const b = document.createElement("button");
       b.className = "adm-mini wide";
       b.textContent = st.label;
       b.onclick = async () => {
+        if (st.value === "cancelled") {
+          const ok = await ask(
+            `#${order.id} bekor qilinsinmi?\n\nBekor qilingandan keyin buyurtmani qayta ochib bo'lmaydi.`
+          );
+          if (!ok) return;
+        }
         b.disabled = true;
         try {
           const res = await api(
@@ -693,7 +711,7 @@ window.ZimmerAdmin = (function () {
           );
           haptic("ok");
           toast("Holat: " + res.status_label);
-          openOrders(data.kind);
+          openOrders(data.kind, S.orderStatus);
         } catch (err) {
           haptic("err");
           toast((err && err.message) || "O'zgarmadi");
@@ -740,7 +758,7 @@ window.ZimmerAdmin = (function () {
       reload.onclick = () => {
         haptic();
         if (S.view === "list") return openList(S.key);
-        if (S.view === "orders") return openOrders(S.orderKind);
+        if (S.view === "orders") return openOrders(S.orderKind, S.orderStatus);
         if (S.view === "form") return openForm(S.key, S.item && S.item.id);
         S.schema = null;
         openDash();

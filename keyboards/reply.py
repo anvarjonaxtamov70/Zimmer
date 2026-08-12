@@ -2,7 +2,6 @@ from aiogram.types import (
     KeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    WebAppInfo,
 )
 
 from config import config, is_admin
@@ -18,12 +17,18 @@ remove_kb = ReplyKeyboardRemove()
 
 
 def main_menu(user_id: int) -> ReplyKeyboardMarkup:
-    """Asosiy menyu: bosh vazifa — foydalanuvchini Mini App'ga yo'naltirish."""
+    """Asosiy menyu: bosh vazifa — foydalanuvchini Mini App'ga yo'naltirish.
+
+    DIQQAT: «Do'konni ochish» tugmasi oddiy MATN tugmasi (web_app emas).
+    Bosilganda bot chatga inline tugma yuboradi va ilova shundan ochiladi
+    — bu ko'k «Open» tugmasi bilan bir xil, eng ishonchli yo'l.
+    Klaviaturadagi web_app tugmasi ba'zi Telegram mijozlarida `initData`
+    ni to'liq bermaydi, natijada «ma'lumotlar tasdiqlanmadi» xatosi
+    chiqardi.
+    """
     rows: list[list[KeyboardButton]] = []
     if config.has_mini_app:
-        rows.append(
-            [KeyboardButton(text=BTN_APP, web_app=WebAppInfo(url=config.mini_app_url))]
-        )
+        rows.append([KeyboardButton(text=BTN_APP)])
     rows.append([KeyboardButton(text=BTN_CONTACT)])
     if is_admin(user_id):
         rows.append([KeyboardButton(text=BTN_ADMIN)])

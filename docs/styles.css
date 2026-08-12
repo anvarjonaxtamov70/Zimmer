@@ -1023,3 +1023,8 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;
   padding-top: 10px; border-top: 1px solid var(--line);
 }
+
+
+/* Yopilgan buyurtma (bekor qilingan / topshirilgan) — tugmalari yo'q */
+.adm-order.closed { opacity: 0.62; }
+.adm-order.closed .adm-status { background: rgba(255, 255, 255, 0.06); }

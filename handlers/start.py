@@ -14,7 +14,14 @@ from services import identity
 from states import Register
 from utils.filters import NotAdmin
 from utils.helpers import normalize_phone
-from utils.texts import APP_INTRO, BTN_CANCEL, BTN_CONTACT, CONTACT_TEXT, greeting
+from utils.texts import (
+    APP_INTRO,
+    BTN_APP,
+    BTN_CANCEL,
+    BTN_CONTACT,
+    CONTACT_TEXT,
+    greeting,
+)
 
 router = Router(name="start")
 
@@ -112,12 +119,16 @@ async def _send_app_button(message: Message) -> None:
 
 
 @router.message(Command("app"))
+@router.message(F.text == BTN_APP)
 async def cmd_app(message: Message, state: FSMContext) -> None:
+    """«🛍 Do'konni ochish» tugmasi va /app buyrug'i.
+
+    Pastdagi klaviaturadagi tugma bosilganda chatga inline «Do'konni
+    ochish» tugmasi yuboriladi — ilova shundan ochiladi. Telefon raqami
+    SO'RALMAYDI: katalog, konfigurator va narxlar hammaga ochiq, raqam
+    faqat buyurtma berishda kerak bo'ladi.
+    """
     await state.clear()
-    user = await q.get_user(message.from_user.id)
-    if not user or not user["phone"]:
-        await message.answer("Avval ro'yxatdan o'tishingiz kerak. /start yuboring.")
-        return
     await _send_app_button(message)
 
 
