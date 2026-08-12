@@ -260,6 +260,23 @@ async def add_category(name: str) -> int:
     return int(cur.lastrowid)
 
 
+async def default_category_id() -> int:
+    """Yagona (yashirin) kategoriya id'si — bo'lmasa yaratadi.
+
+    Kategoriyalar UX'dan olib tashlangan (mahsulotlar random chiqadi), lekin
+    DB'da `products.category_id` NOT NULL. Shuning uchun barcha mahsulot shu
+    bitta standart kategoriyaga bog'lanadi.
+    """
+    db = get_db()
+    async with db.execute("SELECT id FROM categories ORDER BY id LIMIT 1") as cur:
+        row = await cur.fetchone()
+    if row:
+        return int(row["id"])
+    cur = await db.execute("INSERT INTO categories (name) VALUES (?)", ("Mahsulotlar",))
+    await db.commit()
+    return int(cur.lastrowid)
+
+
 # -------------------------------------------------------------------- mahsulotlar
 
 

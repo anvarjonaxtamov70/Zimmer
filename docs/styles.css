@@ -1622,3 +1622,44 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 /* yopishgan panel ochiq bo'lsa — ro'yxat panel ostiga kirib ketmasin */
 #cart.has-bar .pad { padding-bottom: calc(268px + var(--safe-b)); }
+
+
+/* ==========================================================================
+   MAHSULOT KARTOCHKASI — Avto_A1 mantiqi/ko'rinishi, Zimmer ranglarida
+   Butun karta bosiladi; narx savat tugmasi ichida; kam qolgani + kafolat.
+   ========================================================================== */
+.prod { cursor: pointer; transition: transform 0.15s var(--silk), border-color 0.2s; }
+.prod:active { transform: scale(0.985); border-color: var(--line-2); }
+
+.prod-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prod-hint { color: var(--muted); font-weight: 500; }
+
+.prod-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.prod-meta .prod-old { margin-left: 0; }
+.prod-low { font-size: 10.5px; font-weight: 800; color: var(--amber); }
+
+/* narx + savat tugmasi birga */
+.prod-add {
+  margin: auto 10px 8px; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; border: none; border-radius: 12px; padding: 10px 12px;
+  background: var(--red-grad); color: #fff; cursor: pointer;
+  box-shadow: 0 6px 16px var(--red-glow);
+  font-size: 13px; font-weight: 800;
+  transition: transform 0.14s var(--spring), filter 0.2s, opacity 0.2s;
+}
+.prod-add:active { transform: scale(0.95); }
+.prod-add .prod-add-price { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prod-add .prod-add-ico { font-size: 15px; flex-shrink: 0; }
+.prod-add.added { filter: saturate(1.2) brightness(1.05); justify-content: center; }
+.prod-add.out {
+  background: var(--surface-2); color: var(--dim); box-shadow: none;
+  justify-content: center; cursor: default;
+}
+
+.prod-trust {
+  margin: 0 10px 10px; font-size: 10px; color: var(--muted);
+  display: flex; align-items: center; gap: 5px;
+}

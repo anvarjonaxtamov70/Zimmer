@@ -823,6 +823,7 @@
     try {
       S.home = await api("/api/home");
       S.favorites = new Set(S.home.favorite_ids || []);
+      S.shopProducts = buildShopProducts(); // kategoriyasiz, random tartib
       renderStories();
       renderBanners();
       renderCatalog();
@@ -1068,35 +1069,66 @@
   }
 
   /* ---------------------------------------------------------- mahsulotlar */
+  /** Massivni aralashtiradi (Fisher–Yates). */
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+    return a;
+  }
+
+  /** Barcha mahsulotni kategoriyalardan bitta ro'yxatga yig'ib, aralashtiradi.
+      Kategoriyalar olib tashlangan — tovarlar RANDOM tartibda chiqadi (Avto_A1). */
+  function buildShopProducts() {
+    const seen = new Set();
+    const all = [];
+    ((S.home && S.home.catalog) || []).forEach((c) =>
+      (c.products || []).forEach((p) => {
+        if (!seen.has(p.id)) {
+          seen.add(p.id);
+          all.push(p);
+        }
+      })
+    );
+    return shuffle(all);
+  }
+
   function renderCatalog() {
-    const cats = S.home.catalog || [];
+    // Kategoriya chiplari kerak emas — yashiramiz
     const chips = $("cats");
-    chips.innerHTML = "";
-    if (S.catIndex >= cats.length) S.catIndex = 0;
+    if (chips) {
+      chips.innerHTML = "";
+      chips.classList.add("hidden");
+    }
 
-    cats.forEach((c, i) => {
-      const chip = el("button", "chip" + (i === S.catIndex ? " on" : ""));
-      chip.textContent = `${c.icon || "🛍"} ${c.name}`;
-      chip.onclick = () => {
-        S.catIndex = i;
-        haptic();
-        renderCatalog();
-      };
-      chips.append(chip);
-    });
-
+    const products = S.shopProducts || [];
     const box = $("products");
     box.innerHTML = "";
-    const products = cats[S.catIndex] ? cats[S.catIndex].products : [];
     $("products-empty").classList.toggle("hidden", products.length > 0);
-    $("catalog-sec").classList.toggle("hidden", !cats.length);
+    $("catalog-sec").classList.toggle("hidden", !products.length);
 
     products.forEach((p) => {
       const card = el("div", "prod");
       const photo = abs(p.photo_url);
-      // Aksiya endi TOVARNING o'zida: eski narx kiritilsa, chegirma foizi
-      // avtomatik hisoblanadi va qizil yorliq bo'lib chiqadi.
       const off = discountPercent(p);
+
+      // Nom "·" bo'yicha ajratiladi: asosiy nom + mashina eslatmasi (Avto_A1)
+      const parts = String(p.name || "").split("·");
+      const mainName = (parts[0] || p.name || "").trim();
+      const carHint = parts[1] ? `<span class="prod-hint">· ${esc(parts[1].trim())}</span>` : "";
+
+      // Meta: eski narx (chegirma) + kam qolgani
+      const metaBits = [];
+      if (off && p.old_price_label)
+        metaBits.push(`<span class="prod-old">${esc(p.old_price_label)}</span>`);
+      if (p.stock > 0 && p.stock <= 5)
+        metaBits.push(`<span class="prod-low">📦 ${p.stock} ta qoldi</span>`);
+      const metaHTML = metaBits.length ? `<div class="prod-meta">${metaBits.join("")}</div>` : "";
+
       card.innerHTML = `
         <div class="prod-art">
           ${photo ? img(photo) : "💡"}
@@ -1107,32 +1139,46 @@
                   aria-label="Saqlash">♥</button>
         </div>
         <div class="prod-body">
-          <div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-name">${esc(mainName)}${carHint}</div>
           ${p.car_id ? '<div class="prod-fit">✓ Mashinangizga mos</div>' : ""}
-          <div class="prod-price">${esc(p.price_label)}${
-        p.old_price_label ? `<span class="prod-old">${esc(p.old_price_label)}</span>` : ""
-      }</div>
+          ${metaHTML}
         </div>`;
-      if (p.video_url || p.description) {
-        card.querySelector(".prod-art").onclick = () => openProduct(p);
-      }
+
+      // Butun kartani bosish — tafsilot oynasi (Avto_A1 mantiqi)
+      card.onclick = () => openProduct(p);
+
       const fav = card.querySelector(".prod-fav");
       fav.onclick = (ev) => {
-        ev.stopPropagation(); // rasm bosilishi bilan aralashmasin
+        ev.stopPropagation(); // karta bosilishi bilan aralashmasin
         toggleFavorite(p, fav);
       };
-      const btn = el("button", "prod-add", p.stock > 0 ? "➕ Savatchaga" : "Tugagan");
-      btn.disabled = p.stock < 1;
-      btn.onclick = () => {
+
+      // Narx + savat tugmasi BIRGA (Avto_A1 kabi)
+      const btn = el("button", "prod-add");
+      const priceInner = `<span class="prod-add-price">${esc(p.price_label)}</span><span class="prod-add-ico">🛒</span>`;
+      if (p.stock > 0) {
+        btn.innerHTML = priceInner;
+      } else {
+        btn.classList.add("out");
+        btn.textContent = "Tugadi";
+        btn.disabled = true;
+      }
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (p.stock < 1) return;
         addToCart(p);
         btn.classList.add("added");
-        btn.textContent = "✓ Qo'shildi";
+        btn.innerHTML = "✓ Qo'shildi";
         setTimeout(() => {
           btn.classList.remove("added");
-          btn.textContent = "➕ Savatchaga";
+          btn.innerHTML = priceInner;
         }, 1100);
       };
       card.append(btn);
+
+      // Ishonch belgisi (faqat sotuvda bor tovarda)
+      if (p.stock > 0) card.append(el("div", "prod-trust", "🛡 14 kun kafolat"));
+
       box.append(card);
     });
   }

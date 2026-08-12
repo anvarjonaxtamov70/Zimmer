@@ -145,13 +145,6 @@ ENTITIES: dict[str, Entity] = {
         icon="🛍",
         fields=(
             Field("name", "Nomi", required=True),
-            Field(
-                "category_id",
-                "Kategoriya",
-                "choice",
-                required=True,
-                choices=category_choices,
-            ),
             Field("car_id", "Mashina", "choice", choices=car_choices),
             Field("description", "Tavsif", "long"),
             Field("price", "Narx", "money", required=True),
@@ -167,20 +160,9 @@ ENTITIES: dict[str, Entity] = {
             Field("sort", "Tartib", "int"),
         ),
         label=lambda r: f"{r['name']} · {fmt_price(r['price'])}",
-        create=("name", "category_id", "price", "stock"),
-    ),
-    "cat": Entity(
-        key="cat",
-        table="categories",
-        title="Kategoriyalar",
-        icon="🗂",
-        fields=(
-            Field("name", "Nomi", required=True),
-            Field("icon", "Ikonka", hint="Emoji, masalan: 💡"),
-            Field("sort", "Tartib", "int"),
-        ),
-        label=lambda r: f"{r['icon'] or '🗂'} {r['name']}",
-        create=("name", "icon"),
+        # Kategoriya UX'dan olib tashlandi — mahsulot standart kategoriyaga
+        # o'zi bog'lanadi (prepare_insert). Shu bois create'da category_id yo'q.
+        create=("name", "price", "stock"),
     ),
     "srv": Entity(
         key="srv",
@@ -252,6 +234,11 @@ async def prepare_insert(entity: Entity, values: dict) -> dict:
     data = dict(values)
     if "sort" in q.EDITABLE[entity.table]:
         data.setdefault("sort", await q.admin_next_sort(entity.table))
+
+    # Kategoriya UX'dan olib tashlangan — mahsulotni standart kategoriyaga
+    # bog'laymiz (products.category_id NOT NULL).
+    if entity.table == "products" and not data.get("category_id"):
+        data["category_id"] = await q.default_category_id()
 
     if entity.table == "cars":
         base = re.sub(r"[^a-z0-9]+", "", str(data.get("name", "")).lower()) or "car"
