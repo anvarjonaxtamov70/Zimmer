@@ -1663,3 +1663,235 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   margin: 0 10px 10px; font-size: 10px; color: var(--muted);
   display: flex; align-items: center; gap: 5px;
 }
+
+
+/* ==========================================================================
+   OMBOR (admin) — Avto_A1 mantiqi/ko'rinishi, Zimmer ranglarida
+   ========================================================================== */
+.inv-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.inv-stat {
+  text-align: center; padding: 12px 6px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.inv-stat b { display: block; font-size: 20px; font-weight: 900; color: #fff; line-height: 1; }
+.inv-stat span { display: block; font-size: 10px; color: var(--muted); margin-top: 5px; font-weight: 600; }
+.inv-stat.low { border-color: rgba(255, 176, 32, 0.35); }
+.inv-stat.low b { color: var(--amber); }
+.inv-stat.out { border-color: rgba(255, 45, 58, 0.35); }
+.inv-stat.out b { color: var(--red); }
+
+.inv-value {
+  font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 12px;
+  padding: 9px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line);
+}
+.inv-value b { color: var(--green); font-weight: 800; }
+
+.inv-search {
+  width: 100%; padding: 12px 14px; margin-bottom: 10px;
+  border-radius: var(--r-sm); background: var(--surface-2);
+  border: 1px solid var(--line); color: var(--text); font-family: inherit; font-size: 14px;
+}
+.inv-search:focus { outline: none; border-color: var(--red); }
+
+.inv-row {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 11px; margin-bottom: 9px;
+  transition: transform 0.15s var(--silk), border-color 0.2s, opacity 0.2s;
+}
+.inv-row:active { transform: scale(0.995); }
+.inv-row.low { border-left: 3px solid var(--amber); }
+.inv-row.out { border-left: 3px solid var(--red); }
+.inv-row.off { opacity: 0.55; }
+.inv-top { display: flex; align-items: center; gap: 11px; }
+.inv-info { flex: 1; min-width: 0; }
+.inv-info b {
+  display: block; font-size: 14px; font-weight: 700; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.inv-info small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.inv-hint { color: var(--muted); font-weight: 500; }
+.inv-acts { display: flex; gap: 6px; flex-shrink: 0; }
+
+.inv-flag { font-weight: 800; font-size: 10.5px; }
+.inv-flag.low { color: var(--amber); }
+.inv-flag.out { color: var(--red); }
+
+.inv-stock { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--line-2); }
+.inv-sizes-title {
+  font-size: 10.5px; font-weight: 800; color: var(--red);
+  letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 7px;
+}
+.inv-size-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.inv-size-name { flex: 1; font-size: 12.5px; color: var(--muted); }
+.inv-input {
+  width: 74px; padding: 9px 10px; text-align: center; flex-shrink: 0;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line);
+  color: #fff; font-family: inherit; font-size: 14px; font-weight: 700;
+}
+.inv-input:focus { outline: none; border-color: var(--red); }
+.inv-save {
+  flex-shrink: 0; padding: 9px 14px; border-radius: 10px; border: none;
+  background: var(--red-grad); color: #fff; font-size: 12.5px; font-weight: 800;
+  cursor: pointer; transition: transform 0.15s var(--silk);
+}
+.inv-save:active { transform: scale(0.94); }
+.inv-save:disabled { opacity: 0.5; }
+
+/* ==========================================================================
+   YANGI TOVAR QO'SHISH (admin) — Avto_A1 formasi, Zimmer ranglarida
+   ========================================================================== */
+.ap-form { padding-bottom: 8px; }
+.ap-group {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 16px; margin-bottom: 14px;
+}
+.ap-group.ap-sale { border-color: rgba(255, 45, 58, 0.28); background: var(--red-soft); }
+.ap-head { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
+.ap-ic {
+  width: 38px; height: 38px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+  background: var(--surface-2);
+}
+.ap-ic.red { color: var(--red); }
+.ap-ic.green { color: var(--green); }
+.ap-ic.blue { color: #4ba3ff; }
+.ap-tx { min-width: 0; }
+.ap-tx b { display: block; font-size: 14.5px; font-weight: 800; color: #fff; }
+.ap-tx span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.ap-sub {
+  font-size: 10.5px; font-weight: 800; color: var(--red); letter-spacing: 0.6px;
+  text-transform: uppercase; margin: 14px 0 8px;
+}
+
+.ap-input {
+  width: 100%; padding: 13px 14px; margin-bottom: 10px;
+  border-radius: 13px; background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line); color: var(--text);
+  font-family: inherit; font-size: 14.5px; -webkit-appearance: none; appearance: none;
+}
+.ap-input::placeholder { color: var(--dim); }
+.ap-input:focus { outline: none; border-color: var(--red); background: rgba(0, 0, 0, 0.55); }
+.ap-input:last-child { margin-bottom: 0; }
+.ap-area { resize: none; line-height: 1.5; }
+.ap-row2 { display: flex; gap: 10px; }
+.ap-row2 .ap-input { flex: 1; }
+
+.ap-wrap { position: relative; }
+.ap-wrap .ap-input { padding-right: 52px; }
+.ap-mic {
+  position: absolute; right: 7px; top: 6px; width: 38px; height: 38px;
+  border-radius: 11px; border: none; background: var(--surface-2);
+  color: var(--red); font-size: 16px; cursor: pointer;
+  transition: transform 0.15s var(--silk);
+}
+.ap-mic:active { transform: scale(0.88); }
+.ap-voice {
+  width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 13px;
+  background: var(--surface-2); border: 1px dashed var(--line-2);
+  color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.ap-voice:active { transform: scale(0.98); }
+
+/* rasm yuklash */
+.ap-upload {
+  position: relative; text-align: center; padding: 24px 16px; margin-bottom: 12px;
+  border-radius: 16px; cursor: pointer;
+  background: rgba(255, 45, 58, 0.06); border: 1.5px dashed rgba(255, 45, 58, 0.4);
+  transition: background 0.2s, transform 0.15s var(--silk);
+}
+.ap-upload:active { transform: scale(0.99); background: rgba(255, 45, 58, 0.1); }
+.ap-upload input[type="file"] {
+  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+}
+.ap-up-ic { font-size: 26px; display: block; margin-bottom: 7px; }
+.ap-up-t { font-size: 14px; font-weight: 800; color: var(--red); }
+.ap-up-s { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+.ap-previews { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 12px; }
+.ap-prev {
+  position: relative; width: 74px; height: 74px; border-radius: 13px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.ap-prev img { width: 100%; height: 100%; object-fit: cover; }
+.ap-prev-del {
+  position: absolute; top: 3px; right: 3px; width: 21px; height: 21px; border-radius: 50%;
+  border: none; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 11px; cursor: pointer;
+}
+.ap-prev-main {
+  position: absolute; bottom: 0; left: 0; right: 0; text-align: center;
+  font-size: 8.5px; font-weight: 800; padding: 2px; color: #fff; background: var(--red-2);
+}
+
+/* jonli ko'rinish */
+.ap-live { margin-bottom: 14px; }
+.ap-live-card {
+  width: 168px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); overflow: hidden; display: flex; flex-direction: column;
+}
+.ap-live-art {
+  position: relative; height: 118px; display: flex; align-items: center;
+  justify-content: center; font-size: 34px; background: var(--surface-2);
+}
+.ap-live-art img { width: 100%; height: 100%; object-fit: cover; }
+.ap-live-off {
+  position: absolute; top: 7px; left: 7px; padding: 2px 6px; border-radius: 7px;
+  background: var(--red-2); color: #fff; font-size: 10px; font-weight: 900;
+}
+.ap-live-badge {
+  position: absolute; top: 7px; right: 7px; padding: 2px 6px; border-radius: 7px;
+  background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 9px; font-weight: 800;
+}
+.ap-live-body { padding: 9px; }
+.ap-live-name { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.ap-live-fit { font-size: 10px; color: var(--red); font-weight: 600; margin-top: 3px; }
+.ap-live-old { font-size: 11px; color: var(--dim); text-decoration: line-through; margin-top: 3px; }
+.ap-live-btn {
+  margin: 0 9px 9px; padding: 9px; border-radius: 11px; text-align: center;
+  background: var(--red-grad); color: #fff; font-size: 12.5px; font-weight: 800;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+
+/* razmerlar */
+.ap-sized {
+  margin-top: 12px; padding: 14px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.35); border: 1px dashed rgba(255, 45, 58, 0.35);
+}
+.ap-size-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.ap-size-row .ap-input { margin-bottom: 0; }
+.ap-size-name { flex: 1.4; }
+.ap-size-stock { flex: 1; }
+.ap-size-del {
+  flex-shrink: 0; width: 44px; border-radius: 12px; cursor: pointer;
+  background: rgba(255, 45, 58, 0.15); border: 1px solid rgba(255, 45, 58, 0.4);
+  color: var(--red); font-size: 15px; font-weight: 800;
+}
+.ap-size-del:active { transform: scale(0.92); }
+.ap-add-size {
+  width: 100%; padding: 12px; margin-top: 4px; border-radius: 12px; cursor: pointer;
+  background: rgba(255, 45, 58, 0.12); border: 1px dashed rgba(255, 45, 58, 0.45);
+  color: var(--red); font-size: 12.5px; font-weight: 800; letter-spacing: 0.4px;
+}
+.ap-add-size:active { transform: scale(0.98); }
+
+.ap-note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.ap-note.good { color: var(--green); font-weight: 700; }
+.ap-note.bad { color: var(--amber); font-weight: 700; }
+
+.ap-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-chip {
+  padding: 9px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--muted); font-size: 12.5px; font-weight: 700;
+  transition: transform 0.15s var(--silk), border-color 0.2s, color 0.2s, background 0.2s;
+}
+.ap-chip:active { transform: scale(0.93); }
+.ap-chip.on { background: var(--red-soft); border-color: var(--red); color: #fff; }
+
+/* saqlash paneli — pastda yopishib turadi */
+.ap-footer {
+  position: sticky; bottom: 0; z-index: 5;
+  padding: 12px 0 calc(14px + var(--safe-b));
+  background: linear-gradient(180deg, transparent, var(--bg) 45%);
+}
+.ap-footer .btn { width: 100%; }

@@ -32,7 +32,12 @@ MEDIA_TABLES = {
     "cars",
 }
 
-CONTENT_TYPES = {"photo": "image/jpeg", "video": "video/mp4"}
+CONTENT_TYPES = {
+    "photo": "image/jpeg",
+    "photo2": "image/jpeg",  # mahsulotning 2-rasmi
+    "photo3": "image/jpeg",  # mahsulotning 3-rasmi
+    "video": "video/mp4",
+}
 CACHE = "public, max-age=86400"
 
 # file_id -> (file_path, vaqt). Telegram yo'llari ~1 soat amal qiladi.

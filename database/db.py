@@ -160,8 +160,16 @@ CREATE TABLE IF NOT EXISTS products (
     price       INTEGER NOT NULL DEFAULT 0,
     old_price   INTEGER,
     stock       INTEGER NOT NULL DEFAULT 0,
+    code        TEXT,                          -- artikul / OEM kod
+    unit        TEXT,                          -- 'dona' | 'komplekt'
+    product_type TEXT,                         -- 'oddiy' | 'razmerli'
+    sizes       TEXT,                          -- razmerli uchun JSON: [{size, stock}]
     photo_id    TEXT,                          -- Telegram rasm file_id
     photo_url   TEXT,                          -- tashqi rasm manzili (Firebase/sayt)
+    photo2_id   TEXT,                          -- 2-rasm
+    photo2_url  TEXT,
+    photo3_id   TEXT,                          -- 3-rasm
+    photo3_url  TEXT,
     external_id TEXT UNIQUE,                   -- Firebase kaliti (import uchun)
     badge       TEXT,
     is_active   INTEGER NOT NULL DEFAULT 1
@@ -554,6 +562,17 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         *MEDIA_COLUMNS,
     ],
     "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
+    # Ombor va "yangi tovar qo'shish" uchun qo'shimcha maydonlar
+    "products": [
+        ("code", "TEXT"),
+        ("unit", "TEXT"),
+        ("product_type", "TEXT"),
+        ("sizes", "TEXT"),
+        ("photo2_id", "TEXT"),
+        ("photo2_url", "TEXT"),
+        ("photo3_id", "TEXT"),
+        ("photo3_url", "TEXT"),
+    ],
     # Eski bazalarga yetkazib berish/to'lov ustunlarini qo'shamiz.
     "orders": [
         ("delivery_method", "TEXT"),

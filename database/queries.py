@@ -1182,7 +1182,9 @@ EDITABLE: dict[str, set[str]] = {
     "products": {
         "category_id", "car_id", "name", "description", "price", "old_price",
         "stock", "badge", "sort", "is_active",
+        "code", "unit", "product_type", "sizes",
         "photo_id", "photo_url", "video_id", "video_url",
+        "photo2_id", "photo2_url", "photo3_id", "photo3_url",
     },
     "categories": {"name", "icon", "sort", "is_active"},
     "services": {"name", "duration_min", "price", "is_active"},

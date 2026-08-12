@@ -155,6 +155,13 @@ ENTITIES: dict[str, Entity] = {
                 hint="Kiritsangiz chegirma foizi o'zi hisoblanadi. Aksiya bo'lmasa — bo'sh",
             ),
             Field("stock", "Ombor (dona)", "int"),
+            Field("code", "Artikul / OEM kod", hint="Ixtiyoriy"),
+            Field(
+                "unit",
+                "O'lchov",
+                "choice",
+                choices=[("dona", "1 dona"), ("komplekt", "Nabor (komplekt)")],
+            ),
             Field("badge", "Belgi", hint="Masalan: Yangi, TOP tanlov"),
             *MEDIA,
             Field("sort", "Tartib", "int"),

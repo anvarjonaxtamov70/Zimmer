@@ -49,6 +49,12 @@ window.ZimmerAdmin = (function () {
     orderStatus: null, // joriy filtr — holat o'zgargandan keyin saqlanadi
     newMedia: {}, // yangi element uchun tanlangan fayllar (kind -> File)
     busy: false,
+    // ---- ombor va yangi tovar
+    inv: null, // /api/admin/inventory natijasi
+    invQuery: "", // qidiruv matni
+    invFilter: "all", // all | low | out | hidden
+    apCars: [], // yangi tovar formasidagi mashinalar
+    apCarId: null, // tanlangan mashina
   };
 
   // Hisobot plitkalari. Katalog bo'limlari bularga QO'SHIB, bitta
@@ -176,6 +182,13 @@ window.ZimmerAdmin = (function () {
     });
     body().append(reports);
 
+    // ---- Do'kon: ombor va yangi tovar qo'shish («Mahsulotlar» o'rniga)
+    body().append(el("div", "adm-group", "Do'kon"));
+    const shop = el("div", "adm-tiles enter");
+    shop.append(tile("📦", "Ombor", 0, false, openInventory));
+    shop.append(tile("➕", "Tovar qo'shish", 0, false, () => openAddProduct()));
+    body().append(shop);
+
     // ---- Katalog bo'limlari (alohida oyna emas — shu yerda)
     body().append(el("div", "adm-group", "Katalog"));
     const sections = el("div", "adm-tiles enter");
@@ -265,6 +278,257 @@ window.ZimmerAdmin = (function () {
   }
 
 
+
+  /* ====================================================================
+     OMBOR (Avto_A1 mantiqi: qidiruv, filtr, xulosa, tez saqlash)
+     ==================================================================== */
+
+  const INV_FILTERS = [
+    { key: "all", label: "Hammasi" },
+    { key: "low", label: "Kam qoldi" },
+    { key: "out", label: "Tugagan" },
+    { key: "hidden", label: "Yashirin" },
+  ];
+
+  async function openInventory() {
+    S.view = "inventory";
+    S.key = null;
+    loading("Ombor yuklanmoqda...");
+
+    let data;
+    try {
+      data = await api("/api/admin/inventory");
+    } catch (err) {
+      return fail(err, openInventory);
+    }
+
+    S.inv = data;
+    setHead("📦 Ombor", `${(data.items || []).length} ta tovar`);
+    paintInventory();
+  }
+
+  /** Ro'yxatni qidiruv/filtrga qarab qayta chizadi (server so'rovisiz). */
+  function paintInventory() {
+    const data = S.inv || { items: [], summary: {} };
+    const sum = data.summary || {};
+    const query = (S.invQuery || "").toLowerCase().trim();
+    const filter = S.invFilter || "all";
+
+    const items = (data.items || []).filter((p) => {
+      if (filter === "low" && !p.low) return false;
+      if (filter === "out" && !p.out) return false;
+      if (filter === "hidden" && p.is_active) return false;
+      if (query) {
+        const name = String(p.name || "").toLowerCase();
+        const code = String(p.code || "").toLowerCase();
+        if (name.indexOf(query) < 0 && code.indexOf(query) < 0) return false;
+      }
+      return true;
+    });
+
+    body().innerHTML = "";
+
+    // Yangi tovar qo'shish — ombor tepasida ham qo'l ostida
+    const add = el("button", "btn btn-primary adm-add", "+ Yangi tovar qo'shish");
+    add.onclick = () => {
+      haptic();
+      openAddProduct();
+    };
+    body().append(add);
+
+    // Xulosa: jami / kam qoldi / tugagan + umumiy qiymat
+    const stats = el("div", "inv-summary");
+    stats.innerHTML = `
+      <div class="inv-stat"><b>${sum.total || 0}</b><span>Jami tovar</span></div>
+      <div class="inv-stat low"><b>${sum.low || 0}</b><span>Kam qoldi</span></div>
+      <div class="inv-stat out"><b>${sum.out || 0}</b><span>Tugagan</span></div>`;
+    body().append(stats);
+    body().append(
+      el("div", "inv-value", `💰 Ombor qiymati: <b>${esc(sum.value_label || "0")}</b>`)
+    );
+
+    // Qidiruv
+    const search = el("input", "inv-search");
+    search.type = "search";
+    search.placeholder = "🔍 Nomi yoki artikul bo'yicha qidirish...";
+    search.value = S.invQuery || "";
+    search.oninput = () => {
+      S.invQuery = search.value;
+      clearTimeout(paintInventory._t);
+      paintInventory._t = setTimeout(() => {
+        paintInventory();
+        const again = body().querySelector(".inv-search");
+        if (again) {
+          again.focus();
+          const end = again.value.length;
+          try {
+            again.setSelectionRange(end, end);
+          } catch (_) {}
+        }
+      }, 260);
+    };
+    body().append(search);
+
+    // Filtr chiplari
+    const chips = el("div", "chips adm-filters");
+    INV_FILTERS.forEach((f) => {
+      const count =
+        f.key === "low" ? sum.low : f.key === "out" ? sum.out : f.key === "hidden" ? sum.hidden : 0;
+      const chip = el("button", "chip" + (filter === f.key ? " on" : ""));
+      chip.textContent = f.label + (count ? ` (${count})` : "");
+      chip.onclick = () => {
+        S.invFilter = f.key;
+        haptic();
+        paintInventory();
+      };
+      chips.append(chip);
+    });
+    body().append(chips);
+
+    if (!items.length) {
+      body().append(el("p", "empty", "Tovar topilmadi."));
+      return;
+    }
+    items.forEach((p) => body().append(inventoryRow(p)));
+  }
+
+  /** Bitta ombor qatori: qoldiqni shu yerda o'zgartirib saqlash mumkin. */
+  function inventoryRow(p) {
+    const row = el("div", "inv-row" + (p.out ? " out" : p.low ? " low" : ""));
+    if (!p.is_active) row.classList.add("off");
+
+    const parts = String(p.name || "").split("·");
+    const mainName = (parts[0] || p.name || "").trim();
+    const carHint = parts[1] ? `<span class="inv-hint">· ${esc(parts[1].trim())}</span>` : "";
+    const photo = p.photo_url ? (app().abs ? app().abs(p.photo_url) : p.photo_url) : null;
+    const flag = p.out
+      ? '<span class="inv-flag out">Tugagan</span>'
+      : p.low
+      ? '<span class="inv-flag low">Kam qoldi</span>'
+      : "";
+
+    row.innerHTML = `
+      <div class="inv-top">
+        <div class="adm-thumb">${
+          photo
+            ? `<img src="${esc(photo)}" alt="" onerror="this.style.display='none'">`
+            : '<span class="adm-thumb-empty">🖼</span>'
+        }</div>
+        <div class="inv-info">
+          <b>${esc(mainName)}${carHint}</b>
+          <small>${esc(p.price_label)}${
+      p.code ? ` · 🔖 ${esc(p.code)}` : ""
+    } ${flag}${p.is_active ? "" : " · yashirilgan"}</small>
+        </div>
+        <div class="inv-acts">
+          <button class="adm-mini" data-act="edit" title="Tahrirlash">✏️</button>
+          <button class="adm-mini" data-act="toggle" title="Yashirish/ko'rsatish">${
+            p.is_active ? "🟢" : "🔴"
+          }</button>
+        </div>
+      </div>`;
+
+    row.querySelector('[data-act="edit"]').onclick = () => {
+      haptic();
+      openForm("prd", p.id);
+    };
+    row.querySelector('[data-act="toggle"]').onclick = async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      try {
+        const res = await api(`/api/admin/section/prd/${p.id}/toggle`, {
+          method: "POST",
+          body: {},
+        });
+        p.is_active = res.is_active;
+        btn.textContent = res.is_active ? "🟢" : "🔴";
+        row.classList.toggle("off", !res.is_active);
+        haptic("ok");
+        toast(res.is_active ? "Ko'rinadigan qilindi" : "Yashirildi");
+      } catch (err) {
+        haptic("err");
+        toast((err && err.message) || "O'zgarmadi");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    // ---- qoldiqni tahrirlash
+    const box = el("div", "inv-stock");
+    if (p.product_type === "razmerli" && (p.sizes || []).length) {
+      box.append(el("div", "inv-sizes-title", "Razmerlar va qoldiq"));
+      const sizes = p.sizes.map((s) => ({ size: s.size, stock: s.stock }));
+      sizes.forEach((s, i) => {
+        const line = el("div", "inv-size-row");
+        line.innerHTML = `<span class="inv-size-name">${esc(s.size)}</span>`;
+        const input = el("input", "inv-input");
+        input.type = "number";
+        input.min = "0";
+        input.value = s.stock;
+        input.oninput = () => (sizes[i].stock = Math.max(0, parseInt(input.value, 10) || 0));
+        line.append(input);
+        box.append(line);
+      });
+      const save = el("button", "inv-save", "Saqlash");
+      save.onclick = () => saveStock(p, { sizes: sizes }, save, row);
+      box.append(save);
+    } else {
+      const line = el("div", "inv-size-row");
+      line.append(el("span", "inv-size-name", "Qoldiq (dona)"));
+      const input = el("input", "inv-input");
+      input.type = "number";
+      input.min = "0";
+      input.value = p.stock;
+      line.append(input);
+      const save = el("button", "inv-save", "Saqlash");
+      save.onclick = () =>
+        saveStock(p, { stock: Math.max(0, parseInt(input.value, 10) || 0) }, save, row);
+      line.append(save);
+      box.append(line);
+    }
+    row.append(box);
+    return row;
+  }
+
+  async function saveStock(product, payload, btn, row) {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "...";
+    try {
+      const res = await api(`/api/admin/inventory/${product.id}/stock`, {
+        method: "POST",
+        body: payload,
+      });
+      haptic("ok");
+      toast("Qoldiq saqlandi ✅");
+      // Ro'yxatdagi ma'lumotni yangilaymiz va xulosani qayta hisoblaymiz
+      const list = (S.inv && S.inv.items) || [];
+      const i = list.findIndex((x) => x.id === product.id);
+      if (i > -1) list[i] = res.item;
+      recalcInventorySummary();
+      paintInventory();
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Saqlanmadi");
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  /** Xulosa raqamlarini mahalliy qayta hisoblaydi (server so'rovisiz). */
+  function recalcInventorySummary() {
+    if (!S.inv) return;
+    const items = S.inv.items || [];
+    const value = items.reduce((a, p) => a + (p.price || 0) * (p.stock || 0), 0);
+    S.inv.summary = {
+      total: items.length,
+      low: items.filter((p) => p.low).length,
+      out: items.filter((p) => p.out).length,
+      hidden: items.filter((p) => !p.is_active).length,
+      value: value,
+      value_label: fmt(value),
+    };
+  }
 
   /* ====================================================================
      BO'LIM RO'YXATI
@@ -697,6 +961,455 @@ window.ZimmerAdmin = (function () {
   }
 
   /* ====================================================================
+     YANGI TOVAR QO'SHISH (Avto_A1 formasi, Zimmer ranglarida)
+
+     Tartib: rasmlar → jonli ko'rinish → asosiy ma'lumot (nom, narx, artikul)
+             → aksiya → o'lchov/tur (oddiy | razmerli) → razmerlar → tavsif
+             → mos mashina → Saqlash (pastda yopishgan).
+     Rasmlar telefondan tanlanadi: fayl xotirada turadi, tovar saqlangach
+     mavjud media yuklash oqimi bilan yuboriladi (Telegram file_id).
+     ==================================================================== */
+
+  const AP = { photo: null, photo2: null, photo3: null }; // tanlangan fayllar
+  const APU = { photo: "", photo2: "", photo3: "" }; // rasm linklari
+
+  /** Narxni "150 000" ko'rinishida ko'rsatadi. */
+  function formatMoneyInput(input) {
+    const digits = (input.value || "").replace(/\D/g, "");
+    input.value = digits ? Number(digits).toLocaleString("ru-RU").replace(/,/g, " ") : "";
+  }
+  const moneyValue = (id) => ($(id) ? ($(id).value || "").replace(/\D/g, "") : "");
+
+  /** Ovozdan yozish (qo'llab-quvvatlansa). */
+  function startVoice(targetId) {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return toast("Bu telefonda ovozli kiritish yo'q");
+    try {
+      const rec = new Rec();
+      rec.lang = "uz-UZ";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      toast("🎤 Gapiring...");
+      haptic("medium");
+      rec.onresult = (e) => {
+        const text = (e.results[0][0].transcript || "").trim();
+        const node = $(targetId);
+        if (node && text) {
+          node.value = node.value ? node.value + " " + text : text;
+          node.dispatchEvent(new Event("input"));
+          haptic("ok");
+        }
+      };
+      rec.onerror = () => toast("Ovoz aniqlanmadi");
+      rec.start();
+    } catch (_) {
+      toast("Ovozli kiritish ishlamadi");
+    }
+  }
+
+  async function openAddProduct() {
+    S.view = "addproduct";
+    S.key = "prd";
+    S.item = null;
+    AP.photo = AP.photo2 = AP.photo3 = null;
+    APU.photo = APU.photo2 = APU.photo3 = "";
+    loading();
+
+    // Mos mashina uchun ro'yxat (Zimmer'da kategoriya emas — mashina)
+    let cars = [];
+    try {
+      cars = await api("/api/cars");
+    } catch (_) {}
+    S.apCars = cars;
+    S.apCarId = null;
+
+    setHead("➕ Yangi tovar", "Rasm, nom, narx va qoldiqni to'ldiring");
+
+    const form = el("div", "ap-form");
+    form.innerHTML = `
+      <!-- 1. RASMLAR -->
+      <div class="ap-group">
+        <div class="ap-head">
+          <span class="ap-ic">🖼</span>
+          <div class="ap-tx"><b>Rasmlar</b><span>Birinchi qadam · 1–3 ta</span></div>
+        </div>
+        <div class="ap-upload" id="ap-upload">
+          <span class="ap-up-ic">⬆️</span>
+          <div class="ap-up-t">Telefondan rasm yuklash</div>
+          <div class="ap-up-s">Bir vaqtda 3 tagacha tanlash mumkin</div>
+          <input type="file" id="ap-files" accept="image/*" multiple>
+        </div>
+        <div class="ap-previews" id="ap-previews"></div>
+        <input type="text" class="ap-input" id="ap-url1" placeholder="Yoki rasm linki (ixtiyoriy)">
+        <input type="text" class="ap-input" id="ap-url2" placeholder="2-rasm linki (ixtiyoriy)">
+        <input type="text" class="ap-input" id="ap-url3" placeholder="3-rasm linki (ixtiyoriy)">
+      </div>
+
+      <!-- 2. JONLI KO'RINISH -->
+      <div class="ap-sub">Mijozga qanday ko'rinadi</div>
+      <div class="ap-live" id="ap-live"></div>
+
+      <!-- 3. ASOSIY MA'LUMOT -->
+      <div class="ap-group">
+        <div class="ap-head">
+          <span class="ap-ic">📝</span>
+          <div class="ap-tx"><b>Asosiy ma'lumotlar</b><span>Nomi · narxi · artikul</span></div>
+        </div>
+        <div class="ap-wrap">
+          <input type="text" class="ap-input" id="ap-name" placeholder="Tovar nomi (mas: Bi-LED linza)">
+          <button type="button" class="ap-mic" id="ap-mic-name" title="Ovozdan yozish">🎤</button>
+        </div>
+        <input type="text" inputmode="numeric" class="ap-input" id="ap-price" placeholder="Narxi (so'm, mas: 150 000)">
+        <input type="text" class="ap-input" id="ap-code" placeholder="Artikul / OEM kod (ixtiyoriy)">
+        <input type="text" class="ap-input" id="ap-badge" placeholder="Belgi (mas: Yangi, TOP) — ixtiyoriy">
+      </div>
+
+      <!-- 4. AKSIYA -->
+      <div class="ap-group ap-sale">
+        <div class="ap-head">
+          <span class="ap-ic red">🔥</span>
+          <div class="ap-tx"><b>Aksiya (ixtiyoriy)</b><span>Eski narx — chegirma o'zi hisoblanadi</span></div>
+        </div>
+        <input type="text" inputmode="numeric" class="ap-input" id="ap-old" placeholder="Eski narx (hozirgi narxdan katta)">
+        <div class="ap-note" id="ap-sale-note">Bo'sh qoldirilsa — aksiya yo'q.</div>
+      </div>
+
+      <!-- 5. TUR VA QOLDIQ -->
+      <div class="ap-group">
+        <div class="ap-head">
+          <span class="ap-ic green">📦</span>
+          <div class="ap-tx"><b>Qoldiq</b><span>O'lchov va tovar turi</span></div>
+        </div>
+        <div class="ap-row2">
+          <select class="ap-input" id="ap-unit">
+            <option value="dona">1 dona</option>
+            <option value="komplekt">Nabor (komplekt)</option>
+          </select>
+          <select class="ap-input" id="ap-type">
+            <option value="oddiy">Oddiy tovar</option>
+            <option value="razmerli">Razmerli</option>
+          </select>
+        </div>
+        <div id="ap-simple">
+          <input type="number" inputmode="numeric" min="0" class="ap-input" id="ap-stock"
+                 placeholder="Skladdagi qoldiq (dona)" value="10">
+        </div>
+        <div id="ap-sized" class="ap-sized hidden">
+          <div class="ap-sub" style="margin-top:0">Razmerlar va qoldiq</div>
+          <div id="ap-sizes"></div>
+          <button type="button" class="ap-add-size" id="ap-add-size">+ YANGI RAZMER</button>
+        </div>
+      </div>
+
+      <!-- 6. TAVSIF -->
+      <div class="ap-group">
+        <div class="ap-head">
+          <span class="ap-ic blue">💬</span>
+          <div class="ap-tx"><b>Tavsif</b><span>Mijoz uchun qisqa izoh</span></div>
+        </div>
+        <button type="button" class="ap-voice" id="ap-mic-desc">🎤 Ovoz bilan ayting</button>
+        <textarea class="ap-input ap-area" id="ap-desc" rows="4"
+                  placeholder="Masalan: original linza, 5500K, 1 yil kafolat..."></textarea>
+      </div>
+
+      <!-- 7. MOS MASHINA -->
+      <div class="ap-group" id="ap-cars-group">
+        <div class="ap-head">
+          <span class="ap-ic">🚗</span>
+          <div class="ap-tx"><b>Mos mashina</b><span>Tanlanmasa — barchasi uchun</span></div>
+        </div>
+        <div class="ap-chips" id="ap-cars"></div>
+      </div>`;
+
+    body().innerHTML = "";
+    body().append(form);
+
+    // Saqlash — pastda yopishib turadi
+    const bar = el("div", "ap-footer");
+    const save = el("button", "btn btn-primary", "💾 Saqlash");
+    save.onclick = () => saveNewProduct(save);
+    bar.append(save);
+    body().append(bar);
+
+    // ---- hodisalar
+    $("ap-files").onchange = (ev) => pickProductImages(ev.target.files);
+    $("ap-upload").onclick = (ev) => {
+      if (ev.target.id !== "ap-files") $("ap-files").click();
+    };
+    ["ap-url1", "ap-url2", "ap-url3"].forEach((id, i) => {
+      $(id).oninput = () => {
+        APU[["photo", "photo2", "photo3"][i]] = $(id).value.trim();
+        renderApPreviews();
+        renderApLive();
+      };
+    });
+    $("ap-name").oninput = renderApLive;
+    $("ap-price").oninput = () => {
+      formatMoneyInput($("ap-price"));
+      renderApLive();
+      renderApSaleNote();
+    };
+    $("ap-old").oninput = () => {
+      formatMoneyInput($("ap-old"));
+      renderApLive();
+      renderApSaleNote();
+    };
+    $("ap-badge").oninput = renderApLive;
+    $("ap-mic-name").onclick = () => startVoice("ap-name");
+    $("ap-mic-desc").onclick = () => startVoice("ap-desc");
+    $("ap-type").onchange = () => {
+      const sized = $("ap-type").value === "razmerli";
+      $("ap-sized").classList.toggle("hidden", !sized);
+      $("ap-simple").classList.toggle("hidden", sized);
+      if (sized && !$("ap-sizes").children.length) addSizeRow();
+      haptic();
+    };
+    $("ap-add-size").onclick = () => {
+      addSizeRow();
+      haptic();
+    };
+
+    // mashina chiplari
+    const carBox = $("ap-cars");
+    if (!cars.length) {
+      $("ap-cars-group").classList.add("hidden");
+    } else {
+      cars.forEach((c) => {
+        const chip = el("button", "ap-chip", esc(c.name));
+        chip.onclick = () => {
+          S.apCarId = S.apCarId === c.id ? null : c.id;
+          carBox.querySelectorAll(".ap-chip").forEach((n) => n.classList.remove("on"));
+          if (S.apCarId === c.id) chip.classList.add("on");
+          haptic();
+          renderApLive();
+        };
+        carBox.append(chip);
+      });
+    }
+
+    renderApPreviews();
+    renderApLive();
+  }
+
+  /** Telefondan tanlangan rasmlar (1–3 ta) xotirada saqlanadi. */
+  function pickProductImages(files) {
+    const list = Array.prototype.slice.call(files || []).slice(0, 3);
+    if (!list.length) return;
+    const slots = ["photo", "photo2", "photo3"];
+    // Bo'sh joylarga navbat bilan joylashtiramiz
+    list.forEach((file) => {
+      const free = slots.find((s) => !AP[s]);
+      if (free) AP[free] = file;
+    });
+    haptic("ok");
+    toast(`${list.length} ta rasm tanlandi — saqlaganda yuklanadi`);
+    renderApPreviews();
+    renderApLive();
+  }
+
+  function renderApPreviews() {
+    const box = $("ap-previews");
+    if (!box) return;
+    box.innerHTML = "";
+    ["photo", "photo2", "photo3"].forEach((slot, i) => {
+      const file = AP[slot];
+      const url = APU[slot];
+      if (!file && !url) return;
+      const cell = el("div", "ap-prev");
+      if (file) {
+        const img = el("img");
+        img.src = URL.createObjectURL(file);
+        img.onload = () => URL.revokeObjectURL(img.src);
+        cell.append(img);
+      } else {
+        const img = el("img");
+        img.src = url;
+        img.onerror = () => (img.style.display = "none");
+        cell.append(img);
+      }
+      const del = el("button", "ap-prev-del", "✕");
+      del.onclick = () => {
+        AP[slot] = null;
+        APU[slot] = "";
+        const input = $(["ap-url1", "ap-url2", "ap-url3"][i]);
+        if (input) input.value = "";
+        haptic("light");
+        renderApPreviews();
+        renderApLive();
+      };
+      cell.append(del);
+      if (slot === "photo") cell.append(el("span", "ap-prev-main", "Asosiy"));
+      box.append(cell);
+    });
+  }
+
+  /** Mijozga qanday ko'rinishini shu zahoti ko'rsatadi. */
+  function renderApLive() {
+    const box = $("ap-live");
+    if (!box) return;
+    const name = ($("ap-name") && $("ap-name").value.trim()) || "Tovar nomi";
+    const price = parseInt(moneyValue("ap-price") || "0", 10);
+    const old = parseInt(moneyValue("ap-old") || "0", 10);
+    const badge = ($("ap-badge") && $("ap-badge").value.trim()) || "";
+    const off = old > price && price ? Math.round(((old - price) / old) * 100) : 0;
+
+    let src = "";
+    if (AP.photo) src = URL.createObjectURL(AP.photo);
+    else if (APU.photo) src = APU.photo;
+
+    const car = (S.apCars || []).find((c) => c.id === S.apCarId);
+
+    box.innerHTML = `
+      <div class="ap-live-card">
+        <div class="ap-live-art">
+          ${src ? `<img src="${esc(src)}" alt="" onerror="this.style.display='none'">` : "💡"}
+          ${off ? `<span class="ap-live-off">-${off}%</span>` : ""}
+          ${badge ? `<span class="ap-live-badge">${esc(badge)}</span>` : ""}
+        </div>
+        <div class="ap-live-body">
+          <div class="ap-live-name">${esc(name)}</div>
+          ${car ? `<div class="ap-live-fit">✓ ${esc(car.name)}</div>` : ""}
+          ${
+            off
+              ? `<div class="ap-live-old">${esc(fmt(old))}</div>`
+              : ""
+          }
+        </div>
+        <div class="ap-live-btn">${esc(fmt(price))} <span>🛒</span></div>
+      </div>`;
+  }
+
+  function renderApSaleNote() {
+    const note = $("ap-sale-note");
+    if (!note) return;
+    const price = parseInt(moneyValue("ap-price") || "0", 10);
+    const old = parseInt(moneyValue("ap-old") || "0", 10);
+    if (!old) {
+      note.className = "ap-note";
+      note.textContent = "Bo'sh qoldirilsa — aksiya yo'q.";
+      return;
+    }
+    if (old <= price) {
+      note.className = "ap-note bad";
+      note.textContent = "⚠️ Eski narx hozirgi narxdan KATTA bo'lishi kerak.";
+      return;
+    }
+    const off = Math.round(((old - price) / old) * 100);
+    note.className = "ap-note good";
+    note.textContent = `✓ Chegirma −${off}% bo'lib ko'rinadi.`;
+  }
+
+  function addSizeRow(size, stock) {
+    const box = $("ap-sizes");
+    if (!box) return;
+    const row = el("div", "ap-size-row");
+    const sizeInput = el("input", "ap-input ap-size-name");
+    sizeInput.type = "text";
+    sizeInput.placeholder = "Razmer (mas: 92.5)";
+    if (size) sizeInput.value = size;
+    const stockInput = el("input", "ap-input ap-size-stock");
+    stockInput.type = "number";
+    stockInput.min = "0";
+    stockInput.placeholder = "Soni";
+    if (stock != null) stockInput.value = stock;
+    const del = el("button", "ap-size-del", "✕");
+    del.onclick = () => {
+      row.remove();
+      haptic("light");
+    };
+    row.append(sizeInput, stockInput, del);
+    box.append(row);
+  }
+
+  function collectSizes() {
+    const out = [];
+    const box = $("ap-sizes");
+    if (!box) return out;
+    box.querySelectorAll(".ap-size-row").forEach((row) => {
+      const size = (row.querySelector(".ap-size-name").value || "").trim();
+      const stock = parseInt(row.querySelector(".ap-size-stock").value, 10) || 0;
+      if (size) out.push({ size: size, stock: Math.max(0, stock) });
+    });
+    return out;
+  }
+
+  /** Saqlash: tovar yaratiladi, so'ng tanlangan rasmlar yuklanadi. */
+  async function saveNewProduct(btn) {
+    if (S.busy) return;
+
+    const name = ($("ap-name").value || "").trim();
+    if (name.length < 2) {
+      haptic("err");
+      toast("Tovar nomini yozing");
+      return $("ap-name").focus();
+    }
+    const price = moneyValue("ap-price");
+    if (!price) {
+      haptic("err");
+      toast("Narxni kiriting");
+      return $("ap-price").focus();
+    }
+
+    const sized = $("ap-type").value === "razmerli";
+    const sizes = sized ? collectSizes() : [];
+    if (sized && !sizes.length) {
+      haptic("err");
+      return toast("Kamida bitta razmer va uning soni kerak");
+    }
+
+    const payload = {
+      name: name,
+      price: price,
+      old_price: moneyValue("ap-old") || null,
+      stock: sized ? 0 : parseInt($("ap-stock").value, 10) || 0,
+      unit: $("ap-unit").value,
+      product_type: sized ? "razmerli" : "oddiy",
+      sizes: sizes,
+      code: ($("ap-code").value || "").trim() || null,
+      badge: ($("ap-badge").value || "").trim() || null,
+      description: ($("ap-desc").value || "").trim() || null,
+      car_id: S.apCarId,
+      photo_url: APU.photo || null,
+      photo2_url: APU.photo2 || null,
+      photo3_url: APU.photo3 || null,
+    };
+
+    S.busy = true;
+    btn.disabled = true;
+    btn.textContent = "Saqlanmoqda...";
+
+    try {
+      const res = await api("/api/admin/products", { method: "POST", body: payload });
+      const newId = res.item && res.item.id;
+
+      // Telefondan tanlangan rasmlarni ketma-ket yuklaymiz
+      const pending = ["photo", "photo2", "photo3"].filter((k) => AP[k]);
+      for (let i = 0; i < pending.length; i++) {
+        const kind = pending[i];
+        btn.textContent = `Rasm yuklanmoqda (${i + 1}/${pending.length})...`;
+        try {
+          await uploadMedia("prd", newId, kind, AP[kind]);
+        } catch (err) {
+          toast((err && err.message) || "Rasm yuklanmadi");
+        }
+      }
+
+      AP.photo = AP.photo2 = AP.photo3 = null;
+      APU.photo = APU.photo2 = APU.photo3 = "";
+      haptic("ok");
+      toast("Tovar qo'shildi ✅");
+      openInventory();
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Saqlanmadi");
+      btn.disabled = false;
+      btn.textContent = "💾 Saqlash";
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ====================================================================
      BUYURTMALAR
      ==================================================================== */
 
@@ -832,17 +1545,33 @@ window.ZimmerAdmin = (function () {
      ==================================================================== */
 
   function open() {
+    if (S.view === "inventory") return openInventory();
     if (S.view === "list" && S.key) return openList(S.key);
     return openMenu();
   }
 
   /** Panel ichida bir qadam orqaga. true — panel o'zi hal qildi. */
   function back() {
+    // «Yangi tovar» — ombordan ochiladi, shu bois ombor'ga qaytamiz
+    if (S.view === "addproduct") {
+      openInventory();
+      return true;
+    }
     if (S.view === "form" && S.key) {
+      // Mahsulot tahriri ombordan ochilgan — ombor'ga qaytaramiz
+      if (S.key === "prd" && S.inv) {
+        openInventory();
+        return true;
+      }
       openList(S.key);
       return true;
     }
-    if (S.view === "list" || S.view === "orders" || S.view === "stats") {
+    if (
+      S.view === "list" ||
+      S.view === "orders" ||
+      S.view === "stats" ||
+      S.view === "inventory"
+    ) {
       openMenu();
       return true;
     }
@@ -860,6 +1589,8 @@ window.ZimmerAdmin = (function () {
     if (reload)
       reload.onclick = () => {
         haptic();
+        if (S.view === "inventory") return openInventory();
+        if (S.view === "addproduct") return openAddProduct();
         if (S.view === "list") return openList(S.key);
         if (S.view === "orders") return openOrders(S.orderKind, S.orderStatus);
         if (S.view === "form") return openForm(S.key, S.item && S.item.id);
@@ -876,5 +1607,11 @@ window.ZimmerAdmin = (function () {
     bind();
   }
 
-  return { open: open, back: back, openMenu: openMenu };
+  return {
+    open: open,
+    back: back,
+    openMenu: openMenu,
+    openInventory: openInventory,
+    openAddProduct: openAddProduct,
+  };
 })();
