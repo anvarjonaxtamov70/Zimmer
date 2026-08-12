@@ -290,29 +290,30 @@ Avto_A1 bilan **bir xil usul**: service-account → OAuth token → RTDB REST.
 
 ## Sozlash (5 daqiqa)
 
-1. [Firebase Console](https://console.firebase.google.com) → loyihani tanlang
-   (Avto_A1 uchun: `avtoa1shop`)
+1. [Firebase Console](https://console.firebase.google.com) → Zimmer loyihasini
+   tanlang (`zimmer-42840`)
 2. **⚙️ Project settings → Service accounts → Generate new private key**
-3. Yuklab olingan JSON faylni ochib, **butun matnini** nusxalang
+3. Yuklab olingan JSON faylni **base64** ga o'giring (Windows PowerShell):
+   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\Desktop\key.json")) | Set-Clipboard`
 4. Render panel → xizmat → **Environment** → quyidagilarni qo'shing:
 
 | Kalit | Qiymat |
 |---|---|
-| `SERVICE_ACCOUNT_JSON` | JSON'ning butun matni (yoki base64) |
-| `FIREBASE_DB_URL` | `https://avtoa1shop-default-rtdb.firebaseio.com` |
+| `SERVICE_ACCOUNT_JSON` | base64 ko'rinishi (yoki JSON'ning butun matni) |
+| `FIREBASE_DB_URL` | `https://zimmer-42840-default-rtdb.firebaseio.com` |
 | `FIREBASE_ROOT` | `zimmer` |
 
-5. **Save** → xizmat qayta ishga tushadi. Logda ko'rinadi:
+5. **Save** → xizmat qayta ishga tushadi. Botga `/firebase` yuborib tekshiring.
+   Logda ko'rinadi:
 
 ```
-Firebase ulandi: https://avtoa1shop-default-rtdb.firebaseio.com/zimmer
+Firebase ulandi: https://zimmer-42840-default-rtdb.firebaseio.com/zimmer
 Firebase'dan N mijoz qaytarildi
 Firebase'dan M tovar import qilindi
 ```
 
-> `FIREBASE_ROOT=zimmer` — Zimmer ma'lumotlari **alohida tugunda** turadi,
-> Avto_A1 ma'lumotlariga tegmaydi. Bir xil bazani bo'lishmoqchi bo'lsangiz
-> `FIREBASE_ROOT` ni bo'sh qoldiring.
+> Zimmer endi **o'zining alohida Firebase loyihasida** — Avto_A1 ma'lumotlariga
+> umuman tegmaydi.
 
 ## Ma'lumot tuzilishi
 

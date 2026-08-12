@@ -33,7 +33,7 @@ services:
       - key: SERVICE_ACCOUNT_JSON
         sync: false
       - key: FIREBASE_DB_URL
-        value: "https://avtoa1shop-default-rtdb.firebaseio.com"
+        value: "https://zimmer-42840-default-rtdb.firebaseio.com"
       - key: FIREBASE_ROOT
         value: "zimmer"
 
