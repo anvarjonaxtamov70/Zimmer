@@ -1023,6 +1023,7 @@
     S.favorites = new Set(items.map((p) => p.id));
     box.innerHTML = "";
     empty.classList.toggle("hidden", items.length > 0);
+    animateStat("pf-stat-saved", items.length);
 
     items.forEach((p) => {
       const row = el("div", "saved-row");
@@ -1720,13 +1721,36 @@
   }
 
   /* -------------------------------------------------------------- kabinet */
+  /** Butun son "count-up" animatsiyasi (statistika plitkalari). */
+  function animateStat(id, end) {
+    const obj = $(id);
+    if (!obj) return;
+    end = Number(end) || 0;
+    let startTime = null;
+    const duration = 800;
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      const p = Math.min((ts - startTime) / duration, 1);
+      obj.textContent = Math.floor(p * end);
+      if (p < 1) requestAnimationFrame(step);
+      else obj.textContent = end;
+    }
+    requestAnimationFrame(step);
+  }
+
   async function loadProfile() {
     if (S.me) {
-      $("profile-name").textContent = S.me.full_name || "—";
-      $("profile-phone").textContent = S.me.phone || "kiritilmagan";
+      const name = (S.me.full_name || S.me.first_name || "Mijoz").trim();
+      $("pf-name").textContent = name;
+      $("pf-avatar").textContent = (name[0] || "M").toUpperCase();
+      $("pf-id").textContent = "ID: " + (S.me.user_id || "—");
+      // Telefon bor bo'lsa — VIP (ring yorqinroq)
+      const card = document.querySelector(".pf-card");
+      if (card) card.classList.toggle("is-vip", !!S.me.phone);
+      $("pf-since").textContent = S.me.phone ? "✓ Tasdiqlangan mijoz" : "Zimmer mijozi";
       $("profile-car").textContent = S.me.car
         ? `${S.me.car.name} (${S.me.car.years || "-"})`
-        : "—";
+        : "Belgilanmagan";
       renderPhoneWarn();
     }
     renderSaved();
@@ -1739,6 +1763,9 @@
       renderBiledOrders(biled);
       renderBookings(bookings);
       renderOrders(orders);
+      // statistika: buyurtma (do'kon + bi-led), navbat
+      animateStat("pf-stat-orders", (orders.length || 0) + (biled.length || 0));
+      animateStat("pf-stat-bookings", bookings.length || 0);
     } catch (err) {
       onError(err);
     }
@@ -1817,6 +1844,66 @@
         )
       );
     });
+  }
+
+  /* -------------------------------------------------- profil: kesh / aloqa */
+
+  /** Ilovani yangilash (kesh) — Avto_A1 dagi mantiq. Savat/saqlanganlar o'chmaydi. */
+  function clearAppCache() {
+    ask("Ilovani yangilaymizmi?\n\nSavat va saqlanganlaringiz o'chmaydi.").then((ok) => {
+      if (!ok) return;
+      haptic("ok");
+      toast("Yangilanmoqda...");
+      setTimeout(() => {
+        try {
+          location.reload(true);
+        } catch (_) {
+          location.reload();
+        }
+      }, 700);
+    });
+  }
+
+  function openContactSheet() {
+    haptic();
+    const admin = (S.pay && S.pay.admin) || "";
+    openSheet(
+      "📞 Biz bilan aloqa",
+      `<p class="step-sub">Savol yoki takliflar bo'lsa bemalol yozing — tez javob beramiz.</p>
+       ${
+         admin
+           ? `<button class="btn btn-primary" id="contact-tg">✈️ Telegram: @${esc(admin)}</button>`
+           : ""
+       }
+       <div class="contact-rows">
+         <div class="row"><span>🕒 Ish vaqti</span><b>Har kuni 9:00–20:00</b></div>
+         <div class="row"><span>📍 Shahar</span><b>${esc(dcity())}</b></div>
+       </div>`
+    );
+    const b = $("contact-tg");
+    if (b)
+      b.onclick = () => {
+        try {
+          tg.openTelegramLink("https://t.me/" + admin);
+        } catch (_) {}
+      };
+  }
+
+  function openTrustSheet() {
+    haptic();
+    openSheet(
+      "🛡 Kafolat va yetkazib berish",
+      `<div class="trust-list">
+         <div class="trust-item"><i>🛡</i><div><b>1 yil kafolat</b>
+           <small>Barcha Bi-LED o'rnatishlarga rasmiy kafolat beriladi.</small></div></div>
+         <div class="trust-item"><i>🚚</i><div><b>Tez yetkazib berish</b>
+           <small>Kuryer (shahar ichida) yoki BTS Pochta (butun O'zbekiston).</small></div></div>
+         <div class="trust-item"><i>↩️</i><div><b>7 kun ichida qaytarish</b>
+           <small>Tovar mos kelmasa 7 kun ichida qaytarib berasiz.</small></div></div>
+         <div class="trust-item"><i>🔧</i><div><b>Professional o'rnatish</b>
+           <small>Tajribali ustalar va zamonaviy uskunalar bilan.</small></div></div>
+       </div>`
+    );
   }
 
   /* ----------------------------------------------------------------- sheet */
@@ -2054,6 +2141,12 @@
   $("car-chip").onclick = openCarSheet;
   $("change-car").onclick = openCarSheet;
   $("order-submit").onclick = startCheckout;
+
+  // Profil hub tugmalari
+  $("pf-edit").onclick = () => openPhoneSheet(() => loadProfile());
+  $("pf-contact").onclick = openContactSheet;
+  $("pf-trust").onclick = openTrustSheet;
+  $("pf-clear-cache").onclick = clearAppCache;
 
   $("sheet-close").onclick = closeSheet;
   $("sheet-backdrop").onclick = closeSheet;
