@@ -320,7 +320,7 @@ Firebase'dan M tovar import qilindi
 | Ma'lumot | Bulutga yoziladi | Bot ishga tushganda tiklanadi |
 |---|---|---|
 | Mijozlar (ism, telefon, mashina) | ✅ | ✅ |
-| Tovarlar (rasm URL bilan) | — (saytdan boshqariladi) | ✅ |
+| **Katalog** (admin panelda qilingan hamma o'zgarish) | ✅ | ✅ |
 | Adminlar (bot ichidan qo'shilgan) | ✅ | ✅ |
 | Bi-LED buyurtmalari | ✅ | ✅ |
 | Do'kon buyurtmalari (tarkibi bilan) | ✅ | ✅ |

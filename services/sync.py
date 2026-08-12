@@ -341,6 +341,128 @@ async def push_booking(booking) -> None:
     )
 
 
+# ------------------------------------------------------------------- katalog
+#
+# Admin panelda qilingan har bir o'zgarish shu yerdan bulutga tushadi.
+# Ilgari katalog faqat vaqtinchalik bazada turardi va qayta deployda
+# butunlay yo'qolardi (o'rniga demo katalog qaytardi).
+
+CATALOG_ROOT = "catalog"
+
+
+async def _catalog_payload(table: str, row) -> dict:
+    values = {key: row[key] for key in row.keys()}
+    payload: dict = {column: values.get(column) for column in q.catalog_columns(table)}
+    payload["id"] = values.get("id")
+    payload["_key"] = values.get(q.CATALOG_KEY[table])
+
+    # Bog'langan ustunlar ID emas, NOM bilan saqlanadi
+    for column, (ref_table, alias) in q.CATALOG_LINKS.get(table, {}).items():
+        payload[alias] = await q.get_row_name(ref_table, values.get(column))
+
+    payload["deleted"] = False
+    payload["updatedAt"] = int(time.time() * 1000)
+    return payload
+
+
+async def push_catalog(table: str, row_id: int) -> None:
+    """Katalog yozuvini bulutga yozadi (admin o'zgartirgandan keyin chaqiriladi)."""
+    if table not in q.CATALOG_KEY:
+        return
+    try:
+        row = await q.admin_get(table, row_id)
+    except Exception as error:
+        logger.warning("«%s» #%s bulutga yozilmadi: %s", table, row_id, error)
+        return
+    if row is None:
+        return
+    await _write(
+        f"{CATALOG_ROOT}/{table}/{row_id}", await _catalog_payload(table, row), method="put"
+    )
+
+
+async def delete_catalog(table: str, row_id: int, key_value: str | None) -> None:
+    """Bulutda «o'chirilgan» deb belgilaydi (tarix yo'qolmasin)."""
+    if table not in q.CATALOG_KEY:
+        return
+    await _write(
+        f"{CATALOG_ROOT}/{table}/{row_id}",
+        {
+            "id": row_id,
+            "_key": key_value,
+            "deleted": True,
+            "updatedAt": int(time.time() * 1000),
+        },
+        method="put",
+    )
+
+
+async def _resolve_link(ref_table: str, name) -> int | None:
+    """Bulutdagi nomni mahalliy ID'ga aylantiradi."""
+    if not name or not str(name).strip():
+        return None
+    if ref_table == "categories":
+        return await q.ensure_category(name)
+    if ref_table == "cars":
+        return await q.ensure_car(name)
+    return await q.catalog_find(ref_table, name)
+
+
+async def restore_catalog() -> dict[str, int]:
+    """Katalogni bulutdan qaytaradi (admin qo'shgan tovarlar yo'qolmasin)."""
+    if not firebase.is_enabled():
+        return {}
+
+    node = await firebase.get(CATALOG_ROOT)
+    if not isinstance(node, dict):
+        return {}
+
+    stats = {"added": 0, "updated": 0, "deleted": 0}
+
+    # Tartib muhim: kategoriya va mashinalar avval tiklanadi, chunki
+    # tovarlar va bannerlar ularga bog'lanadi.
+    for table in q.CATALOG_ORDER:
+        rows = node.get(table)
+        if not rows:
+            continue
+
+        for key, item in firebase.items(rows):
+            key_value = item.get("_key")
+            if not key_value:
+                continue
+            try:
+                if item.get("deleted"):
+                    if await q.catalog_delete_by_key(table, key_value):
+                        stats["deleted"] += 1
+                    continue
+
+                values = {
+                    column: item[column]
+                    for column in q.catalog_columns(table)
+                    if column in item
+                }
+                for column, (ref_table, alias) in q.CATALOG_LINKS.get(table, {}).items():
+                    values[column] = await _resolve_link(ref_table, item.get(alias))
+
+                # Tovar kategoriyasiz bo'lmaydi (NOT NULL)
+                if table == "products" and not values.get("category_id"):
+                    values["category_id"] = await q.ensure_category("Boshqa")
+
+                _, created = await q.catalog_upsert(table, values)
+                stats["added" if created else "updated"] += 1
+            except Exception as error:
+                logger.warning("«%s/%s» tiklanmadi: %s", table, key, error)
+
+    if any(stats.values()):
+        logger.info(
+            "Katalog bulutdan tiklandi: %s yangi, %s yangilandi, %s o'chirildi",
+            stats["added"],
+            stats["updated"],
+            stats["deleted"],
+        )
+    return stats
+
+
 def _created_at(value) -> str | None:
     """Firebase'dagi millisekundni bazaning matn formatiga o'giradi."""
     try:
@@ -498,7 +620,9 @@ async def initial_sync() -> None:
         await restore_admins()
         await restore_users()
         await import_products()
-        # Tovarlar tiklangandan KEYIN — buyurtmalar katalogga bog'lanadi
+        # Admin panelda qilingan katalog o'zgarishlari — demo katalog ustidan
+        await restore_catalog()
+        # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
         await flush_pending()
     except Exception as error:

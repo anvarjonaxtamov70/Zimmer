@@ -1062,6 +1062,173 @@ async def admin_count(table: str) -> int:
 
 
 # ========================================================================
+#      KATALOGNI BULUTGA SAQLASH VA TIKLASH
+#
+# Admin panelda qo'shilgan tovar/linza/ochki va boshqalar ilgari FAQAT
+# vaqtinchalik bazada qolardi — qayta deployda hammasi yo'qolib, o'rniga
+# demo katalog qaytardi. Endi har bir o'zgarish bulutga yoziladi va
+# bot ishga tushganda qaytariladi.
+#
+# ID'lar tozalangandan keyin o'zgaradi, shuning uchun moslash NOM bo'yicha
+# bo'ladi (har bir jadvalning "nom" ustuni quyida).
+# ========================================================================
+
+CATALOG_KEY: dict[str, str] = {
+    "categories": "name",
+    "cars": "name",
+    "biled_types": "name",
+    "shrouds": "name",
+    "optic_colors": "name",
+    "services": "name",
+    "products": "name",
+    "banners": "title",
+    "stories": "title",
+    "promos": "title",
+}
+
+# Boshqa jadvalga bog'langan ustunlar: ustun -> (jadval, bulutdagi nom kaliti).
+# Bulutda ID emas, NOM saqlanadi — ID'lar o'zgargani uchun.
+CATALOG_LINKS: dict[str, dict[str, tuple[str, str]]] = {
+    "products": {
+        "category_id": ("categories", "categoryName"),
+        "car_id": ("cars", "carName"),
+    },
+    "banners": {"car_id": ("cars", "carName")},
+}
+
+# Bulutga yozilmaydigan ustunlar (o'zi yasaladi / to'qnashuv keltiradi)
+CATALOG_SKIP = {"slug", "external_id"}
+
+# Jadvallarni tiklash tartibi: avval bog'lanadiganlar
+CATALOG_ORDER = (
+    "categories",
+    "cars",
+    "biled_types",
+    "shrouds",
+    "optic_colors",
+    "services",
+    "products",
+    "banners",
+    "stories",
+    "promos",
+)
+
+
+def catalog_columns(table: str) -> list[str]:
+    """Bulutga saqlanadigan ustunlar ro'yxati."""
+    return sorted(column for column in EDITABLE.get(table, ()) if column not in CATALOG_SKIP)
+
+
+async def get_row_name(table: str, row_id) -> str | None:
+    """Bog'langan yozuvning nomini qaytaradi (bulutda ID o'rniga saqlash uchun)."""
+    if table not in CATALOG_KEY or row_id in (None, ""):
+        return None
+    try:
+        row_id = int(row_id)
+    except (TypeError, ValueError):
+        return None
+    db = get_db()
+    column = CATALOG_KEY[table]
+    async with db.execute(f"SELECT {column} AS label FROM {table} WHERE id = ?", (row_id,)) as cur:
+        row = await cur.fetchone()
+    return str(row["label"]) if row and row["label"] else None
+
+
+async def catalog_find(table: str, key_value: str) -> int | None:
+    """Nom bo'yicha yozuvni topadi (katta-kichik harfga e'tibor bermaydi)."""
+    if table not in CATALOG_KEY:
+        raise ValueError(f"Ruxsat berilmagan jadval: {table}")
+    if key_value is None or not str(key_value).strip():
+        return None
+    db = get_db()
+    column = CATALOG_KEY[table]
+    async with db.execute(
+        f"SELECT id FROM {table} WHERE lower(TRIM({column})) = lower(TRIM(?))"
+        " ORDER BY id LIMIT 1",
+        (str(key_value),),
+    ) as cur:
+        row = await cur.fetchone()
+    return int(row["id"]) if row else None
+
+
+async def ensure_category(name: str | None) -> int | None:
+    """Kategoriyani topadi, bo'lmasa yaratadi (tovar unga bog'lanishi shart)."""
+    if not name or not str(name).strip():
+        return None
+    found = await catalog_find("categories", name)
+    if found:
+        return found
+    db = get_db()
+    cur = await db.execute("INSERT INTO categories (name) VALUES (?)", (str(name).strip(),))
+    await db.commit()
+    logger.info("Bulutdan tiklashda kategoriya yaratildi: %s", name)
+    return int(cur.lastrowid)
+
+
+async def catalog_upsert(table: str, values: dict[str, Any]) -> tuple[int, bool]:
+    """Nom bo'yicha yangilaydi yoki yangi qo'shadi.
+
+    Qaytaradi: (id, yangi_qo'shildimi).
+    """
+    if table not in CATALOG_KEY:
+        raise ValueError(f"Ruxsat berilmagan jadval: {table}")
+
+    allowed = set(catalog_columns(table))
+    data = {column: value for column, value in values.items() if column in allowed}
+    key_column = CATALOG_KEY[table]
+    key_value = data.get(key_column)
+    if key_value is None or not str(key_value).strip():
+        raise ValueError(f"«{table}» uchun nom berilmagan")
+
+    db = get_db()
+    existing = await catalog_find(table, key_value)
+
+    if existing is not None:
+        updates = {c: v for c, v in data.items() if c != key_column}
+        if updates:
+            assignments = ", ".join(f"{c} = ?" for c in updates)
+            await db.execute(
+                f"UPDATE {table} SET {assignments} WHERE id = ?",
+                (*updates.values(), existing),
+            )
+            await db.commit()
+        return existing, False
+
+    if table == "cars":
+        data["slug"] = await _unique_car_slug(str(key_value))
+
+    columns = ", ".join(data)
+    marks = ", ".join("?" for _ in data)
+    cur = await db.execute(
+        f"INSERT INTO {table} ({columns}) VALUES ({marks})", tuple(data.values())
+    )
+    await db.commit()
+    return int(cur.lastrowid), True
+
+
+async def catalog_delete_by_key(table: str, key_value: str) -> bool:
+    """Bulutda o'chirilgan yozuvni mahalliy bazadan ham olib tashlaydi.
+
+    O'chirib bo'lmasa (boshqa yozuvlar bog'langan bo'lsa) — yashiradi.
+    """
+    if table not in CATALOG_KEY:
+        raise ValueError(f"Ruxsat berilmagan jadval: {table}")
+    row_id = await catalog_find(table, key_value)
+    if row_id is None:
+        return False
+
+    db = get_db()
+    try:
+        await db.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+        await db.commit()
+    except Exception as error:
+        logger.info("«%s» #%s o'chirilmadi (%s) — yashirildi", table, row_id, error)
+        await db.execute(f"UPDATE {table} SET is_active = 0 WHERE id = ?", (row_id,))
+        await db.commit()
+    return True
+
+
+# ========================================================================
 #      TARIXNI BULUTDAN TIKLASH (buyurtmalar, navbatlar)
 #
 # Firebase'da buyurtmalar katalog ID'lari bilan emas, NOMLAR bilan
@@ -1091,6 +1258,17 @@ async def find_by_name(table: str, name: str) -> int | None:
     return int(row["id"]) if row else None
 
 
+async def _unique_car_slug(name: str) -> str:
+    """Mashina nomidan takrorlanmaydigan slug yasaydi (ustun UNIQUE)."""
+    base = re.sub(r"[^a-z0-9]+", "", str(name).lower()) or "car"
+    existing = {row["slug"] for row in await get_cars(active_only=False)}
+    slug, index = base, 1
+    while slug in existing:
+        index += 1
+        slug = f"{base}{index}"
+    return slug
+
+
 async def ensure_car(name: str | None) -> int | None:
     """Mashinani nom bo'yicha topadi, bo'lmasa yashirin holda yaratadi."""
     if not name or not str(name).strip():
@@ -1099,13 +1277,7 @@ async def ensure_car(name: str | None) -> int | None:
     if found:
         return found
 
-    base = re.sub(r"[^a-z0-9]+", "", str(name).lower()) or "car"
-    existing = {row["slug"] for row in await get_cars(active_only=False)}
-    slug, index = base, 1
-    while slug in existing:
-        index += 1
-        slug = f"{base}{index}"
-
+    slug = await _unique_car_slug(str(name))
     db = get_db()
     cur = await db.execute(
         "INSERT INTO cars (name, slug, is_active) VALUES (?, ?, 0)", (str(name).strip(), slug)

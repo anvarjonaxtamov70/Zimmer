@@ -35,6 +35,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import queries as q
 from handlers.admin_schema import ENTITIES, Entity, Field, parse_value, prepare_insert
 from keyboards.reply import cancel_kb, main_menu
+from services import sync
 from utils.filters import IsAdmin
 from utils.helpers import fmt_price
 from utils.texts import BTN_CANCEL
@@ -316,6 +317,7 @@ async def choice_set(callback: CallbackQuery) -> None:
 
     stored = None if value == "" else (int(value) if value.isdigit() else value)
     await q.admin_update(entity.table, int(rid), column, stored)
+    await sync.push_catalog(entity.table, int(rid))
     await callback.answer("Saqlandi ✅")
     await _show_detail(callback.message, entity, int(rid))
 
@@ -354,6 +356,7 @@ async def _save_media(message: Message, state: FSMContext, kind: str, file_id: s
 
     await q.admin_update(entity.table, row_id, f"{kind}_id", file_id)
     await q.admin_update(entity.table, row_id, f"{kind}_url", None)
+    await sync.push_catalog(entity.table, row_id)
     await state.clear()
 
     await message.answer(
@@ -392,6 +395,7 @@ async def field_text(message: Message, state: FSMContext) -> None:
     else:
         await q.admin_update(entity.table, row_id, column, value)
 
+    await sync.push_catalog(entity.table, row_id)
     await state.clear()
     await message.answer("✅ Saqlandi.", reply_markup=main_menu(message.from_user.id))
     row = await q.admin_get(entity.table, row_id)
@@ -437,6 +441,7 @@ async def media_clear(callback: CallbackQuery) -> None:
         return
     await q.admin_update(entity.table, int(rid), f"{kind}_id", None)
     await q.admin_update(entity.table, int(rid), f"{kind}_url", None)
+    await sync.push_catalog(entity.table, int(rid))
     await callback.answer("O'chirildi")
     await _show_detail(callback.message, entity, int(rid))
 
@@ -452,6 +457,7 @@ async def entity_toggle(callback: CallbackQuery) -> None:
         await callback.answer("Topilmadi", show_alert=True)
         return
     value = await q.admin_toggle(entity.table, int(rid))
+    await sync.push_catalog(entity.table, int(rid))
     await callback.answer("🟢 Yoqildi" if value else "🔴 O'chirildi")
     await _show_detail(callback.message, entity, int(rid))
 
@@ -486,12 +492,19 @@ async def entity_delete(callback: CallbackQuery) -> None:
     if not entity:
         await callback.answer("Topilmadi", show_alert=True)
         return
+
+    # Nomni o'chirishdan OLDIN olib qolamiz (bulutda ham belgilash uchun)
+    row = await q.admin_get(entity.table, int(rid))
+    key_value = row[q.CATALOG_KEY[entity.table]] if row and entity.table in q.CATALOG_KEY else None
+
     try:
         await q.admin_delete(entity.table, int(rid))
     except Exception as error:
         logger.warning("O'chirishda xato: %s", error)
         await callback.answer("O'chirilmadi — element boshqa joyda ishlatilyapti", show_alert=True)
         return
+
+    await sync.delete_catalog(entity.table, int(rid), key_value)
 
     await callback.answer("O'chirildi")
     rows = await q.admin_list(entity.table)
@@ -600,6 +613,7 @@ async def _create_entity(message: Message, state: FSMContext) -> None:
 
     try:
         row_id = await q.admin_insert(entity.table, values)
+        await sync.push_catalog(entity.table, row_id)
     except Exception as error:
         logger.warning("Qo'shishda xato: %s", error)
         await state.clear()

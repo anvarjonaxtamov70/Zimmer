@@ -37,7 +37,7 @@ from api.media import media_url
 from config import config, is_admin
 from database import queries as q
 from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
-from services import orders
+from services import orders, sync
 from utils.helpers import fmt_price, today_iso
 
 logger = logging.getLogger(__name__)
@@ -369,6 +369,8 @@ async def section_create(request: web.Request) -> web.Response:
         raise bad_request(f"Qo'shilmadi: {error}") from error
 
     row = await q.admin_get(entity.table, row_id)
+    # Bulutga yozamiz — qayta deployda yo'qolmasin
+    await sync.push_catalog(entity.table, row_id)
     logger.info("Admin %s «%s» ga yangi element qo'shdi: #%s", admin_id, entity.table, row_id)
     return web.json_response({"ok": True, "item": _serialize(entity, row)})
 
@@ -415,6 +417,7 @@ async def section_update(request: web.Request) -> web.Response:
         raise bad_request("Hech qanday maydon o'zgartirilmadi")
 
     updated = await q.admin_get(entity.table, row_id)
+    await sync.push_catalog(entity.table, row_id)
     logger.info(
         "Admin %s «%s» #%s da %s maydonni o'zgartirdi", admin_id, entity.table, row_id, changed
     )
@@ -434,6 +437,7 @@ async def section_toggle(request: web.Request) -> web.Response:
 
     state = await q.admin_toggle(entity.table, row_id)
     row = await q.admin_get(entity.table, row_id)
+    await sync.push_catalog(entity.table, row_id)
     return web.json_response({"ok": True, "is_active": state, "item": _serialize(entity, row)})
 
 
@@ -443,8 +447,11 @@ async def section_delete(request: web.Request) -> web.Response:
     entity = _entity(request)
     row_id = _row_id(request)
 
-    if not await q.admin_get(entity.table, row_id):
+    row = await q.admin_get(entity.table, row_id)
+    if not row:
         raise not_found("Element topilmadi")
+    # Nomni o'chirishdan OLDIN olib qolamiz — bulutda ham belgilash uchun
+    key_value = row[q.CATALOG_KEY[entity.table]] if entity.table in q.CATALOG_KEY else None
 
     try:
         await q.admin_delete(entity.table, row_id)
@@ -456,6 +463,7 @@ async def section_delete(request: web.Request) -> web.Response:
             "Uni o'chirish o'rniga «yashirish» tugmasini ishlatib ko'ring."
         ) from error
 
+    await sync.delete_catalog(entity.table, row_id, key_value)
     logger.info("Admin %s «%s» #%s ni o'chirdi", admin_id, entity.table, row_id)
     return web.json_response({"ok": True})
 
@@ -515,6 +523,7 @@ async def section_media_upload(request: web.Request) -> web.Response:
 
     await q.admin_update(entity.table, row_id, f"{kind}_id", file_id)
     await q.admin_update(entity.table, row_id, f"{kind}_url", None)
+    await sync.push_catalog(entity.table, row_id)
 
     row = await q.admin_get(entity.table, row_id)
     return web.json_response({"ok": True, "item": _serialize(entity, row)})
@@ -536,6 +545,7 @@ async def section_media_clear(request: web.Request) -> web.Response:
 
     await q.admin_update(entity.table, row_id, f"{kind}_id", None)
     await q.admin_update(entity.table, row_id, f"{kind}_url", None)
+    await sync.push_catalog(entity.table, row_id)
 
     row = await q.admin_get(entity.table, row_id)
     return web.json_response({"ok": True, "item": _serialize(entity, row)})
