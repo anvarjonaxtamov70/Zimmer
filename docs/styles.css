@@ -903,44 +903,82 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .adm-fail p { margin: 0 0 14px; }
 
 /* ------------------------------------------------------------ plitkalar
-   Bosh menyu va katalog bo'limlari — alohida KVADRAT tugmalar.
-   Har biri o'z oynasini ochadi. */
+   Barcha bo'limlar bitta ekranda: uch ustunli ixcham to'r. Alohida
+   «Katalog» oynasi yo'q — hammasi shu yerda.
+
+   Dizayn: har plitkada ikonka yumshoq qizil doirada, ostida nomi.
+   Ochilganda navbat bilan ko'tariladi, bosilganda bosiladi. */
+.adm-group {
+  margin: 18px 2px 9px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--dim);
+}
+.adm-group:first-child { margin-top: 2px; }
+
 .adm-tiles {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
 }
 .adm-tile {
   position: relative;
-  aspect-ratio: 1 / 1;
-  padding: 14px 12px;
+  padding: 13px 6px 11px;
   display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 11px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--r-lg); color: var(--text);
-  transition: transform 0.16s var(--spring), border-color 0.2s, background 0.2s;
+  align-items: center; justify-content: flex-start; gap: 8px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-md); color: var(--text);
+  transition: transform 0.16s var(--spring), border-color 0.2s;
 }
 .adm-tile:active {
-  transform: scale(0.955);
-  border-color: rgba(255, 75, 62, 0.4);
-  background: var(--surface-2);
+  transform: scale(0.94);
+  border-color: rgba(255, 75, 62, 0.45);
 }
-.adm-tile i { font-style: normal; font-size: 30px; line-height: 1; }
+
+/* Ikonka doirasi — plitkaga hayot beradi */
+.adm-tile-ico {
+  width: 38px; height: 38px; flex: none;
+  border-radius: 12px;
+  background: var(--red-soft);
+  border: 1px solid rgba(255, 75, 62, 0.18);
+  display: grid; place-items: center;
+  font-size: 19px; line-height: 1;
+  transition: transform 0.2s var(--spring);
+}
+.adm-tile:active .adm-tile-ico { transform: scale(1.12) rotate(-4deg); }
+
 .adm-tile b {
-  font-size: 13px; font-weight: 600; text-align: center; line-height: 1.3;
+  font-size: 10.5px; font-weight: 600; text-align: center;
+  line-height: 1.25; color: var(--text);
 }
-/* Yangi buyurtma soni — burchakdagi qizil belgi */
+
+/* Sonlar — burchakda */
 .adm-tile em {
-  position: absolute; top: 10px; right: 10px;
-  min-width: 20px; height: 20px; padding: 0 6px;
+  position: absolute; top: 6px; right: 6px;
+  min-width: 17px; height: 17px; padding: 0 5px;
   background: var(--red-grad); color: #fff;
-  font-style: normal; font-size: 11px; font-weight: 800;
+  font-style: normal; font-size: 10px; font-weight: 800;
   border-radius: 999px;
   display: grid; place-items: center;
   box-shadow: 0 2px 8px var(--red-glow);
 }
-/* Katalogdagi element soni — urg'usiz */
 .adm-tile em.soft {
-  background: var(--surface-3); color: var(--muted);
+  background: rgba(255, 255, 255, 0.07); color: var(--dim);
   font-weight: 700; box-shadow: none;
+}
+
+/* Ochilish: plitkalar navbat bilan ko'tariladi */
+.adm-tiles.enter > * { animation: tileIn 0.42s var(--silk) both; }
+.adm-tiles.enter > *:nth-child(1) { animation-delay: 0.01s; }
+.adm-tiles.enter > *:nth-child(2) { animation-delay: 0.04s; }
+.adm-tiles.enter > *:nth-child(3) { animation-delay: 0.07s; }
+.adm-tiles.enter > *:nth-child(4) { animation-delay: 0.10s; }
+.adm-tiles.enter > *:nth-child(5) { animation-delay: 0.13s; }
+.adm-tiles.enter > *:nth-child(6) { animation-delay: 0.16s; }
+.adm-tiles.enter > *:nth-child(7) { animation-delay: 0.19s; }
+.adm-tiles.enter > *:nth-child(8) { animation-delay: 0.22s; }
+.adm-tiles.enter > *:nth-child(9) { animation-delay: 0.25s; }
+@keyframes tileIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* --------------------------------------------------------------- statistika */
@@ -955,12 +993,26 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 .adm-figures { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .adm-figure {
-  padding: 14px; background: var(--surface);
+  padding: 14px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
   border: 1px solid var(--line); border-radius: var(--r-md);
+  animation: tileIn 0.4s var(--silk) both;
 }
+.adm-figure:nth-child(2) { animation-delay: 0.05s; }
+.adm-figure:nth-child(3) { animation-delay: 0.09s; }
+.adm-figure:nth-child(4) { animation-delay: 0.13s; }
+.adm-figure:nth-child(5) { animation-delay: 0.17s; }
 .adm-figure.wide {
-  grid-column: 1 / -1;
-  background: var(--red-soft); border-color: rgba(255, 75, 62, 0.28);
+  position: relative; overflow: hidden;
+  grid-column: 1 / -1; padding: 18px;
+  background: var(--red-soft); border-color: rgba(255, 75, 62, 0.3);
+}
+/* Katta blokda yumshoq nur — gradient bilan, blur ishlatilmaydi */
+.adm-figure.wide::after {
+  content: ""; position: absolute; right: -30px; top: -40px;
+  width: 150px; height: 150px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 75, 62, 0.22), transparent 70%);
+  pointer-events: none;
 }
 .adm-figure b {
   display: block; font-size: 20px; font-weight: 800; letter-spacing: -0.4px;
@@ -1011,8 +1063,13 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   margin: 16px 2px 0; font-size: 11.5px; color: var(--dim); line-height: 1.6;
 }
 
+/* Foydalanuvchi animatsiyani kamaytirsa — hammasi jim turadi */
 @media (prefers-reduced-motion: reduce) {
-  .adm-tile { transition: none; }
+  .adm-tile, .adm-tile-ico { transition: none; }
+  .adm-tiles.enter > *,
+  .adm-figure,
+  .adm-row,
+  .adm-order { animation: none; }
 }
 
 /* --------------------------------------------------------------- ro'yxat */
@@ -1024,8 +1081,25 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-md);
   content-visibility: auto;
+  transition: border-color 0.2s, transform 0.15s var(--spring);
+  animation: rowIn 0.34s var(--silk) both;
 }
-.adm-row.off { opacity: 0.5; }
+.adm-row:nth-child(2) { animation-delay: 0.03s; }
+.adm-row:nth-child(3) { animation-delay: 0.06s; }
+.adm-row:nth-child(4) { animation-delay: 0.09s; }
+.adm-row:nth-child(5) { animation-delay: 0.12s; }
+.adm-row:nth-child(6) { animation-delay: 0.15s; }
+.adm-row.off { opacity: 0.48; }
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Yangi qo'shish tugmasi — ko'zga tashlanadigan, lekin bosiq */
+.adm-add {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border-style: dashed !important;
+}
 
 .adm-thumb {
   width: 46px; height: 46px; flex: none;
@@ -1106,10 +1180,15 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 .adm-order {
   padding: 12px; margin-bottom: 10px;
-  background: var(--surface); border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
   content-visibility: auto;
+  animation: rowIn 0.34s var(--silk) both;
 }
+.adm-order:nth-child(4) { animation-delay: 0.04s; }
+.adm-order:nth-child(5) { animation-delay: 0.08s; }
+.adm-order:nth-child(6) { animation-delay: 0.12s; }
 .adm-order-head {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 6px;
