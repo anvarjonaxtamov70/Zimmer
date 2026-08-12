@@ -331,14 +331,14 @@
 
   /* ---------------------------------------------------------- navigatsiya */
   function show(page) {
-    ["splash", "gate", "flow", "home", "cart", "profile", "admin"].forEach((p) => {
+    ["splash", "gate", "flow", "home", "cart", "saved", "profile", "admin"].forEach((p) => {
       const node = $(p);
       if (node) node.classList.toggle("hidden", p !== page);
     });
     S.page = page;
 
     // konfiguratorda o'zining sticky CTA'si bor — navbar yashiriladi
-    const navVisible = ["home", "cart", "profile", "admin"].includes(page) && S.me;
+    const navVisible = ["home", "cart", "saved", "profile", "admin"].includes(page) && S.me;
     $("nav").classList.toggle("hidden", !navVisible);
     document
       .querySelectorAll(".nav-btn")
@@ -348,6 +348,7 @@
       renderCart();
       animateCartTotal(); // jami summa 0 dan count-up bo'ladi
     }
+    if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
     if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
@@ -357,7 +358,8 @@
 
   function syncBackButton() {
     if (!tg || !tg.BackButton) return;
-    const need = (S.page === "flow" && S.step > 1) || ["cart", "profile"].includes(S.page);
+    const need =
+      (S.page === "flow" && S.step > 1) || ["cart", "saved", "profile"].includes(S.page);
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
   }
@@ -1751,7 +1753,8 @@
         : "Belgilanmagan";
       renderPhoneWarn();
     }
-    renderSaved();
+    // "Saqlangan" endi alohida bo'lim — bu yerda faqat sonini ko'rsatamiz
+    animateStat("pf-stat-saved", S.favorites ? S.favorites.size : 0);
     try {
       const [biled, bookings, orders] = await Promise.all([
         api("/api/biled-orders"),
@@ -2022,6 +2025,23 @@
   }
 
   /* ------------------------------------------------------------------ boot */
+  /** To'liq ekranda header Telegram tugmalari ostida qolmasligi uchun
+      --safe-t ni qurilma + Telegram UI insetlaridan hisoblab yangilaydi. */
+  function applyTgSafeTop() {
+    if (!tg) return;
+    try {
+      const sa = tg.safeAreaInset || {}; // qurilma (notch/status bar)
+      const csa = tg.contentSafeAreaInset || {}; // Telegram UI paneli
+      const saTop = typeof sa.top === "number" ? sa.top : 0;
+      const csaTop = typeof csa.top === "number" ? csa.top : 0;
+      let total = saTop + csaTop;
+      const isFs = typeof tg.isFullscreen === "boolean" ? tg.isFullscreen : false;
+      // Fullscreen yoqilgan, lekin inset hali kelmagan — zaxira qiymat
+      if (total < 1 && isFs) total = 56;
+      if (total > 0) document.documentElement.style.setProperty("--safe-t", total + "px");
+    } catch (_) {}
+  }
+
   async function boot() {
     if (tg) {
       tg.ready();
@@ -2032,6 +2052,34 @@
       } catch (_) {}
       if (tg.BackButton) tg.BackButton.onClick(goBack);
       if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+
+      // 🔳 To'liq ekran (Telegram 8.0+) — ilova butun ekranni egallaydi
+      try {
+        if (tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.requestFullscreen) {
+          tg.requestFullscreen();
+        }
+      } catch (_) {}
+
+      // 🛑 Pastga/tepaga tortganda yopilib ketmasin (Telegram 7.7+)
+      try {
+        if (tg.isVersionAtLeast && tg.isVersionAtLeast("7.7") && tg.disableVerticalSwipes) {
+          tg.disableVerticalSwipes();
+        }
+      } catch (_) {}
+
+      // 🔝 To'liq ekranda Telegram tugmalari (✕, ⋮) kontent ustida suzadi —
+      // header ular ostida qolmasligi uchun --safe-t ni haqiqiy insetlar bilan
+      // yangilaymiz. Insetlar fullscreen o'tishidan KEYIN kelishi mumkin.
+      applyTgSafeTop();
+      try {
+        if (tg.onEvent) {
+          tg.onEvent("safeAreaChanged", applyTgSafeTop);
+          tg.onEvent("contentSafeAreaChanged", applyTgSafeTop);
+          tg.onEvent("fullscreenChanged", applyTgSafeTop);
+        }
+      } catch (_) {}
+      setTimeout(applyTgSafeTop, 150);
+      setTimeout(applyTgSafeTop, 600);
     }
 
     if (!tg || !tg.initData) {
