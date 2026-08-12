@@ -50,6 +50,10 @@ async def car_choices() -> list[tuple[str, str]]:
     return [("", "🌐 Barcha mashinalar")] + [(str(r["id"]), r["name"]) for r in rows]
 
 
+async def unit_choices() -> list[tuple[str, str]]:
+    return [("dona", "1 dona"), ("komplekt", "Nabor (komplekt)")]
+
+
 async def style_choices() -> list[tuple[str, str]]:
     return [
         ("classic", "⭕️ Klassik xrom"),
@@ -156,12 +160,9 @@ ENTITIES: dict[str, Entity] = {
             ),
             Field("stock", "Ombor (dona)", "int"),
             Field("code", "Artikul / OEM kod", hint="Ixtiyoriy"),
-            Field(
-                "unit",
-                "O'lchov",
-                "choice",
-                choices=[("dona", "1 dona"), ("komplekt", "Nabor (komplekt)")],
-            ),
+            # DIQQAT: `choices` — funksiya bo'lishi kerak (ro'yxat emas),
+            # aks holda tanlovlar bo'sh chiqadi.
+            Field("unit", "O'lchov", "choice", choices=unit_choices),
             Field("badge", "Belgi", hint="Masalan: Yangi, TOP tanlov"),
             *MEDIA,
             Field("sort", "Tartib", "int"),
