@@ -921,17 +921,26 @@ async def admin_inventory_stock(request: web.Request) -> web.Response:
     if "sizes" in body:
         sizes = _parse_sizes(body.get("sizes"))
         total = sum(s["stock"] for s in sizes)
-        await q.admin_update("products", row_id, "sizes", json.dumps(sizes, ensure_ascii=False))
-        await q.admin_update("products", row_id, "product_type", "razmerli")
-        await q.admin_update("products", row_id, "stock", total)
+        payload = {
+            "sizes": json.dumps(sizes, ensure_ascii=False),
+            "product_type": "razmerli",
+            "stock": total,
+        }
     else:
         try:
-            stock = max(0, int(body.get("stock") or 0))
+            payload = {"stock": max(0, int(body.get("stock") or 0))}
         except (TypeError, ValueError) as error:
             raise bad_request("Qoldiq noto'g'ri") from error
-        await q.admin_update("products", row_id, "stock", stock)
+
+    try:
+        for column, value in payload.items():
+            await q.admin_update("products", row_id, column, value)
+    except Exception as error:
+        logger.exception("Qoldiq saqlanmadi (#%s)", row_id)
+        raise bad_request(f"Saqlanmadi: {error}") from error
 
     await sync.push_catalog("products", row_id)
+
     fresh = await q.admin_get("products", row_id)
     logger.info("Admin %s #%s qoldig'ini yangiladi", admin_id, row_id)
     return web.json_response({"ok": True, "item": _inventory_item(fresh)})
@@ -984,12 +993,17 @@ async def admin_create_product(request: web.Request) -> web.Response:
 
     unit = "komplekt" if str(body.get("unit") or "") == "komplekt" else "dona"
 
+    # Mashina: bo'sh yoki noto'g'ri bo'lsa — universal tovar (barcha mashinaga).
+    # Mavjudligini tekshiramiz, aks holda FOREIGN KEY xatosi chiqadi.
     car_id = None
     raw_car = body.get("car_id")
     if raw_car not in (None, "", "null"):
         try:
             car_id = int(raw_car)
         except (TypeError, ValueError):
+            car_id = None
+        if car_id is not None and await q.admin_get("cars", car_id) is None:
+            logger.info("Tovar qo'shishda mashina #%s topilmadi — universal qilindi", car_id)
             car_id = None
 
     values: dict = {
@@ -1018,15 +1032,25 @@ async def admin_create_product(request: web.Request) -> web.Response:
 
     values = {column: value for column, value in values.items() if value is not None}
     entity = ENTITIES["prd"]
-    values = await prepare_insert(entity, values)  # standart kategoriya + tartib
 
+    # Butun yozish jarayonini o'rab olamiz: kutilmagan xato bo'lsa ham mijoz
+    # «Serverda xatolik» emas, ANIQ sababni ko'radi (log'da to'liq traceback).
     try:
+        values = await prepare_insert(entity, values)  # standart kategoriya + tartib
         row_id = await q.admin_insert("products", values)
     except Exception as error:
-        logger.warning("Tovar qo'shilmadi: %s", error)
+        logger.exception("Tovar qo'shilmadi (values=%s)", values)
         raise bad_request(f"Qo'shilmadi: {error}") from error
 
+    # Bulutga yozish — nosozlik bo'lsa ham tovar allaqachon saqlangan
     await sync.push_catalog("products", row_id)
-    row = await q.admin_get("products", row_id)
+
+    try:
+        row = await q.admin_get("products", row_id)
+        item = _inventory_item(row)
+    except Exception as error:
+        logger.exception("Tovar #%s o'qilmadi", row_id)
+        raise bad_request(f"Tovar qo'shildi (#{row_id}), lekin o'qilmadi: {error}") from error
+
     logger.info("Admin %s yangi tovar qo'shdi: #%s «%s»", admin_id, row_id, name)
-    return web.json_response({"ok": True, "item": _inventory_item(row)}, status=201)
+    return web.json_response({"ok": True, "item": item}, status=201)

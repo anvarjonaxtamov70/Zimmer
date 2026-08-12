@@ -329,8 +329,16 @@ def _int(value, default: int = 0) -> int:
 
 
 async def push_biled_order(order) -> None:
+    """Bi-LED buyurtmasini bulutga yozadi (xato ko'tarmaydi — buyurtma allaqachon saqlangan)."""
     if not firebase.is_enabled():
         return
+    try:
+        await _put_biled_order(order)
+    except Exception as error:
+        logger.warning("Bi-LED buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+
+
+async def _put_biled_order(order) -> None:
     await firebase.put(
         f"biled_orders/{order['id']}",
         {
@@ -351,8 +359,16 @@ async def push_biled_order(order) -> None:
 
 
 async def push_order(order, items_list) -> None:
+    """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi)."""
     if not firebase.is_enabled():
         return
+    try:
+        await _put_order(order, items_list)
+    except Exception as error:
+        logger.warning("Buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+
+
+async def _put_order(order, items_list) -> None:
     keys = order.keys()
     await firebase.put(
         f"orders/{order['id']}",
@@ -420,35 +436,43 @@ async def _catalog_payload(table: str, row) -> dict:
 
 
 async def push_catalog(table: str, row_id: int) -> None:
-    """Katalog yozuvini bulutga yozadi (admin o'zgartirgandan keyin chaqiriladi)."""
+    """Katalog yozuvini bulutga yozadi (admin o'zgartirgandan keyin chaqiriladi).
+
+    MUHIM: bu funksiya HECH QACHON xato ko'tarmaydi. Ma'lumot allaqachon
+    mahalliy bazaga yozilgan; bulutga yozish — qo'shimcha zaxira. Aks holda
+    Firebase'dagi kichik nosozlik admin amalini (tovar qo'shish, qoldiqni
+    saqlash) «Serverda xatolik» bilan yiqitardi.
+    """
     if table not in q.CATALOG_KEY:
         return
     try:
         row = await q.admin_get(table, row_id)
+        if row is None:
+            return
+        await _write(
+            f"{CATALOG_ROOT}/{table}/{row_id}", await _catalog_payload(table, row), method="put"
+        )
     except Exception as error:
         logger.warning("«%s» #%s bulutga yozilmadi: %s", table, row_id, error)
-        return
-    if row is None:
-        return
-    await _write(
-        f"{CATALOG_ROOT}/{table}/{row_id}", await _catalog_payload(table, row), method="put"
-    )
 
 
 async def delete_catalog(table: str, row_id: int, key_value: str | None) -> None:
     """Bulutda «o'chirilgan» deb belgilaydi (tarix yo'qolmasin)."""
     if table not in q.CATALOG_KEY:
         return
-    await _write(
-        f"{CATALOG_ROOT}/{table}/{row_id}",
-        {
-            "id": row_id,
-            "_key": key_value,
-            "deleted": True,
-            "updatedAt": int(time.time() * 1000),
-        },
-        method="put",
-    )
+    try:
+        await _write(
+            f"{CATALOG_ROOT}/{table}/{row_id}",
+            {
+                "id": row_id,
+                "_key": key_value,
+                "deleted": True,
+                "updatedAt": int(time.time() * 1000),
+            },
+            method="put",
+        )
+    except Exception as error:
+        logger.warning("«%s» #%s o'chirilgani bulutga yozilmadi: %s", table, row_id, error)
 
 
 async def _resolve_link(ref_table: str, name) -> int | None:
@@ -660,12 +684,16 @@ async def restore_orders() -> dict[str, int]:
 
 
 async def push_status(kind: str, order_id: int, status: str) -> None:
-    """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi."""
+    """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi (xato ko'tarmaydi)."""
     if not firebase.is_enabled():
         return
     node = {"biled": "biled_orders", "order": "orders", "booking": "bookings"}.get(kind)
-    if node:
+    if not node:
+        return
+    try:
         await firebase.patch(f"{node}/{order_id}", {"status": status})
+    except Exception as error:
+        logger.warning("%s #%s holati bulutga yozilmadi: %s", kind, order_id, error)
 
 
 # ------------------------------------------------------------ ishga tushirish
