@@ -1596,3 +1596,29 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .trust-item i { font-style: normal; font-size: 22px; flex-shrink: 0; }
 .trust-item b { display: block; font-size: 14px; color: #fff; margin-bottom: 3px; }
 .trust-item small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+
+/* ==========================================================================
+   SAVAT — pastga yopishgan checkout paneli (jami + kafolat + tugma)
+   Suzuvchi navbar ustida turadi. Ro'yxat ustidan silliq aylanadi.
+   ========================================================================== */
+.cart-checkout-bar {
+  position: fixed; left: 0; right: 0; z-index: 42;
+  bottom: calc(76px + var(--safe-b));
+  padding: 12px 16px 14px;
+  background: rgba(8, 8, 10, 0.97);
+  border-top: 1px solid var(--line);
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.5);
+  animation: barUp 0.3s var(--silk);
+}
+@keyframes barUp { from { transform: translateY(100%); } to { transform: none; } }
+
+/* panel ichida ixchamroq bo'shliqlar */
+.cart-checkout-bar .cart-total-footer { padding-bottom: 10px; margin-bottom: 10px; }
+.cart-checkout-bar .cart-trust { margin-bottom: 12px; }
+.cart-checkout-bar .ct-badge { padding: 8px 6px; }
+.cart-checkout-bar .btn { width: 100%; }
+
+/* yopishgan panel ochiq bo'lsa — ro'yxat panel ostiga kirib ketmasin */
+#cart.has-bar .pad { padding-bottom: calc(268px + var(--safe-b)); }
