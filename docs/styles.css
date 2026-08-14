@@ -40,8 +40,20 @@
   --r-md: 15px;
   --r-sm: 11px;
 
+  /* #1 — yangi gold/premium aksent ranglari */
+  --gold: #d4a853;
+  --gold-soft: rgba(212, 168, 83, 0.12);
+  --gold-glow: rgba(212, 168, 83, 0.35);
+
+  /* #2 — yangi yumshoq soyalar */
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(255, 45, 58, 0.08);
+  --shadow-lifted: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(255, 45, 58, 0.12);
+
+  /* #3 — kengaytirilgan bezier egriliklari */
   --silk: cubic-bezier(0.2, 0.8, 0.2, 1);
   --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --snappy: cubic-bezier(0.25, 0.1, 0.25, 1);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
@@ -58,6 +70,8 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: contain;
+  /* #4 — silliq skroll */
+  scroll-behavior: smooth;
 }
 
 .hidden { display: none !important; }
@@ -2348,4 +2362,430 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   padding: 5px 11px; border-radius: 999px;
   background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.16);
   color: #fff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.2px;
+}
+
+
+/* ==========================================================================
+   40 TA YANGI YAXSHILANISH — Zimmer avtotuning Mini App
+   ========================================================================== */
+
+/* #5 — Fon effektlari: yangi neon chiziqlar */
+.fx::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 50%;
+  width: 1px; height: 45vh;
+  background: linear-gradient(180deg, rgba(255, 45, 58, 0.35), transparent);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* #6 — Brand logoga pulse animatsiya */
+.brand-mark {
+  position: relative;
+  overflow: hidden;
+}
+.brand-mark::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.25), transparent 70%);
+  opacity: 0;
+  animation: brandShine 3s ease-in-out infinite;
+}
+@keyframes brandShine {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+/* #7 — Nav tugmalari hover/active effekti yaxshilandi */
+.nav-btn {
+  transition: color 0.2s, background 0.2s, transform 0.15s var(--spring);
+}
+.nav-btn:active {
+  transform: scale(0.92);
+}
+.nav-btn.active {
+  box-shadow: 0 0 20px rgba(255, 45, 58, 0.15);
+}
+
+/* #8 — Konfigurator CTA ga pulsing glow */
+.config-cta {
+  position: relative;
+}
+.config-cta::before {
+  content: "";
+  position: absolute; inset: -2px;
+  border-radius: calc(var(--r-lg) + 2px);
+  background: linear-gradient(135deg, rgba(255,45,58,0.3), transparent 50%, rgba(255,45,58,0.2));
+  opacity: 0;
+  animation: ctaGlow 2.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes ctaGlow {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+/* #9 — Banner kartalariga glassmorphism effekt (blur ishlatilmaydi) */
+.banner {
+  background: linear-gradient(145deg, rgba(18, 19, 23, 0.9), rgba(8, 8, 10, 0.95));
+  transition: transform 0.25s var(--silk);
+}
+.banner:active {
+  transform: scale(0.98);
+}
+
+/* #10 — Story halqasiga yangi gradient border */
+.story-ring {
+  background: conic-gradient(from 210deg, var(--red), #ff8a3d, var(--gold), var(--red-2), var(--red));
+}
+
+/* #11 — Chip tugmalarga ripple effekt */
+.chip {
+  position: relative;
+  overflow: hidden;
+}
+.chip::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,45,58,0.2) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.chip:active::after {
+  opacity: 1;
+}
+
+/* #12 — Tovar kartochkasi yuklanganda fade-in animatsiya */
+.prod {
+  animation: prodFadeIn 0.5s var(--silk) both;
+}
+.prod:nth-child(2) { animation-delay: 0.05s; }
+.prod:nth-child(3) { animation-delay: 0.1s; }
+.prod:nth-child(4) { animation-delay: 0.15s; }
+.prod:nth-child(5) { animation-delay: 0.2s; }
+.prod:nth-child(6) { animation-delay: 0.25s; }
+@keyframes prodFadeIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* #13 — Savat badge yangi animatsiya */
+@keyframes cartBadgeBounce {
+  0% { transform: scale(1) rotate(0); }
+  25% { transform: scale(1.3) rotate(-8deg); }
+  50% { transform: scale(0.85) rotate(4deg); }
+  75% { transform: scale(1.15) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.nav-btn .badge.bounce { animation: cartBadgeBounce 0.5s var(--bounce); }
+
+/* #14 — Profil kartasi: yangi shimmer border effekt */
+.pf-card {
+  position: relative;
+}
+.pf-card::before {
+  content: "";
+  position: absolute; inset: 0; border-radius: inherit;
+  padding: 1px; pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,45,58,0.4), transparent 40%, rgba(255,45,58,0.2));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* #15 — Profil statistika raqamlari count-up effekti uchun */
+.pf-stat b {
+  transition: color 0.3s ease, transform 0.3s var(--spring);
+}
+.pf-stat:active b {
+  transform: scale(1.15);
+  color: #fff;
+}
+
+/* #16 — Sheet (pastdan chiquvchi oyna) — yangi backdrop va animatsiya */
+.sheet-backdrop {
+  transition: opacity 0.25s ease;
+}
+.sheet-body {
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6), 0 -4px 16px rgba(255, 45, 58, 0.08);
+}
+
+/* #17 — Toast xabarlarga progress bar */
+.toast {
+  position: relative;
+  overflow: hidden;
+}
+.toast::after {
+  content: "";
+  position: absolute; bottom: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--red-grad);
+  animation: toastProgress 2.8s linear forwards;
+}
+@keyframes toastProgress {
+  from { transform: scaleX(1); transform-origin: left; }
+  to   { transform: scaleX(0); transform-origin: left; }
+}
+
+/* #18 — Salomlashuv ekranidagi skeleton shimmer */
+.hello-skeleton {
+  position: relative;
+  overflow: hidden;
+}
+.hello-skeleton::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  animation: skelPulse 1.8s infinite;
+}
+@keyframes skelPulse {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* #19 — Tugmalarga ko'tarish effekti (hover state) */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 20px var(--red-glow);
+  transition: transform 0.15s var(--spring), opacity 0.18s, box-shadow 0.3s;
+}
+.btn-primary:active {
+  box-shadow: 0 2px 8px var(--red-glow);
+}
+
+/* #20 — Konfigurator progress chizig'iga gradient animatsiya */
+.progress i {
+  position: relative;
+  overflow: hidden;
+}
+.progress i::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: progressShine 2s infinite;
+}
+@keyframes progressShine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* #21 — Mashina kartochkasi: yangi hover glow */
+.car-card {
+  position: relative;
+}
+.car-card::after {
+  content: "";
+  position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(ellipse at 80% 50%, rgba(255,45,58,0.08), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.car-card.selected::after { opacity: 1; }
+
+/* #22 — Variant qatorlari (opt) — yangi glow va silliq o'tish */
+.opt {
+  position: relative;
+  overflow: hidden;
+}
+.opt::before {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--red-grad);
+  transform: scaleY(0);
+  transition: transform 0.25s var(--spring);
+  border-radius: 0 2px 2px 0;
+}
+.opt.selected::before { transform: scaleY(1); }
+
+/* #23 — Rang (swatch) tanlanganda pulsing border */
+.swatch.selected {
+  box-shadow: 0 0 0 2px var(--red), 0 8px 24px rgba(255, 45, 58, 0.2);
+  transition: border-color 0.18s, transform 0.14s var(--spring), box-shadow 0.3s;
+}
+
+/* #24 — Savatcha bo'sh bo'lganda: animatsiyali empty state */
+.empty-state-pro .es-icon {
+  animation: esFloat 3s ease-in-out infinite;
+}
+@keyframes esFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* #25 — Savat qatori: swipe qilayotganda silliq gradient ko'rsatish */
+.swipe-delete {
+  background: linear-gradient(135deg, #ff453a, var(--red-2), #8a0a14);
+}
+
+/* #26 — Navbat kunlari: tanlangan kun effekti */
+.bk-day.on {
+  box-shadow: 0 4px 16px rgba(255, 45, 58, 0.25);
+  transform: scale(1.02);
+}
+
+/* #27 — Navbat vaqtlari: neon glow */
+.bk-time.on {
+  text-shadow: 0 0 8px rgba(255, 45, 58, 0.5);
+}
+
+/* #28 — Admin plitka: yangi gradient va hover */
+.adm-tile {
+  position: relative;
+  overflow: hidden;
+}
+.adm-tile::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(255,45,58,0.1), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.adm-tile:active::after { opacity: 1; }
+
+/* #29 — Admin figure: raqamlar kattaroq va yorqin */
+.adm-figure b {
+  text-shadow: 0 2px 12px rgba(255, 45, 58, 0.2);
+}
+
+/* #30 — Karta to'lov: chip shimmer effekt */
+.bank-chip {
+  position: relative;
+  overflow: hidden;
+}
+.bank-chip::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%);
+  animation: chipShimmer 3s infinite;
+}
+@keyframes chipShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* #31 — Scroll indicator: tepa va pastdagi fading edge */
+.stories::before,
+.stories::after {
+  content: "";
+  position: sticky; z-index: 2;
+  width: 24px; flex: none;
+}
+.stories::before { left: 0; background: linear-gradient(90deg, var(--bg), transparent); }
+.stories::after { right: 0; background: linear-gradient(270deg, var(--bg), transparent); }
+
+/* #32 — Bosh menyudagi sektsiya sarlavhalariga qizil chiziq */
+.sec-title {
+  position: relative;
+  padding-bottom: 8px;
+}
+.sec-title::after {
+  content: "";
+  position: absolute; bottom: 0; left: 0;
+  width: 32px; height: 2px;
+  background: var(--red-grad);
+  border-radius: 1px;
+}
+
+/* #33 — Yangi "typing indicator" animatsiya (yuklanish vaqtida) */
+@keyframes typingDot {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.typing-dots {
+  display: inline-flex; gap: 4px; align-items: center;
+}
+.typing-dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--red); display: block;
+  animation: typingDot 1.2s ease-in-out infinite;
+}
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+/* #34 — Saqlanganlar bo'limi: yangi hover animatsiya */
+.saved-row {
+  transition: transform 0.15s var(--spring), border-color 0.2s, box-shadow 0.2s;
+}
+.saved-row:active {
+  transform: scale(0.98);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* #35 — Input fokus holatida glow effekt */
+.field input:focus, .field textarea:focus,
+.ap-input:focus, .inv-search:focus,
+.addr-name-input:focus {
+  box-shadow: 0 0 0 3px rgba(255, 45, 58, 0.12);
+}
+
+/* #36 — Dot indikatorlar: silliq o'tish */
+.dots i {
+  transition: width 0.35s var(--spring), background 0.3s, box-shadow 0.3s;
+}
+.dots i.on {
+  box-shadow: 0 0 8px var(--red-glow);
+}
+
+/* #37 — Topbar ga nozik gradient */
+.topbar, .home-header {
+  background: linear-gradient(180deg, #0e0e11 0%, #0b0b0e 100%);
+}
+
+/* #38 — Gate (ro'yxatdan o'tish) sahifasi: yangi animatsiya */
+.gate {
+  animation: gateIn 0.5s var(--silk);
+}
+@keyframes gateIn {
+  from { opacity: 0; transform: scale(0.95) translateY(20px); }
+  to   { opacity: 1; transform: none; }
+}
+.gate-icon {
+  animation: gateIconPulse 2s ease-in-out infinite;
+}
+@keyframes gateIconPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1) rotate(5deg); }
+}
+
+/* #39 — Sticky CTA panel: nozik tepa nur */
+.sticky-cta {
+  position: relative;
+}
+.sticky-cta::before {
+  content: "";
+  position: absolute; top: -1px; left: 20%; right: 20%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+}
+
+/* #40 — Sahifa o'tishlarida yangi animatsiya */
+@keyframes pageSlideIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.page {
+  animation: pageSlideIn 0.35s var(--silk);
+}
+
+/* Yangi yaxshilanishlar — prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark::after,
+  .config-cta::before,
+  .toast::after,
+  .hello-skeleton::after,
+  .progress i::after,
+  .bank-chip::after,
+  .fx::after { animation: none; display: none; }
+  .empty-state-pro .es-icon,
+  .gate-icon { animation: none; }
+  .prod { animation: none; }
+  .page { animation: none; }
+  .gate { animation: none; }
 }

@@ -105,18 +105,20 @@
     const box = $("burst");
     box.innerHTML = "";
     box.classList.remove("hidden");
-    const colors = ["#ff2d3a", "#ffffff", "#ff8a3d", "#e01020"];
-    for (let i = 0; i < 34; i++) {
+    const colors = ["#ff2d3a", "#ffffff", "#ff8a3d", "#e01020", "#d4a853", "#2fd45f"];
+    for (let i = 0; i < 42; i++) {
       const p = el("i");
       p.style.left = Math.random() * 100 + "%";
       p.style.background = colors[i % colors.length];
-      p.style.animationDelay = Math.random() * 0.4 + "s";
+      p.style.animationDelay = Math.random() * 0.5 + "s";
+      p.style.width = (4 + Math.random() * 5) + "px";
+      p.style.height = (8 + Math.random() * 8) + "px";
       box.append(p);
     }
     setTimeout(() => {
       box.classList.add("hidden");
       box.innerHTML = "";
-    }, 2400);
+    }, 2800);
   }
 
   /* ---------------------------------------------------------------- API */
@@ -146,6 +148,11 @@
   function emptyState(box, text) {
     box.innerHTML = "";
     box.append(el("p", "empty", text));
+  }
+
+  /** Yuklanish vaqtida typing dots ko'rsatish */
+  function loadingDots(box) {
+    box.innerHTML = '<div style="text-align:center;padding:24px"><span class="typing-dots"><i></i><i></i><i></i></span></div>';
   }
 
   async function api(path, opts) {
@@ -325,15 +332,15 @@
     const n = S.cart.reduce((s, i) => s + i.qty, 0);
     const b = $("cart-badge");
     b.textContent = n;
-    // Aqlli badge: son o'zgarganda "pulse" (Avto_A1 mantiqi)
+    // Aqlli badge: son o'zgarganda "pulse" + "bounce" (Avto_A1 mantiqi)
     if (n > 0) {
       b.classList.remove("hidden");
-      b.classList.remove("pulse");
+      b.classList.remove("pulse", "bounce");
       void b.offsetWidth; // reflow — animatsiya qayta ishga tushsin
-      b.classList.add("pulse");
+      b.classList.add("pulse", "bounce");
     } else {
       b.classList.add("hidden");
-      b.classList.remove("pulse");
+      b.classList.remove("pulse", "bounce");
     }
   }
   const cartSum = () => S.cart.reduce((s, i) => s + i.price * i.qty, 0);
