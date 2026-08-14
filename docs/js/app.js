@@ -152,7 +152,11 @@
 
   /** Yuklanish vaqtida typing dots ko'rsatish */
   function loadingDots(box) {
-    box.innerHTML = '<div style="text-align:center;padding:24px"><span class="typing-dots"><i></i><i></i><i></i></span></div>';
+    var wrap = el("div", "loading-dots-wrap");
+    var dots = el("span", "typing-dots", "<i></i><i></i><i></i>");
+    wrap.append(dots);
+    box.innerHTML = "";
+    box.append(wrap);
   }
 
   async function api(path, opts) {
