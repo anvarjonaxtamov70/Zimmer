@@ -26,6 +26,7 @@ USER_COMMANDS = [
 ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin", description="Admin panel"),
     BotCommand(command="katalog", description="Katalogni boshqarish"),
+    BotCommand(command="stories", description="Stories qo'shish (bo'limlar ro'yxati)"),
     BotCommand(command="adminlar", description="Adminlar ro'yxati"),
     BotCommand(command="firebase", description="Doimiy saqlash holati"),
 ]

@@ -1055,6 +1055,51 @@ async def get_stories() -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
+async def add_story_item(
+    category: str,
+    title: str,
+    heading: str,
+    emoji: str,
+    color_from: str,
+    color_to: str,
+    photo_id: str | None = None,
+    video_id: str | None = None,
+) -> int:
+    """Halqa ichiga yangi element qo'shadi (bot orqali yuborilgan media)."""
+    db = get_db()
+    async with db.execute("SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM stories") as cur:
+        row = await cur.fetchone()
+    sort = int(row["s"]) if row else 1
+
+    cur = await db.execute(
+        "INSERT INTO stories (category, title, emoji, heading, color_from, color_to,"
+        " photo_id, video_id, sort) VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            story_cfg.normalize(category),
+            title[:120],
+            emoji,
+            heading[:160],
+            color_from,
+            color_to,
+            photo_id,
+            video_id,
+            sort,
+        ),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+async def get_story_items(category: str) -> list[aiosqlite.Row]:
+    """Bitta halqa ichidagi elementlar."""
+    db = get_db()
+    async with db.execute(
+        "SELECT * FROM stories WHERE category = ? AND is_active = 1 ORDER BY sort, id",
+        (story_cfg.normalize(category),),
+    ) as cur:
+        return await cur.fetchall()
+
+
 async def get_story_rings() -> list[dict[str, Any]]:
     """Storieslarni KATEGORIYALAR (halqalar) bo'yicha guruhlaydi.
 
