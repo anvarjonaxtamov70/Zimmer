@@ -1343,6 +1343,126 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .bts-info > div { color: var(--muted); }
 .bts-landmark { color: #ff9b8a; }
 
+/* ==================== MAP PICKER ==================== */
+.map-picker-overlay {
+  position: fixed; inset: 0; z-index: 99999;
+  background: var(--bg); display: flex; flex-direction: column;
+}
+.map-picker-overlay.hidden { display: none; }
+.map-picker-map {
+  flex: 1; width: 100%; position: relative;
+}
+.map-picker-bar {
+  padding: 14px 16px calc(14px + var(--safe-b));
+  background: var(--surface); display: flex; gap: 10px; align-items: center;
+}
+.map-picker-bar .btn-primary { flex: 1; }
+.map-locate-hint {
+  position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+  z-index: 1000; background: var(--surface);
+  color: var(--text); font-size: 12.5px; font-weight: 600;
+  padding: 9px 16px; border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  pointer-events: none; white-space: nowrap;
+}
+.map-locate-btn {
+  position: absolute; right: 16px; bottom: 20px; z-index: 1000;
+  width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,45,58,0.25);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--red); transition: transform .18s ease, background .2s;
+}
+.map-locate-btn:active { transform: scale(0.88); background: var(--red-soft); }
+.map-locate-btn svg { width: 26px; height: 26px; display: block; }
+.map-locate-btn.locating svg { animation: mapLocateSpin 0.9s linear infinite; }
+@keyframes mapLocateSpin { to { transform: rotate(360deg); } }
+
+/* ==================== ADDRESS NAME MODAL ==================== */
+.addr-name-overlay {
+  position: fixed; inset: 0; z-index: 100000;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0,0,0,0);
+  transition: background .25s ease;
+}
+.addr-name-overlay.hidden { display: none; }
+.addr-name-overlay.show { background: rgba(0,0,0,0.6); }
+.addr-name-sheet {
+  width: 100%; max-width: 500px;
+  background: linear-gradient(180deg, var(--surface-2), var(--bg-2));
+  border: 1px solid rgba(255,45,58,0.2);
+  border-radius: 24px 24px 0 0;
+  padding: 22px 20px calc(22px + var(--safe-b));
+  box-shadow: 0 -12px 40px rgba(0,0,0,0.5);
+  transform: translateY(110%);
+  transition: transform .32s cubic-bezier(0.22,1,0.36,1);
+}
+.addr-name-overlay.show .addr-name-sheet { transform: translateY(0); }
+.addr-name-grip {
+  width: 42px; height: 5px; border-radius: 3px;
+  background: rgba(255,255,255,0.18); margin: 0 auto 16px;
+}
+.addr-name-sheet h3 {
+  margin: 0 0 4px; font-size: 19px; font-weight: 800;
+  display: flex; align-items: center; gap: 8px;
+}
+.addr-name-input {
+  width: 100%; box-sizing: border-box;
+  background: rgba(255,255,255,0.05);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 14px; padding: 15px;
+  color: var(--text); font-size: 16px; outline: none;
+  transition: .2s; margin-bottom: 14px;
+}
+.addr-name-input:focus { border-color: var(--red); background: rgba(255,45,58,0.06); }
+.addr-name-input::placeholder { color: rgba(255,255,255,0.35); }
+.addr-name-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.addr-chip {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; padding: 9px 14px; font-size: 13px; font-weight: 700;
+  color: var(--text); cursor: pointer; transition: .18s;
+}
+.addr-chip:active { transform: scale(0.93); }
+.addr-chip.sel { background: rgba(255,45,58,0.15); border-color: var(--red); color: var(--red); }
+.addr-name-coords {
+  font-size: 11px; color: var(--muted); text-align: center;
+  margin-bottom: 14px; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+
+/* ==================== SAVED ADDRESSES LIST ==================== */
+.dlv-addr-list { margin-bottom: 10px; }
+.dlv-addr-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; background: var(--surface); border: 1.5px solid var(--line-2);
+  border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: .2s;
+}
+.dlv-addr-item.selected { background: rgba(47,212,95,0.1); border-color: var(--green); }
+.dlv-addr-radio {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--line-2); flex-shrink: 0;
+}
+.dlv-addr-item.selected .dlv-addr-radio {
+  border-color: var(--green);
+  background: radial-gradient(circle, var(--green) 40%, transparent 45%);
+}
+.dlv-addr-del {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+  border: none; background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.4); display: flex; align-items: center;
+  justify-content: center; cursor: pointer; transition: .18s; padding: 0;
+}
+.dlv-addr-del svg { width: 15px; height: 15px; display: block; }
+.dlv-addr-del:hover { background: rgba(255,69,58,0.15); color: #ff453a; }
+.dlv-addr-del:active { transform: scale(0.82); background: rgba(255,69,58,0.28); color: #ff453a; }
+.dlv-map-btn {
+  width: 100%; padding: 14px; border-radius: 14px;
+  background: rgba(255,45,58,0.1); border: 1px solid rgba(255,45,58,0.35);
+  color: var(--red); font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 10px; font-size: 14px; transition: .18s;
+}
+.dlv-map-btn:active { transform: scale(0.97); }
+
 /* ---- to'lov ---- */
 .pay-card { margin-bottom: 10px; }
 .pay-ico.blue { color: #4ba3ff; }

@@ -1750,7 +1750,9 @@
        </div>
 
        <div id="dlv-courier-box" class="hidden">
-         <label class="field"><span>📍 Yetkazish manzili</span>
+         <div class="dlv-addr-list" id="dlv-addresses"></div>
+         <button class="dlv-map-btn" id="dlv-map-btn">🗺 Xaritadan belgilash</button>
+         <label class="field"><span>📍 Yoki manzilni yozing</span>
            <textarea id="dlv-address" rows="2"
              placeholder="${esc(dcity())}, Chilonzor 9-kvartal, 25-uy, 12-xonadon"></textarea></label>
          <p class="dlv-note">ℹ️ Kuryer faqat <b>${esc(dcity())} shahar ichida</b> ishlaydi.
@@ -1781,6 +1783,7 @@
 
     $("dlv-courier").onclick = () => pickDelivery("courier");
     $("dlv-bts").onclick = () => pickDelivery("bts");
+    $("dlv-map-btn").onclick = openMapPicker;
     regSel.onchange = btsRegionChange;
     $("bts-district").onchange = btsDistrictChange;
     $("bts-branch").onchange = btsBranchChange;
@@ -1794,6 +1797,7 @@
     $("dlv-bts").classList.toggle("on", method === "bts");
     $("dlv-courier-box").classList.toggle("hidden", method !== "courier");
     $("dlv-bts-box").classList.toggle("hidden", method !== "bts");
+    if (method === "courier") renderCourierAddresses();
   }
 
   function btsRegionChange() {
@@ -1863,9 +1867,21 @@
     if (!method) return toast("Yetkazib berish usulini tanlang");
 
     if (method === "courier") {
-      const address = ($("dlv-address").value || "").trim();
-      if (address.length < 5) return toast("Manzilni to'liqroq yozing");
-      S.delivery = { method: "courier", address, summary: `Kuryer (manzilga): ${address}` };
+      // Saqlangan manzil tanlangan bo'lsa, undan foydalanamiz
+      const addrs = getAddresses();
+      if (S._dlvSelectedAddr !== null && addrs[S._dlvSelectedAddr]) {
+        const a = addrs[S._dlvSelectedAddr];
+        const addr = a.address;
+        const mapLink = a.mapLink || "";
+        S.delivery = {
+          method: "courier", address: addr, mapLink,
+          summary: `Kuryer (manzilga): ${a.label || addr}` + (mapLink ? `\n🗺 ${mapLink}` : ""),
+        };
+      } else {
+        const address = ($("dlv-address").value || "").trim();
+        if (address.length < 5) return toast("Manzilni to'liqroq yozing yoki xaritadan belgilang");
+        S.delivery = { method: "courier", address, summary: `Kuryer (manzilga): ${address}` };
+      }
     } else {
       const B = window.BTS_BRANCHES || {};
       const region = $("bts-region").value;
@@ -2970,6 +2986,253 @@
       { passive: true }
     );
   })();
+
+  /* ==================================================================
+     XARITA TANLASH (Map Picker) — Leaflet (OpenStreetMap, kalitsiz)
+     Avto_A1 dagi mantiq, Zimmer dizaynida
+     ================================================================== */
+
+  // Saqlangan manzillar (localStorage)
+  function getAddresses() {
+    try { return JSON.parse(localStorage.getItem("zimmer_addresses") || "[]"); }
+    catch { return []; }
+  }
+  function saveAddresses(arr) {
+    localStorage.setItem("zimmer_addresses", JSON.stringify(arr));
+  }
+
+  // Manzillar ro'yxatini chizish
+  S._dlvSelectedAddr = null;
+  function renderCourierAddresses() {
+    const box = $("dlv-addresses");
+    if (!box) return;
+    const addrs = getAddresses();
+    if (!addrs.length) {
+      box.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;text-align:center;">Saqlangan manzil yo\'q. Xaritadan belgilang yoki pastga yozing.</div>';
+      return;
+    }
+    box.innerHTML = addrs.map((a, i) =>
+      `<div class="dlv-addr-item ${S._dlvSelectedAddr === i ? "selected" : ""}" data-idx="${i}">
+        <div class="dlv-addr-radio"></div>
+        <span style="font-size:17px;">${a.type === "home" ? "🏠" : a.type === "work" ? "🏢" : "📍"}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:700;">${esc(a.label || "Manzil")}</div>
+          <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.address)}</div>
+        </div>
+        <button class="dlv-addr-del" data-delidx="${i}" aria-label="O'chirish">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>`
+    ).join("");
+
+    // Tanlash
+    box.querySelectorAll(".dlv-addr-item").forEach((item) => {
+      item.addEventListener("click", (e) => {
+        if (e.target.closest(".dlv-addr-del")) return;
+        S._dlvSelectedAddr = parseInt(item.dataset.idx, 10);
+        haptic("light");
+        renderCourierAddresses();
+      });
+    });
+
+    // O'chirish
+    box.querySelectorAll(".dlv-addr-del").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.delidx, 10);
+        const arr = getAddresses();
+        if (!arr[idx]) return;
+        const ok = await ask(`"${arr[idx].label || arr[idx].address}" manzilini o'chirasizmi?`);
+        if (!ok) return;
+        arr.splice(idx, 1);
+        saveAddresses(arr);
+        if (S._dlvSelectedAddr === idx) S._dlvSelectedAddr = null;
+        else if (S._dlvSelectedAddr !== null && S._dlvSelectedAddr > idx) S._dlvSelectedAddr--;
+        renderCourierAddresses();
+        toast("Manzil o'chirildi");
+        haptic("success");
+      });
+    });
+  }
+
+  // Leaflet yuklash
+  let _leafletLoading = null;
+  function ensureLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (_leafletLoading) return _leafletLoading;
+    _leafletLoading = new Promise((resolve, reject) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(css);
+      const js = document.createElement("script");
+      js.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      js.onload = () => resolve();
+      js.onerror = () => reject(new Error("xarita yuklanmadi"));
+      document.head.appendChild(js);
+    });
+    return _leafletLoading;
+  }
+
+  let _mapObj = null;
+  let _mapMarker = null;
+  let _pickedCoords = null;
+
+  async function openMapPicker() {
+    const ov = $("map-picker-overlay");
+    ov.classList.remove("hidden");
+    _pickedCoords = null;
+    haptic("medium");
+
+    try { await ensureLeaflet(); } catch {
+      toast("Xarita yuklanmadi. Internetni tekshiring.");
+      ov.classList.add("hidden");
+      return;
+    }
+
+    setTimeout(() => {
+      const mapEl = $("map-picker-map");
+      if (_mapObj && _mapObj.remove) {
+        try { _mapObj.remove(); } catch {}
+        _mapObj = null; _mapMarker = null;
+      }
+      // Leaflet'ga to'g'ri hint + btn elementlarni saqlaymiz
+      const hint = $("map-locate-hint");
+      const locBtn = $("map-locate-btn");
+
+      _mapObj = L.map(mapEl).setView([41.3111, 69.2797], 12);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+        maxZoom: 20, attribution: "\u00a9 OpenStreetMap, \u00a9 CARTO", subdomains: "abcd",
+      }).addTo(_mapObj);
+
+      // Re-append hint & locate button (Leaflet clears container)
+      if (hint) mapEl.appendChild(hint);
+      if (locBtn) mapEl.appendChild(locBtn);
+
+      _mapObj.on("click", (e) => {
+        placeMarker(e.latlng.lat, e.latlng.lng);
+      });
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { _mapObj.setView([pos.coords.latitude, pos.coords.longitude], 15); },
+          () => {}, { timeout: 5000 }
+        );
+      }
+      _mapObj.invalidateSize();
+    }, 200);
+
+    $("map-cancel").onclick = closeMapPicker;
+    $("map-confirm").onclick = confirmMapLocation;
+    $("map-locate-btn").onclick = locateMe;
+  }
+
+  function closeMapPicker() {
+    $("map-picker-overlay").classList.add("hidden");
+    haptic();
+  }
+
+  function placeMarker(lat, lng) {
+    _pickedCoords = { lat, lng };
+    if (_mapMarker) _mapMarker.setLatLng([lat, lng]);
+    else if (window.L) _mapMarker = L.marker([lat, lng]).addTo(_mapObj);
+  }
+
+  function locateMe() {
+    const btn = $("map-locate-btn");
+    const hint = $("map-locate-hint");
+    if (!navigator.geolocation) return toast("Qurilmangiz joylashuvni qo'llamaydi");
+    if (btn) btn.classList.add("locating");
+    if (hint) hint.textContent = "Joylashuv aniqlanmoqda...";
+    haptic("selection");
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        if (_mapObj) _mapObj.setView([lat, lng], 16);
+        placeMarker(lat, lng);
+        if (btn) btn.classList.remove("locating");
+        if (hint) hint.textContent = "📍 Joylashuvingiz topildi!";
+        toast("📍 Joylashuvingiz aniqlandi");
+        haptic("success");
+      },
+      (err) => {
+        if (btn) btn.classList.remove("locating");
+        if (hint) hint.textContent = "Joyni belgilang yoki 🎯 tugmasini bosing";
+        let msg = "Joylashuvni aniqlab bo'lmadi";
+        if (err && err.code === 1) msg = "Joylashuvga ruxsat berilmadi. Sozlamalardan yoqing.";
+        else if (err && err.code === 3) msg = "Vaqt tugadi. Qayta urinib ko'ring.";
+        toast(msg);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
+  function confirmMapLocation() {
+    if (!_pickedCoords) return toast("Xaritada nuqtani belgilang");
+    openAddrNameModal();
+  }
+
+  // Manzilga nom berish modali
+  function openAddrNameModal() {
+    const ov = $("addr-name-overlay");
+    const coords = $("addr-name-coords");
+    if (coords && _pickedCoords) {
+      coords.textContent = "📍 " + _pickedCoords.lat.toFixed(5) + ", " + _pickedCoords.lng.toFixed(5);
+    }
+    $("addr-name-input").value = "";
+    ov.querySelectorAll(".addr-chip").forEach((c) => c.classList.remove("sel"));
+
+    ov.classList.remove("hidden");
+    requestAnimationFrame(() => ov.classList.add("show"));
+    setTimeout(() => $("addr-name-input").focus(), 320);
+
+    // Chip tanlash
+    ov.querySelectorAll(".addr-chip").forEach((chip) => {
+      chip.onclick = () => {
+        ov.querySelectorAll(".addr-chip").forEach((c) => c.classList.remove("sel"));
+        chip.classList.add("sel");
+        $("addr-name-input").value = chip.dataset.label;
+        haptic("selection");
+      };
+    });
+
+    // Saqlash
+    $("addr-name-save").onclick = saveMapAddressWithName;
+
+    // Tashqariga bosib yopish
+    ov.onclick = (e) => { if (e.target === ov) closeAddrNameModal(); };
+  }
+
+  function closeAddrNameModal() {
+    const ov = $("addr-name-overlay");
+    ov.classList.remove("show");
+    setTimeout(() => ov.classList.add("hidden"), 220);
+  }
+
+  function saveMapAddressWithName() {
+    if (!_pickedCoords) return toast("Xaritada nuqtani belgilang");
+    const name = ($("addr-name-input").value || "").trim();
+    if (!name) { toast("Manzilga nom kiriting"); $("addr-name-input").focus(); return; }
+
+    const lat = _pickedCoords.lat, lng = _pickedCoords.lng;
+    const mapLink = "https://www.google.com/maps?q=" + lat.toFixed(6) + "," + lng.toFixed(6);
+    const addrText = "\ud83d\udccd " + lat.toFixed(5) + ", " + lng.toFixed(5);
+
+    const arr = getAddresses();
+    arr.push({ type: "map", label: name, address: addrText, mapLink: mapLink });
+    saveAddresses(arr);
+
+    toast("✅ Manzil saqlandi: " + name);
+    haptic("success");
+    closeAddrNameModal();
+    closeMapPicker();
+
+    // Yangi manzilni tanlash
+    S._dlvSelectedAddr = arr.length - 1;
+    renderCourierAddresses();
+  }
 
   boot();
 })();
