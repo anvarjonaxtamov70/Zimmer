@@ -246,7 +246,7 @@ async def _after_phone(message: Message, state: FSMContext, raw_phone: str) -> N
 async def checkout_payment(callback: CallbackQuery, state: FSMContext) -> None:
     pay_key = callback.data.split(":")[1]  # "card" | "app" | "cash"
     pay_label = _PAY_LABELS.get(pay_key, pay_key)
-    await state.update_data(payment_method=pay_label)
+    await state.update_data(payment_method=pay_key, payment_label=pay_label)
     await _checkout_summary(callback, state)
     await callback.answer()
 
@@ -259,7 +259,7 @@ async def _checkout_summary(callback: CallbackQuery, state: FSMContext) -> None:
     items = await q.get_cart(callback.from_user.id)
     if not items:
         await state.clear()
-        await edit_or_send(callback.message, EMPTY_CART)
+        await callback.message.answer(EMPTY_CART)
         return
 
     await state.set_state(Checkout.confirm)
@@ -274,7 +274,7 @@ async def _checkout_summary(callback: CallbackQuery, state: FSMContext) -> None:
     lines.append(f"🚚 Yetkazish: {data.get('delivery_label', '-')}")
     lines.append(f"📍 Manzil: {data.get('address')}")
     lines.append(f"📞 Telefon: {data.get('phone')}")
-    lines.append(f"💳 To'lov: {data.get('payment_method', '-')}")
+    lines.append(f"💳 To'lov: {data.get('payment_label', '-')}")
 
     await callback.message.answer("\n".join(lines), reply_markup=checkout_confirm_kb())
 
@@ -286,7 +286,7 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     phone = data.get("phone", "-")
     delivery_method = data.get("delivery_method")
     delivery_label = data.get("delivery_label", "")
-    payment_method = data.get("payment_method")
+    payment_label = data.get("payment_label", "")
 
     # delivery_info — xuddi Mini App'dagi kabi bir qatorda
     delivery_info = delivery_label
@@ -299,7 +299,7 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
         phone,
         delivery_method=delivery_method,
         delivery_info=delivery_info,
-        payment_method=payment_method,
+        payment_method=payment_label or None,
     )
     await state.clear()
 
@@ -315,8 +315,8 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     meta_lines = []
     if delivery_info:
         meta_lines.append(f"🚚 {delivery_info}")
-    if payment_method:
-        meta_lines.append(f"💳 To'lov: <b>{payment_method}</b>")
+    if payment_label:
+        meta_lines.append(f"💳 To'lov: <b>{payment_label}</b>")
     meta_block = ("\n" + "\n".join(meta_lines)) if meta_lines else ""
 
     lines = [
