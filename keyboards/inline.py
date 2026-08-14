@@ -120,6 +120,32 @@ def cart_kb(items: Sequence[aiosqlite.Row]) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def delivery_method_kb(city: str = "Toshkent") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=f"🚖 Kuryer — {city} shahar ichida",
+        callback_data="dlv:courier",
+    )
+    kb.button(
+        text="📦 BTS Pochta — butun O'zbekiston",
+        callback_data="dlv:bts",
+    )
+    kb.button(text="❌ Bekor qilish", callback_data="order:cancel")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def payment_method_kb(is_courier: bool = True) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💳 Karta orqali o'tkazma", callback_data="pay:card")
+    kb.button(text="📱 Ilova orqali (Payme/Click)", callback_data="pay:app")
+    if is_courier:
+        kb.button(text="💵 Naqd pul (yetkazilganda)", callback_data="pay:cash")
+    kb.button(text="❌ Bekor qilish", callback_data="order:cancel")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 def checkout_confirm_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Buyurtmani tasdiqlash", callback_data="order:confirm")
