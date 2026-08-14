@@ -48,6 +48,12 @@
     stories: [],
     storyIndex: 0,
     storyTimer: null,
+    storyRaf: 0, // requestAnimationFrame id (progress chizig'i)
+    storyDuration: 5000,
+    storyPassed: 0,
+    storyPaused: false,
+    storyVideo: null, // joriy video elementi
+    storyMuted: true, // ovoz holati (birinchi ochilishda ovozsiz)
     bannerTimer: null,
     booking: { service: null, date: null },
     delivery: null, // {method, address, summary}
@@ -871,6 +877,65 @@
     paintStory();
   }
 
+  /* ---------------------------------------------------- story: progress (rAF)
+     Chiziq video DAVOMIYLIGIGA moslashadi (Avto_A1 mantiqi): rasm — 5s,
+     video — o'zining uzunligi. Bosib turilsa pauza qiladi. */
+  function animateStoryProgress(fill, ms) {
+    cancelAnimationFrame(S.storyRaf);
+    S.storyDuration = ms;
+    S.storyPassed = 0;
+    S.storyPaused = false;
+    let last = Date.now();
+
+    function step() {
+      if (S.storyPaused) {
+        last = Date.now();
+        S.storyRaf = requestAnimationFrame(step);
+        return;
+      }
+      const now = Date.now();
+      S.storyPassed += now - last;
+      last = now;
+      const percent = (S.storyPassed / S.storyDuration) * 100;
+      if (percent >= 100) {
+        if (fill) fill.style.width = "100%";
+        // Video o'zining `ended` hodisasi bilan o'tadi — ikki marta o'tmaymiz
+        if (!S.storyVideo) stepStory(1);
+        return;
+      }
+      if (fill) fill.style.width = percent + "%";
+      S.storyRaf = requestAnimationFrame(step);
+    }
+    S.storyRaf = requestAnimationFrame(step);
+  }
+
+  /** Keyingi storyni fonda yuklab qo'yadi — silliq o'tishi uchun. */
+  function preloadNextStory() {
+    const next = S.stories[S.storyIndex + 1];
+    if (!next) return;
+    const photo = abs(next.photo_url);
+    const video = abs(next.video_url);
+    if (video) {
+      const v = document.createElement("video");
+      v.preload = "auto";
+      v.muted = true;
+      v.src = video;
+    } else if (photo) {
+      const i = new Image();
+      i.src = photo;
+    }
+  }
+
+  function releaseStoryVideo() {
+    if (!S.storyVideo) return;
+    try {
+      S.storyVideo.pause();
+      S.storyVideo.removeAttribute("src");
+      S.storyVideo.load();
+    } catch (_) {}
+    S.storyVideo = null;
+  }
+
   function paintStory() {
     const story = S.stories[S.storyIndex];
     if (!story) return closeStory();
@@ -881,32 +946,174 @@
           `<i class="${i < S.storyIndex ? "done" : i === S.storyIndex ? "active" : ""}"><b></b></i>`
       )
       .join("");
+    const bars = $("story-bars").children;
+    const fill = bars[S.storyIndex] ? bars[S.storyIndex].querySelector("b") : null;
+
+    cancelAnimationFrame(S.storyRaf);
+    clearTimeout(S.storyTimer);
+    releaseStoryVideo();
 
     const photo = abs(story.photo_url);
     const video = abs(story.video_url);
-    const bg = video
-      ? `<video src="${esc(video)}" autoplay muted loop playsinline></video>`
-      : photo
-      ? `<img src="${esc(photo)}" alt="">`
-      : "";
+    const inner = $("story-inner");
+    const soundBtn = $("story-sound");
+    const saveBtn = $("story-save");
 
-    $("story-inner").innerHTML = `
-      <div class="story-bg" style="background:linear-gradient(160deg,${esc(
-        story.color_from
-      )},${esc(story.color_to)} 75%, #000)">${bg}</div>
-      <div class="story-shade"></div>
-      ${!bg ? `<div class="story-emoji">${esc(story.emoji)}</div>` : ""}
-      <div class="story-h">${esc(story.heading || story.title)}</div>
-      <div class="story-b">${esc(story.body || "")}</div>`;
+    // Ovoz tugmasi faqat videoda; yuklab olish faqat media bo'lsa
+    if (soundBtn) soundBtn.classList.toggle("hidden", !video);
+    if (saveBtn) saveBtn.classList.toggle("hidden", !(video || photo));
+
+    if (video) {
+      inner.innerHTML = `
+        <div class="story-bg" style="background:#000">
+          <video id="story-video" class="loading" playsinline webkit-playsinline
+                 preload="auto" autoplay ${S.storyMuted ? "muted" : ""}
+                 ${photo ? `poster="${esc(photo)}"` : ""}
+                 src="${esc(video)}"></video>
+        </div>
+        <div class="story-spinner" id="story-spinner"></div>
+        <div class="story-buffer show" id="story-buffer"><i></i></div>
+        <div class="story-shade"></div>
+        <div class="story-h">${esc(story.heading || story.title)}</div>
+        <div class="story-b">${esc(story.body || "")}</div>`;
+
+      const node = $("story-video");
+      S.storyVideo = node;
+      const spinner = $("story-spinner");
+      const buffer = $("story-buffer");
+      const bufferFill = buffer ? buffer.firstElementChild : null;
+      if (soundBtn) soundBtn.textContent = S.storyMuted ? "🔇" : "🔊";
+
+      // Autoplay kafolati: bloklansa — ovozsiz qilib qayta urinamiz
+      const safePlay = () => {
+        if (!S.storyVideo) return;
+        const p = S.storyVideo.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(() => {
+            try {
+              S.storyVideo.muted = true;
+              S.storyMuted = true;
+              if (soundBtn) soundBtn.textContent = "🔇";
+              S.storyVideo.play().catch(() => {});
+            } catch (_) {}
+          });
+        }
+      };
+
+      node.addEventListener("progress", () => {
+        try {
+          if (node.buffered.length && node.duration) {
+            const end = node.buffered.end(node.buffered.length - 1);
+            const pct = Math.min(100, (end / node.duration) * 100);
+            if (bufferFill) bufferFill.style.width = pct + "%";
+          }
+        } catch (_) {}
+      });
+
+      node.addEventListener(
+        "loadedmetadata",
+        () => {
+          const ms = (node.duration && isFinite(node.duration) ? node.duration : 9) * 1000;
+          animateStoryProgress(fill, ms);
+          if (node.paused) safePlay();
+        },
+        { once: true }
+      );
+
+      node.addEventListener(
+        "canplay",
+        () => {
+          if (spinner) spinner.style.display = "none";
+          node.classList.remove("loading");
+          if (node.paused) safePlay();
+        },
+        { once: true }
+      );
+
+      node.addEventListener("waiting", () => {
+        if (spinner) spinner.style.display = "flex";
+        node.classList.add("loading");
+      });
+      node.addEventListener("playing", () => {
+        if (spinner) spinner.style.display = "none";
+        node.classList.remove("loading");
+        if (buffer) setTimeout(() => buffer.classList.remove("show"), 1200);
+      });
+      node.addEventListener("ended", () => stepStory(1));
+      node.addEventListener("error", () => {
+        toast("Video yuklanmadi");
+        setTimeout(() => stepStory(1), 600);
+      });
+    } else {
+      const bg = photo ? `<img src="${esc(photo)}" alt="">` : "";
+      inner.innerHTML = `
+        <div class="story-bg" style="background:linear-gradient(160deg,${esc(
+          story.color_from
+        )},${esc(story.color_to)} 75%, #000)">${bg}</div>
+        <div class="story-shade"></div>
+        ${!bg ? `<div class="story-emoji">${esc(story.emoji)}</div>` : ""}
+        <div class="story-h">${esc(story.heading || story.title)}</div>
+        <div class="story-b">${esc(story.body || "")}</div>`;
+      animateStoryProgress(fill, 5000);
+    }
 
     const seen = JSON.parse(localStorage.getItem("zimmer_seen") || "[]");
     if (!seen.includes(story.id)) {
       seen.push(story.id);
       localStorage.setItem("zimmer_seen", JSON.stringify(seen));
     }
+    preloadNextStory();
+  }
 
-    clearTimeout(S.storyTimer);
-    S.storyTimer = setTimeout(() => stepStory(1), video ? 9000 : 5000);
+  /** Bosib turilsa — pauza (video ham, chiziq ham to'xtaydi). */
+  function storyPause(on) {
+    S.storyPaused = on;
+    const ind = $("story-pause");
+    if (ind) ind.classList.toggle("show", on);
+    if (S.storyVideo) {
+      try {
+        if (on) S.storyVideo.pause();
+        else S.storyVideo.play().catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  function toggleStorySound() {
+    if (!S.storyVideo) return;
+    S.storyMuted = !S.storyMuted;
+    S.storyVideo.muted = S.storyMuted;
+    const btn = $("story-sound");
+    if (btn) btn.textContent = S.storyMuted ? "🔇" : "🔊";
+    if (!S.storyMuted) S.storyVideo.play().catch(() => {});
+    haptic();
+  }
+
+  /** Storyni telefonga yuklab olish (ilova ichidan). */
+  function saveStory() {
+    const story = S.stories[S.storyIndex];
+    if (!story) return;
+    const url = abs(story.video_url) || abs(story.photo_url);
+    if (!url) return toast("Bu storyda yuklab olinadigan fayl yo'q");
+    haptic("medium");
+    const name = (story.title || "zimmer-story").replace(/[^\w\-]+/g, "_");
+    const ext = abs(story.video_url) ? ".mp4" : ".jpg";
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name + ext;
+      a.rel = "noopener";
+      document.body.append(a);
+      a.click();
+      a.remove();
+      toast("Yuklab olinmoqda... ⬇️");
+    } catch (_) {
+      // Telegram WebView yuklab olishni bloklasa — brauzerda ochamiz
+      try {
+        tg.openLink(url);
+      } catch (__) {
+        window.open(url, "_blank");
+      }
+    }
   }
 
   function stepStory(delta) {
@@ -919,7 +1126,10 @@
 
   function closeStory() {
     clearTimeout(S.storyTimer);
+    cancelAnimationFrame(S.storyRaf);
+    releaseStoryVideo();
     stopVideos();
+    storyPause(false);
     $("story-view").classList.add("hidden");
     $("story-inner").innerHTML = "";
     renderStories();
@@ -1250,10 +1460,20 @@
   /* --------------------------------------------------------------- navbat */
   function renderBookCard() {
     $("book-body").innerHTML = `
-      <div class="book-line"><span>Bi-LED o'rnatish</span><b>2–3 soat</b></div>
-      <div class="book-line"><span>Kafolat</span><b>1 yil</b></div>
-      <button class="btn btn-primary btn-sm" id="book-open" style="width:100%;margin-top:10px">
-        🗓 Navbat olish</button>`;
+      <div class="bk-card-top">
+        <span class="bk-card-ico">🗓</span>
+        <div class="bk-card-tx">
+          <b>Ustaga navbat olish</b>
+          <small>Bo'sh vaqtni tanlab, 3 qadamda band qilasiz</small>
+        </div>
+      </div>
+      <div class="bk-card-facts">
+        <div><i>⏱</i><b>2–3 soat</b><small>O'rnatish</small></div>
+        <div><i>🛡</i><b>1 yil</b><small>Kafolat</small></div>
+        <div><i>🔧</i><b>Usta</b><small>Tajribali</small></div>
+      </div>
+      <button class="btn btn-primary" id="book-open" style="width:100%;margin-top:12px">
+        Navbat olish →</button>`;
     $("book-open").onclick = openBookingSheet;
   }
 
@@ -1973,89 +2193,311 @@
     renderCars($("sheet-cars"));
   }
 
+  /* ==================================================================
+     NAVBAT OLISH — iPhone uslubida, uch qadam:
+       1) Xizmat  →  2) Kun  →  3) Vaqt  →  tasdiq
+     Har qadam orqaga qaytadi, tanlovlar esda qoladi. Vaqt band bo'lib
+     qolsa (409) — ro'yxat darhol yangilanadi va mijoz xabar oladi.
+     ================================================================== */
+
+  const BK = { step: 1, service: null, day: null, days: [], slots: [], time: null };
+
+  function bookingHead() {
+    const titles = ["Xizmatni tanlang", "Qulay kunni tanlang", "Vaqtni tanlang"];
+    $("sheet-title").textContent = "🗓 " + (titles[BK.step - 1] || "Navbat olish");
+  }
+
+  /** Yuqoridagi qadam ko'rsatkichi (iOS segment uslubi). */
+  function bookingSteps() {
+    const names = ["Xizmat", "Kun", "Vaqt"];
+    const wrap = el("div", "bk-steps");
+    names.forEach((name, i) => {
+      const n = i + 1;
+      const item = el(
+        "div",
+        "bk-step" + (n === BK.step ? " on" : n < BK.step ? " done" : ""),
+        `<i>${n < BK.step ? "✓" : n}</i><span>${name}</span>`
+      );
+      if (n < BK.step) {
+        item.onclick = () => {
+          BK.step = n;
+          haptic();
+          paintBooking();
+        };
+      }
+      wrap.append(item);
+    });
+    return wrap;
+  }
+
+  /** Tanlanganlar haqida ixcham eslatma (2- va 3-qadamda). */
+  function bookingRecap() {
+    const bits = [];
+    if (BK.service) bits.push(`🔧 ${esc(BK.service.name)}`);
+    if (BK.day) bits.push(`📅 ${esc(BK.day.short_label || BK.day.label)}`);
+    return bits.length ? el("div", "bk-recap", bits.join(" · ")) : null;
+  }
+
   async function openBookingSheet() {
     haptic();
-    openSheet("O'rnatishga navbat", '<p class="empty">Yuklanmoqda...</p>');
+    BK.step = 1;
+    BK.service = null;
+    BK.day = null;
+    BK.time = null;
+    openSheet("🗓 Xizmatni tanlang", '<div class="bk-load">Yuklanmoqda...</div>');
     try {
-      const services = await api("/api/services");
-      const box = el("div", "opts");
-      services.forEach((s) => {
-        box.append(
-          optionRow({
-            name: s.name,
-            meta: `⏱ ${s.duration_min} daqiqa`,
-            priceLabel: s.price_label,
-            price: s.price,
-            icon: "🔧",
-            onSelect: () => pickBookingService(s),
-          })
-        );
-      });
-      $("sheet-content").innerHTML = "";
-      $("sheet-content").append(box);
+      BK.services = await api("/api/services");
     } catch (err) {
       closeSheet();
-      onError(err);
+      return onError(err);
     }
+    paintBooking();
   }
 
-  async function pickBookingService(service) {
-    S.booking.service = service;
-    haptic();
-    $("sheet-title").textContent = service.name;
-    $("sheet-content").innerHTML = '<p class="empty">Kunlar yuklanmoqda...</p>';
+  function paintBooking() {
+    bookingHead();
+    const box = $("sheet-content");
+    box.innerHTML = "";
+    box.append(bookingSteps());
+    const recap = BK.step > 1 ? bookingRecap() : null;
+    if (recap) box.append(recap);
+
+    if (BK.step === 1) return paintBookingServices(box);
+    if (BK.step === 2) return paintBookingDays(box);
+    return paintBookingSlots(box);
+  }
+
+  /* ------------------------------------------------------- 1-qadam: xizmat */
+  function paintBookingServices(box) {
+    const list = BK.services || [];
+    if (!list.length) {
+      box.append(el("p", "empty", "Hozircha xizmatlar qo'shilmagan."));
+      return;
+    }
+    const group = el("div", "bk-list");
+    list.forEach((s) => {
+      const row = el("button", "bk-row");
+      row.innerHTML = `
+        <span class="bk-row-ico">🔧</span>
+        <span class="bk-row-mid">
+          <b>${esc(s.name)}</b>
+          <small>⏱ ${s.duration_min} daqiqa</small>
+        </span>
+        <span class="bk-row-end">
+          <b>${esc(s.price_label)}</b>
+          <i>›</i>
+        </span>`;
+      row.onclick = () => {
+        BK.service = s;
+        BK.day = null;
+        BK.time = null;
+        haptic("medium");
+        BK.step = 2;
+        loadBookingDays();
+      };
+      group.append(row);
+    });
+    box.append(group);
+    box.append(el("p", "bk-hint", "O'rnatish vaqti xizmatga qarab belgilanadi."));
+  }
+
+  /** Kun kartochkasi uchun yozuvlar: yuqorida hafta kuni, o'rtada sana.
+      Bugun/Ertaga serverdan kelgan yorliqdan aniqlanadi — shunda telefon
+      va server vaqt zonasi farq qilsa ham to'g'ri chiqadi. */
+  const WEEKDAY_SHORT = ["Yak", "Du", "Se", "Chor", "Pay", "Jum", "Sha"];
+  function dayParts(day) {
+    const label = String(day.short_label || "");
+    const today = /bugun/i.test(label);
+    const tomorrow = /ertaga/i.test(label);
+    const bits = String(day.date || "").split("-");
+    const y = Number(bits[0]);
+    const m = Number(bits[1]);
+    const d = Number(bits[2]);
+    let top;
+    if (today) top = "Bugun";
+    else if (tomorrow) top = "Ertaga";
+    else {
+      const dt = new Date(y, (m || 1) - 1, d || 1);
+      top = WEEKDAY_SHORT[dt.getDay()] || "";
+    }
+    return { top: top, num: d || "", today: today };
+  }
+
+  /* ---------------------------------------------------------- 2-qadam: kun */
+  async function loadBookingDays() {
+    bookingHead();
+    const box = $("sheet-content");
+    box.innerHTML = "";
+    box.append(bookingSteps());
+    const recap = bookingRecap();
+    if (recap) box.append(recap);
+    box.append(el("div", "bk-load", "Kunlar yuklanmoqda..."));
     try {
-      const days = await api("/api/dates?service_id=" + service.id);
-      const chips = el("div", "chips");
-      days.forEach((d) => {
-        const chip = el("button", "chip", d.short_label + (d.free_count ? "" : " · band"));
-        chip.disabled = !d.free_count;
-        chip.onclick = () => pickBookingDate(d);
-        chips.append(chip);
-      });
-      $("sheet-content").innerHTML = "";
-      $("sheet-content").append(chips);
+      BK.days = await api("/api/dates?service_id=" + BK.service.id);
+      paintBooking();
     } catch (err) {
       onError(err);
     }
   }
 
-  async function pickBookingDate(day) {
-    S.booking.date = day.date;
-    haptic();
-    $("sheet-content").innerHTML = '<p class="empty">Vaqtlar yuklanmoqda...</p>';
+  function paintBookingDays(box) {
+    const days = BK.days || [];
+    const free = days.filter((d) => d.free_count > 0);
+    if (!free.length) {
+      box.append(
+        el("p", "empty", "Yaqin kunlarda bo'sh vaqt qolmagan. Iltimos, keyinroq urinib ko'ring.")
+      );
+      return;
+    }
+
+    const strip = el("div", "bk-days");
+    days.forEach((d) => {
+      const p = dayParts(d);
+      const card = el("button", "bk-day" + (BK.day && BK.day.date === d.date ? " on" : ""));
+      card.disabled = !d.free_count;
+      if (p.today) card.classList.add("today");
+      card.innerHTML = `
+        <span class="bk-day-top">${esc(p.top)}</span>
+        <span class="bk-day-num">${esc(p.num)}</span>
+        <span class="bk-day-free">${d.free_count ? d.free_count + " ta" : "band"}</span>`;
+      card.onclick = () => {
+        BK.day = d;
+        BK.time = null;
+        haptic("medium");
+        BK.step = 3;
+        loadBookingSlots();
+      };
+      strip.append(card);
+    });
+    box.append(strip);
+
+    const back = el("button", "btn btn-ghost btn-sm", "‹ Xizmatni o'zgartirish");
+    back.onclick = () => {
+      BK.step = 1;
+      haptic();
+      paintBooking();
+    };
+    box.append(back);
+  }
+
+  /* --------------------------------------------------------- 3-qadam: vaqt */
+  async function loadBookingSlots() {
+    bookingHead();
+    const box = $("sheet-content");
+    box.innerHTML = "";
+    box.append(bookingSteps());
+    const recap = bookingRecap();
+    if (recap) box.append(recap);
+    box.append(el("div", "bk-load", "Bo'sh vaqtlar yuklanmoqda..."));
     try {
       const data = await api(
-        `/api/slots?service_id=${S.booking.service.id}&date=${encodeURIComponent(day.date)}`
+        `/api/slots?service_id=${BK.service.id}&date=${encodeURIComponent(BK.day.date)}`
       );
-      const wrap = el("div");
-      wrap.append(el("p", "step-sub", `📅 ${esc(day.label)} — bo'sh vaqtlar`));
-      const grid = el("div", "slots");
-      data.slots.forEach((time) => {
-        const btn = el("button", "slot", time);
-        btn.onclick = async () => {
-          if (!(await ask(`${S.booking.service.name}\n${day.label} · ${time}\n\nTasdiqlaysizmi?`)))
-            return;
-          await withPhone(async () => {
-            const res = await api("/api/bookings", {
-              method: "POST",
-              body: { service_id: S.booking.service.id, date: day.date, time },
-            });
-            haptic("ok");
-            closeSheet();
-            burst();
-            toast(`✅ Navbat #${res.booking.id} · ${time}`, 3200);
-            show("profile");
-          });
+      BK.slots = data.slots || [];
+      paintBooking();
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  function paintBookingSlots(box) {
+    const slots = BK.slots || [];
+    if (!slots.length) {
+      box.append(el("p", "empty", "Bu kunda bo'sh vaqt qolmagan. Boshqa kunni tanlang."));
+      const back = el("button", "btn btn-ghost btn-sm", "‹ Boshqa kun");
+      back.onclick = () => {
+        BK.step = 2;
+        haptic();
+        paintBooking();
+      };
+      box.append(back);
+      return;
+    }
+
+    // Vaqtlarni kun bo'limlariga ajratamiz — tanlash osonlashadi
+    const groups = [
+      { label: "Ertalab", from: 0, to: 12, items: [] },
+      { label: "Tushdan keyin", from: 12, to: 17, items: [] },
+      { label: "Kechqurun", from: 17, to: 24, items: [] },
+    ];
+    slots.forEach((t) => {
+      const hour = parseInt(String(t).split(":")[0], 10) || 0;
+      const g = groups.find((x) => hour >= x.from && hour < x.to) || groups[0];
+      g.items.push(t);
+    });
+
+    groups.forEach((g) => {
+      if (!g.items.length) return;
+      box.append(el("div", "bk-group", g.label));
+      const grid = el("div", "bk-times");
+      g.items.forEach((t) => {
+        const btn = el("button", "bk-time" + (BK.time === t ? " on" : ""), t);
+        btn.onclick = () => {
+          BK.time = t;
+          haptic();
+          paintBooking();
         };
         grid.append(btn);
       });
-      wrap.append(grid);
-      $("sheet-content").innerHTML = "";
-      $("sheet-content").append(wrap);
-    } catch (err) {
-      onError(err);
+      box.append(grid);
+    });
+
+    // Tasdiqlash paneli — tanlangandan keyin paydo bo'ladi
+    const bar = el("div", "bk-confirm");
+    if (BK.time) {
+      bar.innerHTML = `
+        <div class="bk-sum">
+          <small>${esc(BK.day.label || BK.day.short_label)}</small>
+          <b>🕐 ${esc(BK.time)} · ${esc(BK.service.price_label)}</b>
+        </div>`;
+      const go = el("button", "btn btn-primary", "Navbatni band qilish");
+      go.onclick = () => confirmBooking(go);
+      bar.append(go);
+    } else {
+      bar.innerHTML = '<div class="bk-sum"><small>Vaqtni tanlang</small></div>';
     }
+    box.append(bar);
+
+    const back = el("button", "btn btn-ghost btn-sm", "‹ Boshqa kun");
+    back.onclick = () => {
+      BK.step = 2;
+      haptic();
+      paintBooking();
+    };
+    box.append(back);
+  }
+
+  /** Yakuniy tasdiq: navbatni band qiladi. */
+  function confirmBooking(btn) {
+    if (!BK.service || !BK.day || !BK.time) return toast("Vaqtni tanlang");
+    return withPhone(async () => {
+      btn.disabled = true;
+      btn.textContent = "Band qilinmoqda...";
+      try {
+        const res = await api("/api/bookings", {
+          method: "POST",
+          body: { service_id: BK.service.id, date: BK.day.date, time: BK.time },
+        });
+        haptic("ok");
+        closeSheet();
+        burst();
+        toast(`✅ Navbat #${res.booking.id} · ${BK.time}`, 3400);
+        show("profile");
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Navbatni band qilish";
+        // Kimdir shu vaqtni oldindan olib qo'ygan bo'lsa — ro'yxatni yangilaymiz
+        if (err && err.code === "slot_taken") {
+          haptic("err");
+          toast("Bu vaqt band bo'lib qoldi — boshqa vaqtni tanlang", 3200);
+          BK.slots = (err.slots || []).length ? err.slots : BK.slots.filter((t) => t !== BK.time);
+          BK.time = null;
+          paintBooking();
+          return;
+        }
+        throw err;
+      }
+    });
   }
 
   /* ------------------------------------------------------------------ oqim */
@@ -2154,8 +2596,7 @@
 
       const name = (me.full_name || me.first_name || "").split(" ")[0];
       $("splash-hello").innerHTML = `
-        <h1>Assalomu alaykum${name ? ", " + esc(name) : ""}</h1>
-        <p>Faralaringizni yangilaymiz</p>`;
+        <h1>Assalomu alaykum${name ? ",<br>" + esc(name) : ""}</h1>`;
 
       // Admin bo'lsa — pastdagi menyuda «Boshqaruv» tugmasi paydo bo'ladi
       if (me.is_admin) {
@@ -2175,14 +2616,10 @@
       return;
     }
 
-    // Tugma yo'q: mijoz ismini ko'radi, chiziq to'ladi va bosh menyu O'ZI
-    // ochiladi. Konfigurator hech qachon majburan ochilmaydi.
-    const progress = $("splash-progress");
-    if (progress) progress.classList.add("on");
-
-    // Bosh menyu ma'lumoti shu kutish paytida fonda yuklanadi
+    // Tugma yo'q: mijoz salomlashuvni ko'radi va bosh menyu O'ZI ochiladi.
+    // Bosh menyu ma'lumoti shu kutish paytida fonda yuklanadi.
     const loading = loadHome();
-    await Promise.all([loading, wait(1500)]);
+    await Promise.all([loading, wait(1600)]);
 
     $("splash").classList.add("leaving");
     await wait(280);
@@ -2249,6 +2686,44 @@
   $("story-close").onclick = closeStory;
   $("story-prev").onclick = () => stepStory(-1);
   $("story-next").onclick = () => stepStory(1);
+  $("story-sound").onclick = toggleStorySound;
+  $("story-save").onclick = saveStory;
+
+  // Bosib turilsa pauza (ikki tomonda ham) — Avto_A1 kabi
+  ["story-prev", "story-next"].forEach((id) => {
+    const zone = $(id);
+    if (!zone) return;
+    let held = false;
+    let timer = null;
+    const down = () => {
+      held = false;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        held = true;
+        storyPause(true);
+      }, 220);
+    };
+    const up = () => {
+      clearTimeout(timer);
+      if (held) storyPause(false);
+      // `held` shu holatda qoladi — pastdagi onclick uni tekshiradi
+    };
+    zone.addEventListener("touchstart", down, { passive: true });
+    zone.addEventListener("touchend", up);
+    zone.addEventListener("touchcancel", up);
+    zone.addEventListener("mousedown", down);
+    zone.addEventListener("mouseup", up);
+    zone.addEventListener("mouseleave", up);
+    // Bosib turgandan keyin bosish hodisasi o'tmasligi uchun
+    const original = zone.onclick;
+    zone.onclick = (ev) => {
+      if (held) {
+        held = false;
+        return;
+      }
+      if (original) original(ev);
+    };
+  });
 
   $("gate-close").onclick = () => (tg ? tg.close() : window.close());
   $("gate-retry").onclick = () => location.reload();
