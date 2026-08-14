@@ -3047,8 +3047,9 @@
         if (!ok) return;
         arr.splice(idx, 1);
         saveAddresses(arr);
-        if (S._dlvSelectedAddr === idx) S._dlvSelectedAddr = null;
-        else if (S._dlvSelectedAddr !== null && S._dlvSelectedAddr > idx) S._dlvSelectedAddr--;
+        if (S._dlvSelectedAddr === idx) {
+          S._dlvSelectedAddr = arr.length > 0 ? Math.min(idx, arr.length - 1) : null;
+        } else if (S._dlvSelectedAddr !== null && S._dlvSelectedAddr > idx) S._dlvSelectedAddr--;
         renderCourierAddresses();
         toast("Manzil o'chirildi");
         haptic("success");
@@ -3097,18 +3098,11 @@
         try { _mapObj.remove(); } catch {}
         _mapObj = null; _mapMarker = null;
       }
-      // Leaflet'ga to'g'ri hint + btn elementlarni saqlaymiz
-      const hint = $("map-locate-hint");
-      const locBtn = $("map-locate-btn");
 
       _mapObj = L.map(mapEl).setView([41.3111, 69.2797], 12);
       L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
         maxZoom: 20, attribution: "\u00a9 OpenStreetMap, \u00a9 CARTO", subdomains: "abcd",
       }).addTo(_mapObj);
-
-      // Re-append hint & locate button (Leaflet clears container)
-      if (hint) mapEl.appendChild(hint);
-      if (locBtn) mapEl.appendChild(locBtn);
 
       _mapObj.on("click", (e) => {
         placeMarker(e.latlng.lat, e.latlng.lng);
@@ -3218,7 +3212,7 @@
 
     const lat = _pickedCoords.lat, lng = _pickedCoords.lng;
     const mapLink = "https://www.google.com/maps?q=" + lat.toFixed(6) + "," + lng.toFixed(6);
-    const addrText = "\ud83d\udccd " + lat.toFixed(5) + ", " + lng.toFixed(5);
+    const addrText = "📍 " + lat.toFixed(5) + ", " + lng.toFixed(5);
 
     const arr = getAddresses();
     arr.push({ type: "map", label: name, address: addrText, mapLink: mapLink });
