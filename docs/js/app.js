@@ -79,8 +79,9 @@
     const home = $("home");
     show("home");
     home.classList.add("entering");
+    // Animatsiya tugagach klass olib tashlanadi (0.16s kechikish + 0.34s)
     clearTimeout(enterHome._t);
-    enterHome._t = setTimeout(() => home.classList.remove("entering"), 1100);
+    enterHome._t = setTimeout(() => home.classList.remove("entering"), 600);
   }
 
   function toast(msg, ms) {
@@ -2534,6 +2535,7 @@
   }
 
   async function boot() {
+    let carsReady = Promise.resolve(); // mashinalar so'rovi (parallel yuklanadi)
     if (tg) {
       tg.ready();
       tg.expand();
@@ -2594,9 +2596,22 @@
       S.me = me;
       renderPhoneWarn();
 
+      // Salomlashuv: vergul yo'q, ism alohida qatorda. Harflar navbat bilan
+      // chiqadi — faqat opacity/transform ishlatiladi, telefon qizimaydi.
       const name = (me.full_name || me.first_name || "").split(" ")[0];
-      $("splash-hello").innerHTML = `
-        <h1>Assalomu alaykum${name ? ",<br>" + esc(name) : ""}</h1>`;
+      const letters = (text, delay) =>
+        text
+          .split("")
+          .map(
+            (ch, i) =>
+              `<span style="animation-delay:${(delay + i * 0.032).toFixed(3)}s">${
+                ch === " " ? "&nbsp;" : esc(ch)
+              }</span>`
+          )
+          .join("");
+      $("splash-hello").innerHTML =
+        `<h1 class="hello-line">${letters("Assalomu alaykum", 0.1)}</h1>` +
+        (name ? `<h1 class="hello-name">${letters(name, 0.62)}</h1>` : "");
 
       // Admin bo'lsa — pastdagi menyuda «Boshqaruv» tugmasi paydo bo'ladi
       if (me.is_admin) {
@@ -2604,8 +2619,14 @@
         if (adminBtn) adminBtn.classList.remove("hidden");
       }
 
-      S.cars = await api("/api/cars");
-      if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
+      // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
+      // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
+      carsReady = api("/api/cars")
+        .then((list) => {
+          S.cars = list || [];
+          if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
+        })
+        .catch(() => {});
     } catch (err) {
       if (err && err.code === "invalid_init_data") return onError(err);
       gate(
@@ -2617,9 +2638,8 @@
     }
 
     // Tugma yo'q: mijoz salomlashuvni ko'radi va bosh menyu O'ZI ochiladi.
-    // Bosh menyu ma'lumoti shu kutish paytida fonda yuklanadi.
-    const loading = loadHome();
-    await Promise.all([loading, wait(1600)]);
+    // Bosh menyu, mashinalar va salomlashuv animatsiyasi — hammasi parallel.
+    await Promise.all([loadHome(), carsReady, wait(1600)]);
 
     $("splash").classList.add("leaving");
     await wait(280);

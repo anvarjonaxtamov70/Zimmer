@@ -8,7 +8,8 @@
      • Cheksiz animatsiya faqat 1 ta: linzaning "nafas olishi" (opacity).
        U ham sahifa yashirilganda to'xtatiladi (body.paused).
      • Kirish animatsiyalari bir martalik (transform/opacity — kompozitor).
-     • `backdrop-filter` faqat 2 joyda (topbar va navbar).
+     • `backdrop-filter` UMUMAN ishlatilmaydi — telefonlarda skroll paytida
+       qotish va qizishning asosiy sababi shu edi. O'rniga qattiq fon.
      • Ro'yxatlarda `content-visibility: auto` — ko'rinmayotgan qism
        hisoblanmaydi.
    ========================================================================== */
@@ -101,26 +102,41 @@ img, video { display: block; max-width: 100%; }
    usulda bo'yalgan edi va ba'zi telefon WebView'larida matn butunlay
    SHAFFOF (ko'rinmas) bo'lib qolardi — noutbukda ko'rinib, telefonda
    ko'rinmasligining sababi shu edi. Endi oddiy, qattiq rang. */
-.splash-hello {
-  min-height: 52px;
-  opacity: 0;
-  transform: scale(0.55);
-  animation: helloPop 1.05s var(--spring) 0.1s forwards;
-}
-/* Maydadan kattalashib, yumshoq joyiga o'tiradi */
-@keyframes helloPop {
-  0%   { opacity: 0; transform: scale(0.5); }
-  55%  { opacity: 1; transform: scale(1.06); }
-  100% { opacity: 1; transform: scale(1); }
-}
+.splash-hello { min-height: 92px; }
+
+/* Har bir harf maydadan kattalashib, navbat bilan chiqadi.
+   Faqat opacity + transform — kompozitor qatlamida ishlaydi, qotish yo'q. */
 .splash-hello h1 {
-  font-size: 30px; line-height: 1.2; margin: 0 0 8px;
-  font-weight: 800; letter-spacing: -0.5px; color: #fff;
+  margin: 0; display: flex; flex-wrap: wrap; justify-content: center;
+  line-height: 1.15; color: #fff;
 }
-.splash-hello p { margin: 0; color: var(--muted); font-size: 15px; }
+.splash-hello h1 span {
+  display: inline-block;
+  opacity: 0;
+  transform: scale(0.42) translate3d(0, 12px, 0);
+  animation: letterPop 0.62s var(--spring) both;
+}
+@keyframes letterPop {
+  0%   { opacity: 0; transform: scale(0.42) translate3d(0, 12px, 0); }
+  60%  { opacity: 1; transform: scale(1.08) translate3d(0, 0, 0); }
+  100% { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+.hello-line {
+  font-size: 27px; font-weight: 700; letter-spacing: -0.4px;
+  color: rgba(255, 255, 255, 0.92);
+}
+/* Mijoz ismi — kattaroq va yorqin (nozik nur bilan, blur ishlatilmaydi) */
+.hello-name {
+  font-size: 40px; font-weight: 900; letter-spacing: -1.2px;
+  margin-top: 6px; color: #fff;
+  text-shadow: 0 3px 26px rgba(255, 45, 58, 0.5);
+}
 .hello-skeleton {
   width: 220px; height: 26px; margin: 8px auto; border-radius: 10px;
   background: var(--surface-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-hello h1 span { animation: none; opacity: 1; transform: none; }
 }
 
 /* ---------------------------------------------- splash -> bosh menyu o'tishi
@@ -128,26 +144,25 @@ img, video { display: block; max-width: 100%; }
    menyu bloklari navbat bilan pastdan ko'tariladi. Faqat transform va
    opacity ishlatiladi — telefon qizmaydi. */
 .splash.leaving {
-  animation: splashOut 0.3s var(--silk) forwards;
+  animation: splashOut 0.26s var(--silk) forwards;
   pointer-events: none;
 }
 @keyframes splashOut {
-  to { opacity: 0; transform: scale(1.05) translateY(-14px); }
+  to { opacity: 0; transform: scale(1.04) translate3d(0, -10px, 0); }
 }
 
+/* Bosh menyuga kirish: faqat tepadagi 4 blok navbat bilan ko'tariladi.
+   Ilgari 8 blok birdaniga animatsiya qilinardi — birinchi kadrda qotish
+   sezilardi. Endi qisqa (0.34s) va translate3d (GPU) ishlatiladi. */
 #home.entering { animation: none; }
-#home.entering > * { animation: riseIn 0.5s var(--silk) both; }
-#home.entering > *:nth-child(1) { animation-delay: 0.02s; }
-#home.entering > *:nth-child(2) { animation-delay: 0.08s; }
-#home.entering > *:nth-child(3) { animation-delay: 0.14s; }
-#home.entering > *:nth-child(4) { animation-delay: 0.20s; }
-#home.entering > *:nth-child(5) { animation-delay: 0.26s; }
-#home.entering > *:nth-child(6) { animation-delay: 0.32s; }
-#home.entering > *:nth-child(7) { animation-delay: 0.38s; }
-#home.entering > *:nth-child(8) { animation-delay: 0.44s; }
+#home.entering > *:nth-child(-n + 4) { animation: riseIn 0.34s var(--silk) both; }
+#home.entering > *:nth-child(1) { animation-delay: 0.01s; }
+#home.entering > *:nth-child(2) { animation-delay: 0.06s; }
+#home.entering > *:nth-child(3) { animation-delay: 0.11s; }
+#home.entering > *:nth-child(4) { animation-delay: 0.16s; }
 @keyframes riseIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 /* Foydalanuvchi animatsiyani kamaytirishni tanlagan bo'lsa — hurmat qilamiz */
@@ -188,8 +203,10 @@ img, video { display: block; max-width: 100%; }
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; gap: 10px;
   padding: calc(var(--safe-t) + 12px) 12px 12px;
-  background: rgba(8, 8, 10, 0.9);
-  backdrop-filter: blur(14px);
+  /* backdrop-filter OLIB TASHLANDI: telefonlarda skroll paytida qotish va
+     qizishning asosiy sababi shu edi. Qora temada to'q fon deyarli bir xil
+     ko'rinadi, lekin GPU uchun bepul. */
+  background: #0b0b0e;
   border-bottom: 1px solid var(--line);
 }
 .topbar.static { position: relative; }
@@ -484,8 +501,10 @@ img, video { display: block; max-width: 100%; }
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: calc(var(--safe-t) + 14px) 16px 12px;
-  background: rgba(8, 8, 10, 0.9);
-  backdrop-filter: blur(14px);
+  /* backdrop-filter OLIB TASHLANDI: telefonlarda skroll paytida qotish va
+     qizishning asosiy sababi shu edi. Qora temada to'q fon deyarli bir xil
+     ko'rinadi, lekin GPU uchun bepul. */
+  background: #0b0b0e;
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -710,8 +729,7 @@ img, video { display: block; max-width: 100%; }
   position: fixed; left: 12px; right: 12px; bottom: calc(10px + var(--safe-b));
   z-index: 45;
   display: flex;
-  background: rgba(16, 17, 21, 0.92);
-  backdrop-filter: blur(16px);
+  background: #14151a;   /* blur o'rniga qattiq fon — silliq va tejamkor */
   border: 1px solid var(--line-2);
   border-radius: 22px;
   padding: 6px;
