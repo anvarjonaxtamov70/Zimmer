@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 
 from database import queries as q
+from utils import stories as story_cfg
 from utils.helpers import fmt_price
 
 HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -48,6 +49,18 @@ async def category_choices() -> list[tuple[str, str]]:
 async def car_choices() -> list[tuple[str, str]]:
     rows = await q.get_cars(active_only=False)
     return [("", "🌐 Barcha mashinalar")] + [(str(r["id"]), r["name"]) for r in rows]
+
+
+async def story_choices() -> list[tuple[str, str]]:
+    """Stories halqalari (kategoriyalari) — utils/stories.py dagi yagona manba."""
+    return story_cfg.choices()
+
+
+def _story_label(row) -> str:
+    """Ro'yxatda qaysi halqaga tegishli ekani ko'rinib turadi."""
+    keys = row.keys()
+    category = row["category"] if "category" in keys else None
+    return f"{story_cfg.title_of(category)} — {row['title']}"
 
 
 async def unit_choices() -> list[tuple[str, str]]:
@@ -208,7 +221,16 @@ ENTITIES: dict[str, Entity] = {
         title="Stories",
         icon="📸",
         fields=(
-            Field("title", "Nomi", required=True, hint="Doira ostidagi yozuv"),
+            # Halqa (kategoriya) — bitta halqa ichida bir nechta element bo'ladi
+            Field(
+                "category",
+                "Halqa (bo'lim)",
+                "choice",
+                required=True,
+                choices=story_choices,
+                hint="Qaysi doira ichida chiqadi",
+            ),
+            Field("title", "Nomi", required=True, hint="Ichki nom (ro'yxat uchun)"),
             Field("emoji", "Emoji", hint="Masalan: 🔧"),
             Field("heading", "Sarlavha"),
             Field("body", "Matn", "long"),
@@ -217,8 +239,8 @@ ENTITIES: dict[str, Entity] = {
             *MEDIA,
             Field("sort", "Tartib", "int"),
         ),
-        label=lambda r: f"{r['emoji'] or '📸'} {r['title']}",
-        create=("title", "emoji", "heading", "body"),
+        label=_story_label,
+        create=("category", "title", "emoji", "heading", "body"),
     ),
 }
 
@@ -247,6 +269,17 @@ async def prepare_insert(entity: Entity, values: dict) -> dict:
     # bog'laymiz (products.category_id NOT NULL).
     if entity.table == "products" and not data.get("category_id"):
         data["category_id"] = await q.default_category_id()
+
+    # Story: halqa kaliti tekshiriladi, rang berilmasa halqadan olinadi —
+    # shunda bitta bo'lim ichidagi elementlar bir xil ko'rinadi.
+    if entity.table == "stories":
+        category = story_cfg.normalize(data.get("category"))
+        data["category"] = category
+        info = story_cfg.STORY_MAP[category]
+        data.setdefault("color_from", info["color_from"])
+        data.setdefault("color_to", info["color_to"])
+        if not data.get("emoji"):
+            data["emoji"] = info["emoji"]
 
     if entity.table == "cars":
         base = re.sub(r"[^a-z0-9]+", "", str(data.get("name", "")).lower()) or "car"

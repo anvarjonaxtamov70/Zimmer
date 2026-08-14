@@ -8,6 +8,7 @@ from typing import Any
 import aiosqlite
 
 from database.db import get_db
+from utils import stories as story_cfg
 
 logger = logging.getLogger(__name__)
 
@@ -1054,6 +1055,29 @@ async def get_stories() -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
+async def get_story_rings() -> list[dict[str, Any]]:
+    """Storieslarni KATEGORIYALAR (halqalar) bo'yicha guruhlaydi.
+
+    Avto_A1 mantiqi: halqa — kategoriya, uning ichida bir nechta element
+    ketma-ket o'ynaydi. Bo'sh halqa ko'rsatilmaydi.
+    """
+    rows = await get_stories()
+    grouped: dict[str, list[aiosqlite.Row]] = {}
+    for row in rows:
+        keys = row.keys()
+        category = story_cfg.normalize(row["category"] if "category" in keys else None)
+        grouped.setdefault(category, []).append(row)
+
+    rings = []
+    for key in story_cfg.STORY_ORDER:
+        items = grouped.get(key)
+        if not items:
+            continue  # bo'sh halqa chiqmaydi
+        info = story_cfg.STORY_MAP[key]
+        rings.append({"info": info, "items": items})
+    return rings
+
+
 async def get_promos() -> list[aiosqlite.Row]:
     db = get_db()
     async with db.execute(
@@ -1193,7 +1217,7 @@ EDITABLE: dict[str, set[str]] = {
         "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
     },
     "stories": {
-        "title", "emoji", "heading", "body", "color_from", "color_to",
+        "category", "title", "emoji", "heading", "body", "color_from", "color_to",
         "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
     },
     "promos": {"title", "text", "discount", "until_date", "sort", "is_active"},
