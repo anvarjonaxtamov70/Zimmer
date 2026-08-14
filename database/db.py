@@ -598,8 +598,52 @@ async def init_db() -> aiosqlite.Connection:
     await _db.commit()
     await _migrate()
     await _seed()
+    await _ensure_results_story()
     logger.info("Baza tayyor: %s", config.db_path)
     return _db
+
+
+# «Natijalar» storysi — bajarilgan ishlar ko'rsatiladigan alohida story.
+# Videoni admin Telegram bot orqali yuklaydi (/admin -> Stories -> Video).
+RESULTS_STORY = (
+    "Natijalar",
+    "🏆",
+    "Bizning ishlarimiz",
+    "Mijozlarimiz mashinalarida bajarilgan ishlar. Videoni ko'rib, "
+    "natijani o'z ko'zingiz bilan solishtiring.",
+    "#ff2d3a",
+    "#1a0508",
+)
+
+
+async def _ensure_results_story() -> None:
+    """«Natijalar» storysini BIR MARTA qo'shadi.
+
+    Meta belgisi ishlatiladi: admin keyinchalik o'chirib tashlasa, bot qayta
+    ishga tushganda uni majburan qaytarmaydi.
+    """
+    if await _meta_get("results_story") == "1":
+        return
+
+    db = get_db()
+    async with db.execute(
+        "SELECT id FROM stories WHERE lower(title) = ?", (RESULTS_STORY[0].lower(),)
+    ) as cur:
+        exists = await cur.fetchone()
+
+    if not exists:
+        async with db.execute("SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM stories") as cur:
+            row = await cur.fetchone()
+        sort = int(row["s"]) if row else 1
+        await db.execute(
+            "INSERT INTO stories (title, emoji, heading, body, color_from, color_to, sort)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (*RESULTS_STORY, sort),
+        )
+        await db.commit()
+        logger.info("«Natijalar» storysi qo'shildi (videoni bot orqali yuklang).")
+
+    await _meta_set("results_story", "1")
 
 
 def get_db() -> aiosqlite.Connection:

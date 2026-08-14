@@ -228,8 +228,11 @@ def _serialize(entity: Entity, row) -> dict:
 # ------------------------------------------------------------------- dashboard
 
 
-# Bosh menyuda ko'rsatilmaydigan bo'limlar (o'z alohida oynasi bor)
-MENU_HIDDEN = {"prd"}
+# Mini App admin menyusida ko'rsatilmaydigan bo'limlar.
+#   prd — «Ombor» va «Tovar qo'shish» oynalari bor;
+#   sto — stories FAQAT Telegram bot orqali boshqariladi (video yuborish
+#         bot ichida qulay va ishonchli: fayl Telegram'da saqlanadi).
+MENU_HIDDEN = {"prd", "sto"}
 
 # Ombor chegaralari: shu sondan kam qolsa "kam qoldi" deb belgilanadi
 LOW_STOCK = 3
