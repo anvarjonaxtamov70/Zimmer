@@ -984,6 +984,9 @@
     // Ovoz tugmasi faqat videoda; yuklab olish faqat media bo'lsa
     if (soundBtn) soundBtn.classList.toggle("hidden", !video);
     if (saveBtn) saveBtn.classList.toggle("hidden", !(video || photo));
+    // 🗑 faqat adminga ko'rinadi
+    const delBtn = $("story-del");
+    if (delBtn) delBtn.classList.toggle("hidden", !(S.me && S.me.is_admin));
 
     if (video) {
       inner.innerHTML = `
@@ -1118,6 +1121,35 @@
     if (btn) btn.textContent = S.storyMuted ? "🔇" : "🔊";
     if (!S.storyMuted) S.storyVideo.play().catch(() => {});
     haptic();
+  }
+
+  /** 🗑 FAQAT ADMIN UCHUN: joriy storyni butunlay o'chirish (Avto_A1 kabi). */
+  function deleteCurrentStory() {
+    const story = S.stories[S.storyIndex];
+    if (!story || !story.id) return;
+    storyPause(true); // so'rov paytida o'ynamasin
+
+    ask("Ushbu storyni butunlay o'chirib tashlaysizmi?").then(async (okay) => {
+      if (!okay) {
+        storyPause(false);
+        return;
+      }
+      try {
+        await api(`/api/admin/section/sto/${story.id}`, { method: "DELETE" });
+        haptic("ok");
+        toast("Story bazadan o'chirildi!", 2600);
+        // Ro'yxatdan ham olib tashlaymiz va oynani yopamiz — qayta ochilganda yo'q
+        const ring = S.rings[S.ringIndex];
+        if (ring) ring.items = (ring.items || []).filter((it) => it.id !== story.id);
+        S.rings = S.rings.filter((r) => (r.items || []).length > 0);
+        if (S.home) S.home.stories = S.rings;
+        closeStory();
+      } catch (err) {
+        storyPause(false);
+        haptic("err");
+        toast((err && err.message) || "O'chirishda xatolik yuz berdi");
+      }
+    });
   }
 
   /** Storyni telefonga yuklab olish (ilova ichidan). */
@@ -2766,6 +2798,7 @@
   $("story-next").onclick = () => stepStory(1);
   $("story-sound").onclick = toggleStorySound;
   $("story-save").onclick = saveStory;
+  $("story-del").onclick = deleteCurrentStory;
 
   /* Pastga surib yopish (Avto_A1 kabi). Faqat transform/opacity — silliq. */
   (function storySwipeClose() {

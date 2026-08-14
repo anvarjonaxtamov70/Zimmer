@@ -8,7 +8,17 @@ import qilish mumkin.
 
 def get_routers() -> list:
     """Routerlar tartibi muhim: fallback eng oxirida turadi."""
-    from handlers import admin, admin_crud, cart, fallback, orders, queue, shop, start
+    from handlers import (
+        admin,
+        admin_crud,
+        cart,
+        fallback,
+        orders,
+        queue,
+        shop,
+        start,
+        stories,
+    )
 
     return [
         start.router,
@@ -17,6 +27,9 @@ def get_routers() -> list:
         cart.router,
         orders.router,
         admin.router,
+        # admin_crud dan KEYIN: tahrirlash oqimida yuborilgan rasm/video
+        # avval o'sha oqimga tushishi kerak (u holat bilan filtrlangan).
         admin_crud.router,
+        stories.router,
         fallback.router,
     ]
