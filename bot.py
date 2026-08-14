@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -44,6 +45,46 @@ async def _startup_report(bot: Bot) -> None:
         "Tuzatgandan keyin /firebase buyrug'i bilan tekshiring.\n\n"
         f"Adminlar hozir: {len(all_admins())} ta (ular yo'qolmaydi — kodda saqlangan).",
     )
+
+
+async def keep_awake() -> None:
+    """O'ZINI-O'ZI UYG'OTISH — bulutda uxlab qolmaslik uchun.
+
+    Nima uchun kerak: Render'ning bepul "web service" 15 daqiqa KIRUVCHI
+    trafik bo'lmasa uxlab qoladi. Bot long-polling ishlatadi, ya'ni o'zicha
+    kiruvchi so'rov olmaydi — natijada uxlaydi va keyingi xabarga kech
+    javob beradi (yoki umuman javob bermaydi).
+
+    Yechim: bot O'ZINING ochiq manziliga har ~10 daqiqada GET yuboradi.
+    Bu kiruvchi trafik hisoblanadi, shuning uchun xizmat uxlamaydi va
+    TASHQI ping xizmati (UptimeRobot, GitHub Actions) SHART EMAS.
+
+    Render `RENDER_EXTERNAL_URL` ni o'zi beradi. Boshqa platformada
+    `KEEP_ALIVE_URL` ni qo'lda yozish mumkin. Manzil bo'lmasa (lokal
+    kompyuter) bu vazifa hech narsa qilmaydi.
+    """
+    base = config.keep_alive_url
+    if not base:
+        logger.info("Self-ping o'chiq (manzil yo'q) — lokal rejim.")
+        return
+
+    ping_url = base.rstrip("/") + "/health"
+    interval = max(60, config.keep_alive_interval)
+    await asyncio.sleep(45)  # server to'liq ko'tarilishini kutamiz
+
+    logger.info("Self-ping yoqildi: %s (har %s soniyada)", ping_url, interval)
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        while True:
+            try:
+                async with session.get(ping_url) as response:
+                    if response.status >= 400:
+                        logger.warning("Self-ping: %s", response.status)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.warning("Self-ping xatosi: %s", error)
+            await asyncio.sleep(interval)
 
 
 async def main() -> None:
@@ -104,6 +145,9 @@ async def main() -> None:
         me = await bot.get_me()
         # Render'da PORT beriladi — shunda /health va Mini App API'si yoqiladi
         api_runner = await start_api_server(bot, me.username)
+        # Server ko'tarilgandan keyin o'zini uyg'oq tutadi (bulutda uxlamaslik)
+        if api_runner is not None:
+            background.append(asyncio.create_task(keep_awake()))
         await set_default_commands(bot)
         await set_menu_button(bot)
         # drop_pending_updates=False — bot uxlab qolgan paytda yozilgan

@@ -126,6 +126,9 @@ class Config:
     pay_card_holder: str
     pay_admin_username: str
     delivery_city: str
+    # Bulutda uxlab qolmaslik uchun o'ziga ping yuborish
+    keep_alive_url: str
+    keep_alive_interval: int
 
     @property
     def has_mini_app(self) -> bool:
@@ -184,6 +187,10 @@ config = Config(
     .lstrip("@"),
     # Kuryer faqat shu shahar ichida ishlaydi (BTS pochta — boshqa hududlarga).
     delivery_city=os.getenv("DELIVERY_CITY", "Toshkent").strip(),
+    # ---- Uyg'oq turish (self-ping) ----
+    # Render `RENDER_EXTERNAL_URL` ni o'zi beradi; boshqa joyda qo'lda yozasiz.
+    keep_alive_url=(os.getenv("KEEP_ALIVE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip(),
+    keep_alive_interval=_int_env("KEEP_ALIVE_INTERVAL", 600),
 )
 
 
