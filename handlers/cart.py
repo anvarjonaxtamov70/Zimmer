@@ -11,8 +11,15 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from config import config
 from database import queries as q
-from keyboards.inline import admin_new_order_kb, cart_kb, checkout_confirm_kb
+from keyboards.inline import (
+    admin_new_order_kb,
+    cart_kb,
+    checkout_confirm_kb,
+    delivery_method_kb,
+    payment_method_kb,
+)
 from keyboards.reply import cancel_kb, main_menu
 from states import Checkout
 from utils.helpers import fmt_price, normalize_phone, user_link
@@ -24,6 +31,17 @@ router = Router(name="cart")
 EMPTY_CART = (
     "🧺 Savatchangiz bo'sh.\n\n«🛍 Do'kon» bo'limidan mahsulot tanlashingiz mumkin."
 )
+
+# Yetkazib berish va to'lov usuli matnlari
+_DLV_LABELS = {
+    "courier": "🚖 Kuryer (manzilga)",
+    "bts": "📦 BTS Pochta (filialga)",
+}
+_PAY_LABELS = {
+    "card": "💳 Karta orqali o'tkazma",
+    "app": "📱 Ilova orqali (Payme/Click)",
+    "cash": "💵 Naqd pul (yetkazilganda)",
+}
 
 
 def _item_line(item) -> str:
@@ -121,14 +139,43 @@ async def checkout_start(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
 
-    await state.set_state(Checkout.address)
+    await state.set_state(Checkout.delivery_method)
     await callback.message.answer(
-        "🚚 <b>Buyurtma berish</b>\n\n"
-        "1/2. Yetkazib berish <b>manzilini</b> yozing.\n"
-        "Masalan: <i>Toshkent, Chilonzor 9-kvartal, 25-uy</i>",
-        reply_markup=cancel_kb(),
+        "🚚 <b>Yetkazib berish usulini tanlang</b>\n\n"
+        "Buyurtmani qanday qabul qilmoqchisiz?",
+        reply_markup=delivery_method_kb(config.delivery_city),
     )
     await callback.answer()
+
+
+# ---- 1-qadam: yetkazib berish usuli ----
+
+
+@router.callback_query(Checkout.delivery_method, F.data.startswith("dlv:"))
+async def checkout_delivery(callback: CallbackQuery, state: FSMContext) -> None:
+    method = callback.data.split(":")[1]  # "courier" | "bts"
+    label = _DLV_LABELS.get(method, method)
+    await state.update_data(delivery_method=method, delivery_label=label)
+    await state.set_state(Checkout.address)
+
+    if method == "courier":
+        await callback.message.answer(
+            f"📍 <b>Manzilni yozing</b>\n\n"
+            f"Kuryer faqat <b>{config.delivery_city} shahar ichida</b> ishlaydi.\n"
+            f"Masalan: <i>{config.delivery_city}, Chilonzor 9-kvartal, 25-uy</i>",
+            reply_markup=cancel_kb(),
+        )
+    else:
+        await callback.message.answer(
+            "📍 <b>BTS Pochta manzilini yozing</b>\n\n"
+            "Viloyat, tuman va filial nomini ko'rsating.\n"
+            "Masalan: <i>Samarqand viloyati, Samarqand shahri, Registon filiali</i>",
+            reply_markup=cancel_kb(),
+        )
+    await callback.answer()
+
+
+# ---- 2-qadam: manzil ----
 
 
 @router.message(Checkout.address, F.text)
@@ -152,14 +199,17 @@ async def checkout_address(message: Message, state: FSMContext) -> None:
 
     await state.set_state(Checkout.phone)
     await message.answer(
-        "2/2. Aloqa uchun <b>telefon raqamingizni</b> yuboring.",
+        "📞 Aloqa uchun <b>telefon raqamingizni</b> yuboring.",
         reply_markup=ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True),
     )
 
 
+# ---- 3-qadam: telefon ----
+
+
 @router.message(Checkout.phone, F.contact)
 async def checkout_phone_contact(message: Message, state: FSMContext) -> None:
-    await _checkout_summary(message, state, message.contact.phone_number)
+    await _after_phone(message, state, message.contact.phone_number)
 
 
 @router.message(Checkout.phone, F.text)
@@ -172,19 +222,46 @@ async def checkout_phone_text(message: Message, state: FSMContext) -> None:
     if not phone:
         await message.answer("Raqam noto'g'ri. Masalan: <b>+998901234567</b>")
         return
-    await _checkout_summary(message, state, phone)
+    await _after_phone(message, state, phone)
 
 
-async def _checkout_summary(message: Message, state: FSMContext, raw_phone: str) -> None:
+async def _after_phone(message: Message, state: FSMContext, raw_phone: str) -> None:
+    """Telefon qabul qilingach — to'lov usulini so'raymiz."""
     phone = normalize_phone(raw_phone) or raw_phone
+    await state.update_data(phone=phone)
     data = await state.get_data()
-    items = await q.get_cart(message.from_user.id)
+    is_courier = data.get("delivery_method") == "courier"
+
+    await state.set_state(Checkout.payment)
+    await message.answer(
+        "💳 <b>To'lov usulini tanlang</b>",
+        reply_markup=payment_method_kb(is_courier=is_courier),
+    )
+
+
+# ---- 4-qadam: to'lov usuli ----
+
+
+@router.callback_query(Checkout.payment, F.data.startswith("pay:"))
+async def checkout_payment(callback: CallbackQuery, state: FSMContext) -> None:
+    pay_key = callback.data.split(":")[1]  # "card" | "app" | "cash"
+    pay_label = _PAY_LABELS.get(pay_key, pay_key)
+    await state.update_data(payment_method=pay_label)
+    await _checkout_summary(callback, state)
+    await callback.answer()
+
+
+# ---- 5-qadam: xulosa va tasdiqlash ----
+
+
+async def _checkout_summary(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    items = await q.get_cart(callback.from_user.id)
     if not items:
         await state.clear()
-        await message.answer(EMPTY_CART, reply_markup=main_menu(message.from_user.id))
+        await edit_or_send(callback.message, EMPTY_CART)
         return
 
-    await state.update_data(phone=phone)
     await state.set_state(Checkout.confirm)
 
     lines = ["🧾 <b>Buyurtmani tekshiring</b>\n"]
@@ -194,18 +271,36 @@ async def _checkout_summary(message: Message, state: FSMContext, raw_phone: str)
         )
     total = sum(int(item["subtotal"]) for item in items)
     lines.append(f"\n💰 <b>Jami: {fmt_price(total)}</b>")
+    lines.append(f"🚚 Yetkazish: {data.get('delivery_label', '-')}")
     lines.append(f"📍 Manzil: {data.get('address')}")
-    lines.append(f"📞 Telefon: {phone}")
+    lines.append(f"📞 Telefon: {data.get('phone')}")
+    lines.append(f"💳 To'lov: {data.get('payment_method', '-')}")
 
-    await message.answer("Rahmat!", reply_markup=main_menu(message.from_user.id))
-    await message.answer("\n".join(lines), reply_markup=checkout_confirm_kb())
+    await callback.message.answer("\n".join(lines), reply_markup=checkout_confirm_kb())
 
 
 @router.callback_query(Checkout.confirm, F.data == "order:confirm")
 async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
-    address, phone = data.get("address", "-"), data.get("phone", "-")
-    order_id = await q.create_order(callback.from_user.id, address, phone)
+    address = data.get("address", "-")
+    phone = data.get("phone", "-")
+    delivery_method = data.get("delivery_method")
+    delivery_label = data.get("delivery_label", "")
+    payment_method = data.get("payment_method")
+
+    # delivery_info — xuddi Mini App'dagi kabi bir qatorda
+    delivery_info = delivery_label
+    if address and address != "-":
+        delivery_info = f"{delivery_label}: {address}"
+
+    order_id = await q.create_order(
+        callback.from_user.id,
+        address,
+        phone,
+        delivery_method=delivery_method,
+        delivery_info=delivery_info,
+        payment_method=payment_method,
+    )
     await state.clear()
 
     if not order_id:
@@ -216,6 +311,14 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     items = await q.get_order_items(order_id)
     order = await q.get_order(order_id)
 
+    # Yetkazib berish/to'lov meta-qatorlari
+    meta_lines = []
+    if delivery_info:
+        meta_lines.append(f"🚚 {delivery_info}")
+    if payment_method:
+        meta_lines.append(f"💳 To'lov: <b>{payment_method}</b>")
+    meta_block = ("\n" + "\n".join(meta_lines)) if meta_lines else ""
+
     lines = [
         "✅ <b>Buyurtmangiz qabul qilindi!</b>\n",
         f"🆔 Buyurtma raqami: <b>#{order_id}</b>",
@@ -223,8 +326,9 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     lines.extend(_item_line(item) for item in items)
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
     lines.append(f"📍 Manzil: {address}")
-    lines.append(f"📞 Telefon: {phone}\n")
-    lines.append("Operator tez orada siz bilan bog'lanadi. Xaridingiz uchun rahmat! 🎉")
+    if meta_block:
+        lines.append(meta_block)
+    lines.append("\nOperator tez orada siz bilan bog'lanadi. Xaridingiz uchun rahmat! 🎉")
     await edit_or_send(callback.message, "\n".join(lines))
     await callback.answer("Buyurtma yuborildi ✅")
 
@@ -233,8 +337,11 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
         f"🆔 #{order_id}",
         f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
         f"📞 {phone}",
-        f"📍 {address}\n",
+        f"📍 {address}",
     ]
+    if meta_block:
+        admin_lines.append(meta_block)
+    admin_lines.append("")
     admin_lines.extend(_item_line(item) for item in items)
     admin_lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
     await notify_admins(bot, "\n".join(admin_lines), admin_new_order_kb(order_id))

@@ -398,7 +398,15 @@ async def cart_total(user_id: int) -> int:
 # --------------------------------------------------------------------- buyurtma
 
 
-async def create_order(user_id: int, address: str, phone: str) -> int | None:
+async def create_order(
+    user_id: int,
+    address: str,
+    phone: str,
+    *,
+    delivery_method: str | None = None,
+    delivery_info: str | None = None,
+    payment_method: str | None = None,
+) -> int | None:
     """Savatchadagi mahsulotlardan buyurtma yaratadi va savatchani bo'shatadi."""
     items = await get_cart(user_id)
     if not items:
@@ -407,8 +415,10 @@ async def create_order(user_id: int, address: str, phone: str) -> int | None:
     db = get_db()
     total = sum(int(item["subtotal"]) for item in items)
     cur = await db.execute(
-        "INSERT INTO orders (user_id, total, address, phone) VALUES (?, ?, ?, ?)",
-        (user_id, total, address, phone),
+        "INSERT INTO orders (user_id, total, address, phone,"
+        " delivery_method, delivery_info, payment_method)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, total, address, phone, delivery_method, delivery_info, payment_method),
     )
     order_id = int(cur.lastrowid)
 

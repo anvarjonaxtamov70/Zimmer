@@ -7,8 +7,10 @@ class Register(StatesGroup):
 
 
 class Checkout(StatesGroup):
+    delivery_method = State()
     address = State()
     phone = State()
+    payment = State()
     confirm = State()
 
 
