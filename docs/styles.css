@@ -537,6 +537,7 @@ img, video { display: block; max-width: 100%; }
 .stories::-webkit-scrollbar { display: none; }
 .story { flex: none; width: 66px; background: none; border: none; padding: 0; color: var(--muted); font-size: 10.5px; }
 .story-ring {
+  position: relative;                 /* element soni belgisi uchun */
   width: 66px; height: 66px; border-radius: 50%;
   padding: 2.5px;
   background: conic-gradient(from 210deg, var(--red), #ff8a3d, #8a0a14, var(--red));
@@ -2202,3 +2203,27 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .bk-card-facts i { font-style: normal; font-size: 16px; display: block; margin-bottom: 3px; }
 .bk-card-facts b { display: block; font-size: 12px; font-weight: 800; color: var(--text); }
 .bk-card-facts small { display: block; font-size: 9.5px; color: var(--muted); margin-top: 1px; }
+
+
+/* ==========================================================================
+   STORIES HALQALARI — kategoriyalar (Avto_A1 tuzilishi, Zimmer ranglari)
+   Bitta halqa ichida bir nechta video/rasm ketma-ket o'ynaydi.
+   ========================================================================== */
+
+/* Halqada nechta element borligi */
+.story-count {
+  position: absolute; right: -2px; bottom: -2px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; border: 2px solid var(--bg);
+  background: var(--red-grad); color: #fff;
+  font-size: 9.5px; font-weight: 800; font-style: normal;
+  display: grid; place-items: center; line-height: 1;
+}
+
+/* Story ichida: qaysi bo'lim va nechanchi element */
+.story-cat {
+  position: absolute; top: calc(var(--safe-t) + 28px); left: 14px; z-index: 6;
+  padding: 5px 11px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.2px;
+}

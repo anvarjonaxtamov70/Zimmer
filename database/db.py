@@ -10,6 +10,7 @@ import logging
 import aiosqlite
 
 from config import config
+from utils import stories as story_cfg
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,8 @@ CREATE TABLE IF NOT EXISTS banners (
     is_active INTEGER NOT NULL DEFAULT 1
 );
 
+-- Stories: har bir yozuv — halqa (kategoriya) ICHIDAGI bitta element.
+-- Kategoriyalar kodda belgilangan (utils/stories.py), Avto_A1 kabi.
 CREATE TABLE IF NOT EXISTS stories (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     title     TEXT NOT NULL,
@@ -479,46 +482,55 @@ DEMO_BANNERS = [
     ),
 ]
 
+# Demo stories. Har bir yozuv — KATEGORIYA (halqa) ichidagi bitta element.
+# Halqa nomi/rangi utils/stories.py dan olinadi, shuning uchun bu yerda
+# faqat mazmun turadi. Bitta halqaga bir nechta element qo'yish mumkin.
+# (category, sarlavha, emoji, bosh matn, tavsif, sort)
 DEMO_STORIES = [
     (
+        "bugun",
         "Ish jarayoni",
         "🔧",
         "Fara qanday ochiladi?",
         "Fara ehtiyotkorlik bilan pechda ochiladi, ichi tozalanadi, linza markazlab "
         "o'rnatiladi va qayta germetizatsiya qilinadi. Butun jarayon 2-3 soat.",
-        "#ff3b30",
-        "#6d0a10",
         1,
     ),
     (
+        "natijalar",
         "Natija",
         "✨",
         "Kechasi farq juda katta",
         "Bi-LED yorug'ligi aniq chegara bilan tushadi — qarshi haydovchini "
         "qamashtirmaydi, lekin yo'l kunduzdek ko'rinadi.",
-        "#e01020",
-        "#2a0006",
         2,
     ),
     (
+        "natijalar",
+        "Bizning ishlarimiz",
+        "🏆",
+        "Bajarilgan ishlar",
+        "Mijozlarimiz mashinalarida bajarilgan ishlar. Videoni bot orqali "
+        "yuklaysiz: /admin -> Stories -> Video.",
+        3,
+    ),
+    (
+        "mijozlar",
         "Mijoz fikri",
         "💬",
         "Gentra egasi, Toshkent",
         "«Aozoom A5+ o'rnatdim. Kechasi yo'lni ko'rish butunlay boshqacha bo'ldi, "
         "ochki ham juda chiroyli chiqdi.»",
-        "#ff6b3d",
-        "#3a0f00",
-        3,
+        4,
     ),
     (
+        "kafolat",
         "Kafolat",
         "🛡",
         "1 yil kafolat",
         "Barcha linzalarga kafolat beriladi. Muammo chiqsa — bepul tekshirib, "
         "kerak bo'lsa almashtiramiz.",
-        "#c1121f",
-        "#101215",
-        4,
+        5,
     ),
 ]
 
@@ -585,7 +597,9 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "shrouds": [*MEDIA_COLUMNS],
     "optic_colors": [*MEDIA_COLUMNS],
     "banners": [*MEDIA_COLUMNS],
-    "stories": [*MEDIA_COLUMNS],
+    # Stories endi KATEGORIYALARGA bo'linadi (Avto_A1 kabi): bitta halqa
+    # ichida bir nechta video/rasm bo'ladi.
+    "stories": [*MEDIA_COLUMNS, ("category", "TEXT")],
 }
 
 
@@ -598,52 +612,57 @@ async def init_db() -> aiosqlite.Connection:
     await _db.commit()
     await _migrate()
     await _seed()
-    await _ensure_results_story()
+    await _assign_story_categories()
     logger.info("Baza tayyor: %s", config.db_path)
     return _db
 
 
-# «Natijalar» storysi — bajarilgan ishlar ko'rsatiladigan alohida story.
-# Videoni admin Telegram bot orqali yuklaydi (/admin -> Stories -> Video).
-RESULTS_STORY = (
-    "Natijalar",
-    "🏆",
-    "Bizning ishlarimiz",
-    "Mijozlarimiz mashinalarida bajarilgan ishlar. Videoni ko'rib, "
-    "natijani o'z ko'zingiz bilan solishtiring.",
-    "#ff2d3a",
-    "#1a0508",
-)
+# Eski (kategoriyasiz) storieslarni mos halqaga taqsimlash.
+# Kalit — story sarlavhasidagi so'z, qiymat — kategoriya kaliti.
+STORY_CATEGORY_GUESS = {
+    "ish jarayoni": "bugun",
+    "natijalar": "natijalar",
+    "natija": "natijalar",
+    "mijoz fikri": "mijozlar",
+    "mijoz": "mijozlar",
+    "kafolat": "kafolat",
+    "aksiya": "aksiyalar",
+    "manzil": "lokatsiya",
+    "lokatsiya": "lokatsiya",
+    "to'lov": "tolov",
+    "tolov": "tolov",
+    "aloqa": "aloqa",
+    "yetkazib berish": "natijalar",
+}
 
 
-async def _ensure_results_story() -> None:
-    """«Natijalar» storysini BIR MARTA qo'shadi.
+async def _assign_story_categories() -> None:
+    """Kategoriyasi yo'q storieslarga kategoriya beradi (bir martalik).
 
-    Meta belgisi ishlatiladi: admin keyinchalik o'chirib tashlasa, bot qayta
-    ishga tushganda uni majburan qaytarmaydi.
+    Ilgari har bir story alohida halqa edi. Endi halqalar — KATEGORIYALAR,
+    story esa ularning ichidagi element (Avto_A1 kabi). Eski yozuvlar
+    yo'qolmasligi uchun sarlavhasiga qarab mos halqaga joylanadi.
     """
-    if await _meta_get("results_story") == "1":
-        return
-
     db = get_db()
     async with db.execute(
-        "SELECT id FROM stories WHERE lower(title) = ?", (RESULTS_STORY[0].lower(),)
+        "SELECT id, title FROM stories WHERE category IS NULL OR TRIM(category) = ''"
     ) as cur:
-        exists = await cur.fetchone()
+        rows = await cur.fetchall()
+    if not rows:
+        return
 
-    if not exists:
-        async with db.execute("SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM stories") as cur:
-            row = await cur.fetchone()
-        sort = int(row["s"]) if row else 1
-        await db.execute(
-            "INSERT INTO stories (title, emoji, heading, body, color_from, color_to, sort)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (*RESULTS_STORY, sort),
+    for row in rows:
+        title = str(row["title"] or "").strip().lower()
+        category = STORY_CATEGORY_GUESS.get(title) or next(
+            (value for name, value in STORY_CATEGORY_GUESS.items() if name in title),
+            story_cfg.DEFAULT_CATEGORY,
         )
-        await db.commit()
-        logger.info("«Natijalar» storysi qo'shildi (videoni bot orqali yuklang).")
-
-    await _meta_set("results_story", "1")
+        await db.execute(
+            "UPDATE stories SET category = ? WHERE id = ?",
+            (story_cfg.normalize(category), row["id"]),
+        )
+    await db.commit()
+    logger.info("%s ta story kategoriyaga taqsimlandi.", len(rows))
 
 
 def get_db() -> aiosqlite.Connection:
@@ -796,10 +815,23 @@ async def _seed() -> None:
             DEMO_BANNERS,
         )
     if await _count("stories") == 0:
+        # Rang halqadan (kategoriyadan) olinadi — ustunlar to'ldirilib qo'yiladi
         await db.executemany(
-            "INSERT INTO stories (title, emoji, heading, body, color_from,"
-            " color_to, sort) VALUES (?,?,?,?,?,?,?)",
-            DEMO_STORIES,
+            "INSERT INTO stories (category, title, emoji, heading, body, sort,"
+            " color_from, color_to) VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (
+                    category,
+                    title,
+                    emoji,
+                    heading,
+                    body,
+                    sort,
+                    story_cfg.STORY_MAP[category]["color_from"],
+                    story_cfg.STORY_MAP[category]["color_to"],
+                )
+                for category, title, emoji, heading, body, sort in DEMO_STORIES
+            ],
         )
     if await _count("promos") == 0:
         await db.executemany(

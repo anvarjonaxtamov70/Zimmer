@@ -45,7 +45,9 @@
     favorites: new Set(), // saqlangan tovar ID'lari
     catIndex: 0,
     cart: loadCart(),
-    stories: [],
+    rings: [], // halqalar (kategoriyalar)
+    ringIndex: 0, // joriy halqa
+    stories: [], // joriy halqa ichidagi elementlar
     storyIndex: 0,
     storyTimer: null,
     storyRaf: 0, // requestAnimationFrame id (progress chizig'i)
@@ -846,33 +848,52 @@
   }
 
   /* ------------------------------------------------------------- stories */
+  /** Ko'rilgan elementlar ro'yxati (id bo'yicha). */
+  const seenList = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("zimmer_seen") || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (_) {
+      return [];
+    }
+  };
+
+  /** HALQALAR (kategoriyalar): bitta doira ichida bir nechta element.
+      Hammasi ko'rilgan bo'lsa halqa xiralashadi (Avto_A1 kabi). */
   function renderStories() {
-    S.stories = S.home.stories || [];
+    S.rings = (S.home && S.home.stories) || [];
     const box = $("stories");
     box.innerHTML = "";
-    const seen = JSON.parse(localStorage.getItem("zimmer_seen") || "[]");
+    const seen = seenList();
 
-    S.stories.forEach((story, i) => {
-      const node = el("button", "story" + (seen.includes(story.id) ? " seen" : ""));
-      const photo = abs(story.photo_url);
+    S.rings.forEach((ring, i) => {
+      const items = ring.items || [];
+      const allSeen = items.length > 0 && items.every((it) => seen.includes(it.id));
+      const node = el("button", "story" + (allSeen ? " seen" : ""));
+      // Halqa yuzida birinchi elementning rasmi (bo'lsa), aks holda emoji
+      const cover = abs((items[0] && items[0].photo_url) || null);
       node.innerHTML = `
         <div class="story-ring">
           <div class="story-face" style="background:linear-gradient(150deg,${esc(
-            story.color_from
-          )},${esc(story.color_to)})">${
-        photo ? img(photo) : esc(story.emoji)
-      }</div>
+            ring.color_from
+          )},${esc(ring.color_to)})">${cover ? img(cover) : esc(ring.emoji)}</div>
+          ${items.length > 1 ? `<i class="story-count">${items.length}</i>` : ""}
         </div>
-        <span class="story-label">${esc(story.title)}</span>`;
+        <span class="story-label">${esc(ring.title)}</span>`;
       node.onclick = () => openStory(i);
       box.append(node);
     });
-    $("stories").classList.toggle("hidden", !S.stories.length);
+    // Birorta ham story bo'lmasa — qator umuman ko'rinmaydi (toza ko'rinish)
+    box.classList.toggle("hidden", !S.rings.length);
   }
 
-  function openStory(index) {
+  /** Halqani ochadi: ichidagi elementlar ketma-ket o'ynaydi. */
+  function openStory(ringIndex, itemIndex) {
+    if (!S.rings.length) return;
+    S.ringIndex = Math.max(0, Math.min(S.rings.length - 1, ringIndex));
+    S.storyIndex = itemIndex || 0;
+    S.stories = (S.rings[S.ringIndex] && S.rings[S.ringIndex].items) || [];
     if (!S.stories.length) return;
-    S.storyIndex = index;
     $("story-view").classList.remove("hidden");
     haptic();
     paintStory();
@@ -975,7 +996,7 @@
         <div class="story-spinner" id="story-spinner"></div>
         <div class="story-buffer show" id="story-buffer"><i></i></div>
         <div class="story-shade"></div>
-        <div class="story-h">${esc(story.heading || story.title)}</div>
+        <div class="story-h">${esc(story.heading || "")}</div>
         <div class="story-b">${esc(story.body || "")}</div>`;
 
       const node = $("story-video");
@@ -1053,15 +1074,25 @@
         )},${esc(story.color_to)} 75%, #000)">${bg}</div>
         <div class="story-shade"></div>
         ${!bg ? `<div class="story-emoji">${esc(story.emoji)}</div>` : ""}
-        <div class="story-h">${esc(story.heading || story.title)}</div>
+        <div class="story-h">${esc(story.heading || "")}</div>
         <div class="story-b">${esc(story.body || "")}</div>`;
       animateStoryProgress(fill, 5000);
     }
 
-    const seen = JSON.parse(localStorage.getItem("zimmer_seen") || "[]");
+    // Bo'lim nomi tepada ko'rinadi (qaysi halqada turganini bildiradi)
+    const ring = S.rings[S.ringIndex];
+    const badge = $("story-cat");
+    if (badge && ring) {
+      badge.innerHTML = `${esc(ring.emoji)} ${esc(ring.title)}${
+        S.stories.length > 1 ? ` · ${S.storyIndex + 1}/${S.stories.length}` : ""
+      }`;
+      badge.classList.remove("hidden");
+    }
+
+    const seen = seenList();
     if (!seen.includes(story.id)) {
       seen.push(story.id);
-      localStorage.setItem("zimmer_seen", JSON.stringify(seen));
+      localStorage.setItem("zimmer_seen", JSON.stringify(seen.slice(-400)));
     }
     preloadNextStory();
   }
@@ -1096,7 +1127,9 @@
     const url = abs(story.video_url) || abs(story.photo_url);
     if (!url) return toast("Bu storyda yuklab olinadigan fayl yo'q");
     haptic("medium");
-    const name = (story.title || "zimmer-story").replace(/[^\w\-]+/g, "_");
+    const ring = S.rings[S.ringIndex];
+    const base = (ring && ring.title) || story.heading || "zimmer-story";
+    const name = ("zimmer-" + base).replace(/[^\w\-]+/g, "_");
     const ext = abs(story.video_url) ? ".mp4" : ".jpg";
     try {
       const a = document.createElement("a");
@@ -1117,10 +1150,30 @@
     }
   }
 
+  /** Ichida oldinga/orqaga yuradi; halqa tugasa — KEYINGI HALQAGA o'tadi. */
   function stepStory(delta) {
     const next = S.storyIndex + delta;
-    if (next < 0) return paintStory();
-    if (next >= S.stories.length) return closeStory();
+
+    if (next >= S.stories.length) {
+      // Shu bo'lim tugadi — keyingi bo'lim bor bo'lsa unga o'tamiz
+      if (S.ringIndex + 1 < S.rings.length) {
+        haptic("light");
+        return openStory(S.ringIndex + 1, 0);
+      }
+      return closeStory();
+    }
+
+    if (next < 0) {
+      // Orqaga: oldingi bo'limning OXIRGI elementiga qaytamiz
+      if (S.ringIndex > 0) {
+        const prev = S.rings[S.ringIndex - 1];
+        const last = Math.max(0, ((prev && prev.items) || []).length - 1);
+        haptic("light");
+        return openStory(S.ringIndex - 1, last);
+      }
+      return paintStory();
+    }
+
     S.storyIndex = next;
     paintStory();
   }
@@ -1131,9 +1184,14 @@
     releaseStoryVideo();
     stopVideos();
     storyPause(false);
-    $("story-view").classList.add("hidden");
+    const view = $("story-view");
+    view.classList.add("hidden");
+    view.style.transform = "";
+    view.style.opacity = "";
+    const badge = $("story-cat");
+    if (badge) badge.classList.add("hidden");
     $("story-inner").innerHTML = "";
-    renderStories();
+    renderStories(); // ko'rilgan halqalar xiralashadi
   }
 
   /* ------------------------------------------------------------- banners */
@@ -2708,6 +2766,58 @@
   $("story-next").onclick = () => stepStory(1);
   $("story-sound").onclick = toggleStorySound;
   $("story-save").onclick = saveStory;
+
+  /* Pastga surib yopish (Avto_A1 kabi). Faqat transform/opacity — silliq. */
+  (function storySwipeClose() {
+    const view = $("story-view");
+    if (!view) return;
+    let startY = 0;
+    let deltaY = 0;
+    let active = false;
+
+    view.addEventListener(
+      "touchstart",
+      (e) => {
+        if (view.classList.contains("hidden")) return;
+        startY = e.touches[0].clientY;
+        deltaY = 0;
+        active = true;
+      },
+      { passive: true }
+    );
+
+    view.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!active) return;
+        deltaY = e.touches[0].clientY - startY;
+        if (deltaY > 6) {
+          view.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+          view.style.opacity = String(Math.max(0.35, 1 - deltaY / 420));
+        }
+      },
+      { passive: true }
+    );
+
+    view.addEventListener(
+      "touchend",
+      () => {
+        if (!active) return;
+        active = false;
+        if (deltaY > 110) {
+          haptic("light");
+          closeStory();
+          return;
+        }
+        // Yetarli surilmadi — joyiga qaytadi
+        view.style.transition = "transform 0.22s var(--silk), opacity 0.22s";
+        view.style.transform = "";
+        view.style.opacity = "";
+        setTimeout(() => (view.style.transition = ""), 240);
+      },
+      { passive: true }
+    );
+  })();
 
   // Bosib turilsa pauza (ikki tomonda ham) — Avto_A1 kabi
   ["story-prev", "story-next"].forEach((id) => {

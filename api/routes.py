@@ -501,7 +501,7 @@ async def api_home(request: web.Request) -> web.Response:
         car_id = full["car_id"] if full else None
 
     banners = await q.get_banners(car_id)
-    stories = await q.get_stories()
+    stories = await q.get_story_rings()
     catalog = await q.get_catalog(car_id)
 
     _decorate_catalog(catalog)
@@ -521,18 +521,30 @@ async def api_home(request: web.Request) -> web.Response:
                 }
                 for b in banners
             ],
+            # Stories HALQALARGA (kategoriyalarga) guruhlangan: bitta halqa
+            # ichida bir nechta video/rasm ketma-ket o'ynaydi (Avto_A1 kabi).
             "stories": [
                 {
-                    "id": s["id"],
-                    "title": s["title"],
-                    "emoji": s["emoji"],
-                    "heading": s["heading"],
-                    "body": s["body"],
-                    "color_from": s["color_from"],
-                    "color_to": s["color_to"],
-                    **media_fields("stories", s),
+                    "key": ring["info"]["key"],
+                    "title": ring["info"]["title"],
+                    "emoji": ring["info"]["emoji"],
+                    "color_from": ring["info"]["color_from"],
+                    "color_to": ring["info"]["color_to"],
+                    "count": len(ring["items"]),
+                    "items": [
+                        {
+                            "id": s["id"],
+                            "heading": s["heading"] or s["title"],
+                            "body": s["body"],
+                            "emoji": s["emoji"] or ring["info"]["emoji"],
+                            "color_from": s["color_from"] or ring["info"]["color_from"],
+                            "color_to": s["color_to"] or ring["info"]["color_to"],
+                            **media_fields("stories", s),
+                        }
+                        for s in ring["items"]
+                    ],
                 }
-                for s in stories
+                for ring in stories
             ],
             # Aksiyalar bo'limi olib tashlandi — chegirma tovarning o'zida
             # (eski narx + belgi), Avto A1 dagi kabi.
