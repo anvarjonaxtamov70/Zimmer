@@ -10,3 +10,6 @@ tzdata>=2024.1
 # kutubxonasiga tayanadi. google-auth uni o'zi o'rnatmaydi — shuning uchun
 # `google-auth` deb yozilsa, Firebase jimgina ishlamay qolardi.
 google-auth[requests]>=2.30
+# Excel/CSV import uchun (Avto_A1 tizimi)
+pandas>=2.0
+openpyxl>=3.1  # Excel (.xlsx) o'qish uchun

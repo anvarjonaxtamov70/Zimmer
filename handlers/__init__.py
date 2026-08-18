@@ -11,6 +11,8 @@ def get_routers() -> list:
     from handlers import (
         admin,
         admin_crud,
+        admin_import,
+        admin_products,
         cart,
         fallback,
         orders,
@@ -27,6 +29,9 @@ def get_routers() -> list:
         cart.router,
         orders.router,
         admin.router,
+        # Yangi Firebase products handlers (Avto_A1 style)
+        admin_products.router,
+        admin_import.router,
         # admin_crud dan KEYIN: tahrirlash oqimida yuborilgan rasm/video
         # avval o'sha oqimga tushishi kerak (u holat bilan filtrlangan).
         admin_crud.router,
