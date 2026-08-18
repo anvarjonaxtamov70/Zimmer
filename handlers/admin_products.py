@@ -5,10 +5,11 @@ Bu handler mahsulotlarni Firebase'da boshqaradi:
 - Mahsulotga ko'p rasmlar yuklash (Telegram MediaGroup)
 - Mahsulot tahrirlash
 - O'chirish/faollashtirish
+- Product Card display (Avto_A1 style)
 """
 
 import logging
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -16,6 +17,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import is_admin
 from services import firebase_products as fb_prod
+from services import firebase_storage as fb_storage
+from utils import product_card
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -147,8 +150,13 @@ async def process_product_description(message: Message, state: FSMContext):
 
 
 @router.message(AddProductStates.images, F.photo, F.from_user.id.func(is_admin))
-async def process_product_images(message: Message, state: FSMContext):
-    """Mahsulot rasmlarini qabul qiladi (MediaGroup qo'llab-quvvatlaydi)."""
+async def process_product_images(message: Message, state: FSMContext, bot: Bot):
+    """Mahsulot rasmlarini qabul qiladi (MediaGroup qo'llab-quvvatlaydi).
+    
+    Avto_A1 style: rasmlar Telegram file_id sifatida saqlanadi.
+    Agar Firebase Storage sozlangan bo'lsa, Firebase'ga yuklanadi va
+    doimiy URL qaytariladi.
+    """
     user_id = message.from_user.id
     
     if user_id not in _temp_product_data:
@@ -201,27 +209,62 @@ async def finish_product_images(message: Message, state: FSMContext):
 
 
 @router.message(AddProductStates.confirm, Command("confirm"), F.from_user.id.func(is_admin))
-async def confirm_add_product(message: Message, state: FSMContext):
-    """Mahsulotni tasdiqlaydi va Firebase'ga saqlaydi."""
+async def confirm_add_product(message: Message, state: FSMContext, bot: Bot):
+    """Mahsulotni tasdiqlaydi va Firebase'ga saqlaydi.
+    
+    Avto_A1 style: rasmlar Firebase Storage'ga yuklanadi (agar sozlangan bo'lsa).
+    """
     user_id = message.from_user.id
     data = await state.get_data()
     images = _temp_product_data.get(user_id, {}).get("images", [])
     
     try:
+        # Mahsulotni qo'shish (rasmlar keyinroq yuklanadi)
         product_id = await fb_prod.add_product(
             name=data['name'],
             price=data['price'],
             stock=data.get('stock', 0),
             description=data.get('description'),
-            images=images,
+            images=[],  # Bo'sh — keyinroq to'ldiriladi
             is_draft=False,
         )
         
         if product_id > 0:
+            # Rasmlarni Firebase Storage'ga yuklash
+            uploaded_images = []
+            if images and fb_storage.is_storage_enabled():
+                progress_msg = await message.answer("📤 Rasmlar yuklanmoqda...")
+                for i, file_id in enumerate(images):
+                    image_url = await fb_storage.upload_telegram_photo(
+                        bot, file_id, product_id, i
+                    )
+                    if image_url:
+                        uploaded_images.append(image_url)
+                await progress_msg.delete()
+            else:
+                # Firebase Storage o'chiq — file_id'larni to'g'ridan-to'g'ri saqlash
+                uploaded_images = images
+            
+            # Rasmlarni mahsulotga qo'shish
+            if uploaded_images:
+                await fb_prod.update_product(product_id, images=uploaded_images)
+            
+            # Product card ko'rsatish
+            product = await fb_prod.get_product(product_id)
+            if product:
+                await product_card.send_product_card(
+                    bot=bot,
+                    chat_id=message.chat.id,
+                    product=product,
+                    admin_view=True,
+                    show_purchase=False,
+                )
+            
             await message.answer(
                 f"✅ <b>Mahsulot qo'shildi!</b>\n\n"
                 f"ID: <code>{product_id}</code>\n"
-                f"Nom: {data['name']}\n\n"
+                f"Nom: {data['name']}\n"
+                f"Rasmlar: {len(uploaded_images)} ta\n\n"
                 f"Mahsulot endi do'konda ko'rinadi.",
                 parse_mode="HTML"
             )
@@ -386,7 +429,7 @@ async def delete_product_handler(message: Message):
 
 
 @router.message(Command("update_stock"), F.from_user.id.func(is_admin))
-async def update_stock_handler(message: Message):
+async def update_stock_handler(message: Message, bot: Bot):
     """Mahsulot ombor miqdorini yangilaydi."""
     args = message.text.split()
     if len(args) < 3:
@@ -416,6 +459,17 @@ async def update_stock_handler(message: Message):
     
     success = await fb_prod.update_stock(product_id, quantity)
     if success:
+        # Yangilangan product card ko'rsatish
+        updated_product = await fb_prod.get_product(product_id)
+        if updated_product:
+            await product_card.send_product_card(
+                bot=bot,
+                chat_id=message.chat.id,
+                product=updated_product,
+                admin_view=True,
+                show_purchase=False,
+            )
+        
         await message.answer(
             f"✅ <b>Ombor yangilandi</b>\n\n"
             f"{product.get('name')}\n"
