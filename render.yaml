@@ -36,6 +36,9 @@ services:
         value: "https://zimmer-42840-default-rtdb.firebaseio.com"
       - key: FIREBASE_ROOT
         value: "zimmer"
+      # Firebase Storage (mahsulot rasmlari uchun)
+      - key: FIREBASE_STORAGE_BUCKET
+        value: "zimmer-42840.appspot.com"
 
       # ——— Sozlamalar (panelda o'zgartirish mumkin) ———
       - key: PYTHON_VERSION
