@@ -3246,6 +3246,8 @@
   let currentProduct = null;
   let currentImageIndex = 0;
   let modalQuantity = 1;
+  let touchStartX = 0;
+  let touchEndX = 0;
 
   function openProductModal(product) {
     currentProduct = product;
@@ -3263,23 +3265,26 @@
     const images = product.images || [product.image || product.thumbnail];
     images.forEach((img, i) => {
       const imgEl = el("img", "", "");
-      imgEl.src = img;
+      imgEl.src = abs(img);
       imgEl.alt = product.name;
+      imgEl.loading = i === 0 ? "eager" : "lazy";
       slider.appendChild(imgEl);
       
       const dot = el("i", i === 0 ? "on" : "");
+      dot.onclick = () => scrollToImage(i);
       dots.appendChild(dot);
     });
     
     // Badges
     const badges = $("pm-badges");
     badges.innerHTML = "";
+    const off = discountPercent(product);
     if (product.badge) {
       const badge = el("span", "pm-badge new", product.badge);
       badges.appendChild(badge);
     }
-    if (product.discount > 0) {
-      const saleBadge = el("span", "pm-badge sale", `-${product.discount}%`);
+    if (off > 0) {
+      const saleBadge = el("span", "pm-badge sale", `-${off}%`);
       badges.appendChild(saleBadge);
     }
     if (product.stock === 0) {
@@ -3289,7 +3294,7 @@
     
     // Ma'lumotlar
     $("pm-title").textContent = product.name;
-    $("pm-price").textContent = fmt(product.price);
+    $("pm-price").textContent = product.price_label || fmt(product.price);
     
     // Stock holati
     const stockEl = $("pm-stock");
@@ -3336,10 +3341,68 @@
     }
     
     modal.classList.remove("hidden");
+    
+    // Body scroll lock
+    document.body.style.overflow = "hidden";
+    
+    // Animatsiya uchun ozgina kechikish
+    requestAnimationFrame(() => {
+      modal.style.animation = "modalSlideUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)";
+    });
+    
     haptic("light");
     
     // Scroll listener - rasm o'zgarishi
     slider.addEventListener("scroll", handleModalScroll, { passive: true });
+    
+    // Touch swipe gestures
+    setupTouchGestures(slider);
+  }
+
+  function setupTouchGestures(slider) {
+    slider.addEventListener("touchstart", (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+    
+    slider.addEventListener("touchend", (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      handleSwipeGesture();
+    }, { passive: true });
+  }
+
+  function handleSwipeGesture() {
+    const swipeThreshold = 50;
+    const diff = touchStartX - touchEndX;
+    
+    if (Math.abs(diff) > swipeThreshold) {
+      if (diff > 0) {
+        // Swipe left - keyingi rasm
+        navigateImage(1);
+      } else {
+        // Swipe right - oldingi rasm
+        navigateImage(-1);
+      }
+    }
+  }
+
+  function navigateImage(direction) {
+    if (!currentProduct) return;
+    const images = currentProduct.images || [currentProduct.image || currentProduct.thumbnail];
+    const newIndex = currentImageIndex + direction;
+    
+    if (newIndex >= 0 && newIndex < images.length) {
+      scrollToImage(newIndex);
+      haptic("light");
+    }
+  }
+
+  function scrollToImage(index) {
+    const slider = $("pm-slider");
+    const width = slider.offsetWidth;
+    slider.scrollTo({
+      left: width * index,
+      behavior: "smooth"
+    });
   }
 
   function handleModalScroll() {
@@ -3351,22 +3414,40 @@
     if (newIndex !== currentImageIndex) {
       currentImageIndex = newIndex;
       updateModalDots();
+      haptic("selection");
     }
   }
 
   function updateModalDots() {
     const dots = $("pm-dots").children;
     for (let i = 0; i < dots.length; i++) {
-      dots[i].classList.toggle("on", i === currentImageIndex);
+      if (i === currentImageIndex) {
+        dots[i].classList.add("on");
+        dots[i].style.transform = "scale(1.1)";
+      } else {
+        dots[i].classList.remove("on");
+        dots[i].style.transform = "scale(1)";
+      }
     }
   }
 
   function closeProductModal() {
     const modal = $("productModal");
-    modal.classList.add("hidden");
+    
+    // Animatsiya bilan yopish
+    modal.style.animation = "modalSlideDown 0.25s cubic-bezier(0.4, 0, 1, 1)";
+    
+    setTimeout(() => {
+      modal.classList.add("hidden");
+      modal.style.animation = "";
+      document.body.style.overflow = "";
+    }, 250);
+    
     currentProduct = null;
     const slider = $("pm-slider");
     slider.removeEventListener("scroll", handleModalScroll);
+    
+    haptic("light");
   }
 
   function updateModalQuantity(delta) {
@@ -3385,15 +3466,24 @@
   function addFromModal() {
     if (!currentProduct || currentProduct.stock < 1) return;
     
-    addToCart(currentProduct.id, modalQuantity);
+    addToCart(currentProduct, modalQuantity);
+    
+    // Success animatsiya
+    const btn = $("pm-add-cart");
+    const originalText = btn.textContent;
+    btn.textContent = "✓ Qo'shildi!";
+    btn.style.background = "linear-gradient(135deg, #2fd45f 0%, #1ea84a 100%)";
+    
     toast(`✅ ${modalQuantity} ta savatga qo'shildi`);
     haptic("success");
     
     // Modalni yopish
     setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.background = "";
       closeProductModal();
       modalQuantity = 1;
-    }, 400);
+    }, 800);
   }
 
   function toggleModalWishlist() {
@@ -3426,6 +3516,13 @@
     $("productModal").onclick = (e) => {
       if (e.target.id === "productModal") closeProductModal();
     };
+    
+    // ESC tugmasi bilan yopish
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && currentProduct) {
+        closeProductModal();
+      }
+    });
   }
 
   // Yordamchi funksiya: saqlanganlarni localStorage ga yozish
