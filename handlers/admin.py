@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from config import parse_ids
+from config import VERSION, parse_ids
 from database import queries as q
 from keyboards.inline import (
     admin_back_kb,
@@ -44,7 +44,7 @@ router = Router(name="admin")
 router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
-ADMIN_TITLE = "⚙️ <b>Admin panel</b>\n\nKerakli bo'limni tanlang:"
+ADMIN_TITLE = f"⚙️ <b>Admin panel</b>\n\nKerakli bo'limni tanlang:\n\n⚙️ Versiya: v{VERSION}"
 
 
 
