@@ -157,25 +157,6 @@ def checkout_confirm_kb() -> InlineKeyboardMarkup:
 # --------------------------------------------------------------------- admin
 
 
-def admin_menu_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🔥 Bi-LED buyurtmalar", callback_data="adm:bileds:new")
-    kb.button(text="🗂 Katalogni boshqarish", callback_data="adm:catalog")
-    kb.button(text="📊 Statistika", callback_data="adm:stats")
-    kb.button(text="🗓 Navbatlar", callback_data="adm:bookings:today")
-    kb.button(text="📦 Do'kon buyurtmalari", callback_data="adm:orders:new")
-    kb.button(text="📣 Xabar yuborish", callback_data="adm:broadcast")
-    kb.button(text="👑 Adminlar", callback_data="adm:admins")
-    kb.adjust(1, 1, 2, 1, 1, 1)
-    return kb.as_markup()
-
-
-def admin_back_kb() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Admin menyu", callback_data="adm:menu")
-    return kb.as_markup()
-
-
 def admin_bookings_kb(
     date_iso: str, bookings: Sequence[aiosqlite.Row], dates: Sequence[str]
 ) -> InlineKeyboardMarkup:
@@ -339,3 +320,37 @@ def admin_biled_actions_kb(order_id: int, status: str) -> InlineKeyboardMarkup:
     kb.button(text="⬅️ Ro'yxat", callback_data=f"adm:bileds:{status}")
     kb.adjust(*([2] * (count // 2) + [1] * (count % 2) + [1]))
     return kb.as_markup()
+
+
+# ---------------------------------------------------------------- Admin Menu
+
+
+def admin_menu_kb() -> InlineKeyboardMarkup:
+    """Admin panel asosiy menu — Firebase Products tizimi bilan."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📊 Statistika", callback_data="adm:stats")
+    kb.button(text="🗓 Navbatlar", callback_data="adm:bookings:today")
+    kb.button(text="📦 Buyurtmalar", callback_data="adm:orders:new")
+    kb.button(text="🔥 Bi-LED", callback_data="adm:bileds:new")
+    # Firebase Products (yangi system)
+    kb.button(text="📦 Mahsulotlar", callback_data="adm:products_list")
+    kb.button(text="➕ Mahsulot qo'shish", callback_data="adm:add_product")
+    kb.button(text="📥 Import (Excel/CSV)", callback_data="adm:import_products")
+    kb.button(text="📋 Qoralamalar", callback_data="adm:products_drafts")
+    # Eski CRUD tizimi (DB mahsulotlar uchun)
+    kb.button(text="🏪 Kategoriyalar", callback_data="adm:cats")
+    kb.button(text="🛠 Xizmatlar", callback_data="adm:services")
+    kb.button(text="📢 Xabar yuborish", callback_data="adm:broadcast")
+    kb.button(text="👤 Adminlar", callback_data="adm:admins")
+    kb.button(text="🔧 Firebase", callback_data="adm:firebase")
+    kb.adjust(2, 2, 2, 2, 2, 2, 1)
+    return kb.as_markup()
+
+
+def admin_back_kb() -> InlineKeyboardMarkup:
+    """Oddiy orqaga tugmasi — admin menu'ga qaytish."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Admin menyu", callback_data="adm:menu")]
+        ]
+    )
