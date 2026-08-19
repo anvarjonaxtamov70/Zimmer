@@ -5,7 +5,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from config import config, is_admin
+from config import VERSION, config, is_admin
 from database import queries as q
 from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
@@ -147,7 +147,8 @@ async def cmd_id(message: Message) -> None:
             f"👑 Siz <b>adminsiz</b> — manba: {admin_registry.source_label(user_id)}\n\n"
             "Panelni ochish: /admin\n"
             "Katalogni boshqarish: /katalog\n"
-            "Adminlar ro'yxati: /adminlar",
+            "Adminlar ro'yxati: /adminlar\n\n"
+            f"⚙️ Versiya: v{VERSION}",
             reply_markup=main_menu(user_id),
         )
         return
@@ -155,7 +156,8 @@ async def cmd_id(message: Message) -> None:
     await message.answer(
         f"🆔 Sizning Telegram ID: <code>{user_id}</code>\n\n"
         "Siz admin emassiz. Mavjud adminlardan biri sizni shu buyruq bilan "
-        f"qo'sha oladi:\n<code>/admin_add {user_id}</code>"
+        f"qo'sha oladi:\n<code>/admin_add {user_id}</code>\n\n"
+        f"⚙️ Versiya: v{VERSION}"
     )
 
 
