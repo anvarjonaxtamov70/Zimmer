@@ -1461,8 +1461,8 @@
           ${p.stock > 0 ? '<div class="prod-trust">🛡 14 kun kafolat</div>' : ""}
         </div>`;
 
-      // Butun kartani bosish — tafsilot oynasi (Avto_A1 mantiqi)
-      card.onclick = () => openProduct(p);
+      // Butun kartani bosish — modal ochiladi (yangilangan)
+      card.onclick = () => openProductModal(p);
 
       const fav = card.querySelector(".prod-fav");
       fav.onclick = (ev) => {
@@ -3239,5 +3239,209 @@
     renderCourierAddresses();
   }
 
+  /* ========================================================================
+     MAHSULOT TAFSILOT MODALI (Avto_A1 dan Zimmerga ko'chirilgan)
+     ======================================================================== */
+  
+  let currentProduct = null;
+  let currentImageIndex = 0;
+  let modalQuantity = 1;
+
+  function openProductModal(product) {
+    currentProduct = product;
+    currentImageIndex = 0;
+    modalQuantity = 1;
+    
+    const modal = $("productModal");
+    const slider = $("pm-slider");
+    const dots = $("pm-dots");
+    
+    // Rasm galereyasini yaratish
+    slider.innerHTML = "";
+    dots.innerHTML = "";
+    
+    const images = product.images || [product.image || product.thumbnail];
+    images.forEach((img, i) => {
+      const imgEl = el("img", "", "");
+      imgEl.src = img;
+      imgEl.alt = product.name;
+      slider.appendChild(imgEl);
+      
+      const dot = el("i", i === 0 ? "on" : "");
+      dots.appendChild(dot);
+    });
+    
+    // Badges
+    const badges = $("pm-badges");
+    badges.innerHTML = "";
+    if (product.badge) {
+      const badge = el("span", "pm-badge new", product.badge);
+      badges.appendChild(badge);
+    }
+    if (product.discount > 0) {
+      const saleBadge = el("span", "pm-badge sale", `-${product.discount}%`);
+      badges.appendChild(saleBadge);
+    }
+    if (product.stock === 0) {
+      const outBadge = el("span", "pm-badge out", "Tugagan");
+      badges.appendChild(outBadge);
+    }
+    
+    // Ma'lumotlar
+    $("pm-title").textContent = product.name;
+    $("pm-price").textContent = fmt(product.price);
+    
+    // Stock holati
+    const stockEl = $("pm-stock");
+    if (product.stock > 10) {
+      stockEl.textContent = "Omborda bor";
+      stockEl.className = "pm-stock in-stock";
+    } else if (product.stock > 0) {
+      stockEl.textContent = `${product.stock} ta qoldi`;
+      stockEl.className = "pm-stock low-stock";
+    } else {
+      stockEl.textContent = "Tugagan";
+      stockEl.className = "pm-stock out-of-stock";
+    }
+    
+    $("pm-desc").textContent = product.description || "";
+    
+    // Specs (agar bo'lsa)
+    const specs = $("pm-specs");
+    specs.innerHTML = "";
+    if (product.specs && typeof product.specs === "object") {
+      Object.entries(product.specs).forEach(([key, val]) => {
+        const row = el("div", "pm-spec-row");
+        row.innerHTML = `<span class="pm-spec-label">${esc(key)}</span><span class="pm-spec-value">${esc(val)}</span>`;
+        specs.appendChild(row);
+      });
+    }
+    
+    // Yoqtirgan tugmasi
+    const wishBtn = $("pm-wishlist");
+    wishBtn.classList.toggle("active", S.favorites.has(product.id));
+    wishBtn.classList.remove("hidden");
+    
+    // Quantity
+    $("pm-qty-val").textContent = modalQuantity;
+    
+    // Savatga qo'shish tugmasi
+    const addBtn = $("pm-add-cart");
+    if (product.stock > 0) {
+      addBtn.textContent = "Savatga qo'shish";
+      addBtn.disabled = false;
+    } else {
+      addBtn.textContent = "Tugagan";
+      addBtn.disabled = true;
+    }
+    
+    modal.classList.remove("hidden");
+    haptic("light");
+    
+    // Scroll listener - rasm o'zgarishi
+    slider.addEventListener("scroll", handleModalScroll, { passive: true });
+  }
+
+  function handleModalScroll() {
+    const slider = $("pm-slider");
+    const scrollLeft = slider.scrollLeft;
+    const width = slider.offsetWidth;
+    const newIndex = Math.round(scrollLeft / width);
+    
+    if (newIndex !== currentImageIndex) {
+      currentImageIndex = newIndex;
+      updateModalDots();
+    }
+  }
+
+  function updateModalDots() {
+    const dots = $("pm-dots").children;
+    for (let i = 0; i < dots.length; i++) {
+      dots[i].classList.toggle("on", i === currentImageIndex);
+    }
+  }
+
+  function closeProductModal() {
+    const modal = $("productModal");
+    modal.classList.add("hidden");
+    currentProduct = null;
+    const slider = $("pm-slider");
+    slider.removeEventListener("scroll", handleModalScroll);
+  }
+
+  function updateModalQuantity(delta) {
+    if (!currentProduct) return;
+    const newQty = modalQuantity + delta;
+    if (newQty < 1) return;
+    if (newQty > currentProduct.stock) {
+      toast(`Omborda faqat ${currentProduct.stock} ta bor`);
+      return;
+    }
+    modalQuantity = newQty;
+    $("pm-qty-val").textContent = modalQuantity;
+    haptic("light");
+  }
+
+  function addFromModal() {
+    if (!currentProduct || currentProduct.stock < 1) return;
+    
+    addToCart(currentProduct.id, modalQuantity);
+    toast(`✅ ${modalQuantity} ta savatga qo'shildi`);
+    haptic("success");
+    
+    // Modalni yopish
+    setTimeout(() => {
+      closeProductModal();
+      modalQuantity = 1;
+    }, 400);
+  }
+
+  function toggleModalWishlist() {
+    if (!currentProduct) return;
+    
+    if (S.favorites.has(currentProduct.id)) {
+      S.favorites.delete(currentProduct.id);
+      $("pm-wishlist").classList.remove("active");
+      toast("❌ Saqlanganlardan o'chirildi");
+    } else {
+      S.favorites.add(currentProduct.id);
+      $("pm-wishlist").classList.add("active");
+      toast("❤️ Saqlanganlarga qo'shildi");
+    }
+    
+    saveFavorites();
+    updateSavedCount();
+    haptic("light");
+  }
+
+  // Event listenerlar
+  function initProductModal() {
+    $("pm-close").onclick = closeProductModal;
+    $("pm-wishlist").onclick = toggleModalWishlist;
+    $("pm-qty-minus").onclick = () => updateModalQuantity(-1);
+    $("pm-qty-plus").onclick = () => updateModalQuantity(1);
+    $("pm-add-cart").onclick = addFromModal;
+    
+    // Tashqariga bosib yopish
+    $("productModal").onclick = (e) => {
+      if (e.target.id === "productModal") closeProductModal();
+    };
+  }
+
+  // Yordamchi funksiya: saqlanganlarni localStorage ga yozish
+  function saveFavorites() {
+    try {
+      localStorage.setItem("zimmer_favorites", JSON.stringify([...S.favorites]));
+    } catch (_) {}
+  }
+
+  // Yordamchi funksiya: saqlangan mahsulotlar sonini yangilash
+  function updateSavedCount() {
+    const count = S.favorites ? S.favorites.size : 0;
+    const obj = $("pf-stat-saved");
+    if (obj) animateStat("pf-stat-saved", count);
+  }
+
   boot();
+  initProductModal();
 })();
