@@ -44,6 +44,65 @@ class EditProductStates(StatesGroup):
 _temp_product_data = {}
 
 
+# ============================================================================
+# CALLBACK HANDLERS: Admin Menu Tugmalari
+# ============================================================================
+
+@router.callback_query(F.data == "adm:add_product")
+async def callback_add_product(callback: CallbackQuery, state: FSMContext):
+    """Admin menu'dan 'Mahsulot qo'shish' tugmasi bosilganda."""
+    await callback.answer()
+    await state.set_state(AddProductStates.name)
+    await callback.message.answer(
+        "📦 <b>Yangi mahsulot qo'shish</b>\n\n"
+        "Mahsulot nomini yuboring:"
+    )
+
+
+@router.callback_query(F.data == "adm:products_list")
+async def callback_products_list(callback: CallbackQuery):
+    """Admin menu'dan 'Mahsulotlar' tugmasi bosilganda."""
+    await callback.answer()
+    await show_products_list(callback.message)
+
+
+@router.callback_query(F.data == "adm:products_drafts")
+async def callback_products_drafts(callback: CallbackQuery):
+    """Admin menu'dan 'Qoralamalar' tugmasi bosilganda."""
+    await callback.answer()
+    products = await fb_prod.get_all_products(is_draft=True)
+    if not products:
+        await callback.message.answer("📋 Qoralama mahsulotlar yo'q.")
+        return
+    
+    text = f"📋 <b>Qoralama mahsulotlar ({len(products)} ta)</b>\n\n"
+    for p in products[:10]:
+        text += f"• ID {p['id']}: {p['name']}\n"
+    
+    await callback.message.answer(text)
+
+
+@router.callback_query(F.data == "adm:import_products")
+async def callback_import_products(callback: CallbackQuery):
+    """Admin menu'dan 'Import' tugmasi bosilganda."""
+    await callback.answer()
+    await callback.message.answer(
+        "📥 <b>Excel/CSV Import</b>\n\n"
+        "Excel (.xlsx) yoki CSV faylni yuboring.\n"
+        "Fayl quyidagi ustunlarni o'z ichiga olishi kerak:\n"
+        "- name/nomi (majburiy)\n"
+        "- price/narx (majburiy)\n"
+        "- stock/ombor (ixtiyoriy)\n"
+        "- description/tavsif (ixtiyoriy)\n"
+        "- code/kod (ixtiyoriy)\n"
+        "- brand/brend (ixtiyoriy)"
+    )
+
+
+# ============================================================================
+# COMMAND HANDLERS
+# ============================================================================
+
 @router.message(Command("add_product"), F.from_user.id.func(is_admin))
 async def start_add_product(message: Message, state: FSMContext):
     """Yangi mahsulot qo'shish dialogini boshlaydi."""
