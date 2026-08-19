@@ -97,18 +97,29 @@ window.ZimmerAdmin = (function () {
     if (btn) btn.onclick = retry || open;
   }
 
-  /** Fayl yuklash (JSON emas — FormData). */
+  /** Fayl yuklash (JSON emas — FormData) — TIMEOUT bilan. */
   async function upload(path, formData) {
     const base = app().apiBase ? app().apiBase() : "";
     const tg = window.Telegram ? window.Telegram.WebApp : null;
+    
+    // 60 soniyalik timeout (katta rasmlar uchun)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    
     let res;
     try {
       res = await fetch(base + path, {
         method: "POST",
         headers: { Authorization: "tma " + ((tg && tg.initData) || "") },
         body: formData,
+        signal: controller.signal,
       });
-    } catch (_) {
+      clearTimeout(timeoutId);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw { code: "timeout", message: "Rasm yuklash juda uzoq davom etdi. Kichikroq rasm tanlang." };
+      }
       throw { code: "network", message: "Fayl yuborilmadi — internetni tekshiring." };
     }
     let data = null;
@@ -1410,16 +1421,32 @@ window.ZimmerAdmin = (function () {
       const res = await api("/api/admin/products", { method: "POST", body: payload });
       const newId = res.item && res.item.id;
 
-      // Telefondan tanlangan rasmlarni ketma-ket yuklaymiz
+      // Telefondan tanlangan rasmlarni ketma-ket yuklaymiz (YAXSHILANGAN XATO BOSHQARISH)
       const pending = ["photo", "photo2", "photo3"].filter((k) => AP[k]);
+      let uploadedCount = 0;
+      let failedCount = 0;
+      
       for (let i = 0; i < pending.length; i++) {
         const kind = pending[i];
         btn.textContent = `Rasm yuklanmoqda (${i + 1}/${pending.length})...`;
         try {
           await uploadMedia("prd", newId, kind, AP[kind]);
+          uploadedCount++;
+          haptic("light");
         } catch (err) {
-          toast((err && err.message) || "Rasm yuklanmadi");
+          failedCount++;
+          const msg = (err && err.message) || "Rasm yuklanmadi";
+          console.error(`Rasm yuklashda xato (${kind}):`, err);
+          toast(`⚠️ ${kind}: ${msg}`);
+          // Bitta rasm yuklanmasa ham davom etamiz - boshqa rasmlar yuklanaveradi
         }
+      }
+      
+      // Natija haqida aniq xabar
+      if (failedCount > 0 && uploadedCount > 0) {
+        toast(`✅ ${uploadedCount} ta rasm yuklandi, ${failedCount} ta yuklanmadi`);
+      } else if (failedCount > 0) {
+        toast(`⚠️ Rasmlar yuklanmadi. Internetni tekshiring va qaytadan urinib ko'ring.`);
       }
 
       AP.photo = AP.photo2 = AP.photo3 = null;
