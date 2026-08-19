@@ -8,6 +8,7 @@ Bu handler mahsulotlarni Firebase'da boshqaradi:
 - Product Card display (Avto_A1 style)
 """
 
+import asyncio
 import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
@@ -219,15 +220,35 @@ async def process_product_images(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     
     if user_id not in _temp_product_data:
-        _temp_product_data[user_id] = {"images": []}
+        _temp_product_data[user_id] = {"images": [], "media_group_id": None}
     
     # Eng katta o'lchamdagi rasmni olish
     photo = message.photo[-1]
     file_id = photo.file_id
     
+    # MediaGroup tekshirish (bir necha rasm birga yuborilgan)
+    media_group_id = message.media_group_id
+    
+    # Agar MediaGroup bo'lsa va avvalgi bilan bir xil bo'lsa, faqat qo'shamiz
+    if media_group_id:
+        if _temp_product_data[user_id]["media_group_id"] == media_group_id:
+            # Bir xil MediaGroup - faqat qo'shamiz, javob bermaymiz
+            _temp_product_data[user_id]["images"].append(file_id)
+            return
+        else:
+            # Yangi MediaGroup boshlandi
+            _temp_product_data[user_id]["media_group_id"] = media_group_id
+    
     _temp_product_data[user_id]["images"].append(file_id)
     
     count = len(_temp_product_data[user_id]["images"])
+    
+    # MediaGroup bo'lsa, kuting deb aytamiz
+    if media_group_id:
+        # MediaGroup oxirigacha kutamiz (0.5 soniya)
+        await asyncio.sleep(0.5)
+        count = len(_temp_product_data[user_id]["images"])
+    
     await message.answer(
         f"✅ Rasm qo'shildi ({count} ta)\n\n"
         f"Yana rasm yuborishingiz yoki /done bosishingiz mumkin.",
