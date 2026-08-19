@@ -2807,8 +2807,25 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 
 @keyframes modalSlideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: none; }
+  from { 
+    opacity: 0; 
+    transform: translateY(20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: none; 
+  }
+}
+
+@keyframes modalSlideDown {
+  from { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+  to { 
+    opacity: 0; 
+    transform: translateY(20px); 
+  }
 }
 
 /* Header (yopish va yoqtirgan tugmalari) */
