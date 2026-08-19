@@ -42,26 +42,36 @@ async def upload_telegram_photo(bot: Bot, file_id: str, product_id: int, index: 
         Firebase Storage URL yoki Telegram file_id (agar Storage o'chiq bo'lsa)
     """
     if not is_storage_enabled():
-        logger.warning("Firebase Storage o'chiq — file_id qaytarilmoqda")
+        logger.debug("Firebase Storage o'chiq — file_id qaytarilmoqda")
         return file_id
     
     try:
         # 1. Telegram'dan file path olish
         file_info = await bot.get_file(file_id)
+        if not file_info or not file_info.file_path:
+            logger.error(f"Telegram file info olinmadi: {file_id}")
+            return file_id
+        
         file_path = file_info.file_path
         
         # 2. Telegram file URL
         token = config.bot_token
         download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
         
-        # 3. Faylni yuklab olish
-        async with aiohttp.ClientSession() as session:
+        # 3. Faylni yuklab olish (timeout bilan)
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(download_url) as response:
                 if response.status != 200:
                     logger.error(f"Telegram file yuklash xatosi: {response.status}")
                     return file_id
                 
                 file_data = await response.read()
+                
+                # Rasm hajmini tekshirish (max 10MB)
+                if len(file_data) > 10 * 1024 * 1024:
+                    logger.error(f"Rasm hajmi juda katta: {len(file_data)} bytes")
+                    return file_id
         
         # 4. Firebase Storage'ga yuklash
         # Fayl nomi: products/{product_id}/image_{index}.jpg
@@ -72,9 +82,12 @@ async def upload_telegram_photo(bot: Bot, file_id: str, product_id: int, index: 
             logger.info(f"Rasm Firebase'ga yuklandi: {file_name}")
             return storage_url
         else:
-            logger.error("Firebase Storage'ga yuklash xatosi")
+            logger.error("Firebase Storage'ga yuklash xatosi — file_id qaytarilmoqda")
             return file_id
     
+    except asyncio.TimeoutError:
+        logger.error(f"Rasmni yuklashda timeout: {file_id}")
+        return file_id
     except Exception as e:
         logger.error(f"Rasmni Firebase'ga yuklashda xato: {e}", exc_info=True)
         return file_id
