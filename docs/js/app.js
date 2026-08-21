@@ -2736,14 +2736,17 @@
         if (adminBtn) adminBtn.classList.remove("hidden");
       }
 
-      // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
-      // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
-      carsReady = api("/api/cars")
-        .then((list) => {
-          S.cars = list || [];
-          if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
-        })
-        .catch(() => {});
+    // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
+    // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
+    carsReady = api("/api/cars")
+      .then((list) => {
+        S.cars = list || [];
+        if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
+      })
+      .catch(() => {});
+    
+    // Mahsulotlar ham parallel yuklanadi (Avto_A1 mantiqi)
+    loadProducts().catch(() => {});
     } catch (err) {
       if (err && err.code === "invalid_init_data") return onError(err);
       gate(
@@ -3237,6 +3240,157 @@
     // Yangi manzilni tanlash
     S._dlvSelectedAddr = arr.length - 1;
     renderCourierAddresses();
+  }
+
+  /* ========================================================================
+     MAHSULOTLAR TIZIMI (Firebase + Render + Modal)
+     Avto_A1 mantiqida: Firebase'dan yuklab, grid'da ko'rsatish
+     ======================================================================== */
+  
+  let allProducts = [];
+  let currentCategory = "all";
+  
+  async function loadProducts() {
+    try {
+      const url = `${API}/products`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Mahsulotlarni yuklab bo'lmadi");
+      
+      const data = await res.json();
+      allProducts = data.products || [];
+      
+      renderProductCategories();
+      renderProducts();
+    } catch (err) {
+      console.error("Products load error:", err);
+      $("products").innerHTML = '<p class="empty">Mahsulotlarni yuklab bo\'lmadi</p>';
+    }
+  }
+  
+  function renderProductCategories() {
+    const cats = new Set();
+    allProducts.forEach(p => {
+      if (p.category) cats.add(p.category);
+    });
+    
+    if (cats.size === 0) {
+      $("cats").classList.add("hidden");
+      return;
+    }
+    
+    $("cats").classList.remove("hidden");
+    $("cats").innerHTML = `
+      <button class="chip on" data-cat="all">🔥 Hammasi</button>
+      ${[...cats].map(c => `<button class="chip" data-cat="${c}">${c}</button>`).join("")}
+    `;
+    
+    $("cats").querySelectorAll(".chip").forEach(chip => {
+      chip.onclick = () => {
+        currentCategory = chip.dataset.cat;
+        $("cats").querySelectorAll(".chip").forEach(ch => ch.classList.remove("on"));
+        chip.classList.add("on");
+        renderProducts();
+        haptic("selection");
+      };
+    });
+  }
+  
+  function renderProducts() {
+    const container = $("products");
+    const empty = $("products-empty");
+    
+    let filtered = allProducts.filter(p => p.active !== false);
+    if (currentCategory !== "all") {
+      filtered = filtered.filter(p => p.category === currentCategory);
+    }
+    
+    if (filtered.length === 0) {
+      container.innerHTML = "";
+      empty.classList.remove("hidden");
+      return;
+    }
+    
+    empty.classList.add("hidden");
+    container.innerHTML = filtered.map(p => createProductCard(p)).join("");
+    
+    // Kartochkalarni bosganda modal ochish
+    container.querySelectorAll(".product-card").forEach(card => {
+      const id = card.dataset.id;
+      const product = allProducts.find(p => p.id === id);
+      if (product) {
+        card.onclick = () => {
+          openProductModal(product);
+          haptic("light");
+        };
+      }
+    });
+  }
+  
+  function createProductCard(p) {
+    const img = p.images && p.images.length > 0 ? p.images[0] : p.image || p.thumbnail;
+    const isFav = S.favorites && S.favorites.has(p.id);
+    const stock = p.stock || 0;
+    const isLow = stock > 0 && stock <= 5;
+    const isOut = stock < 1;
+    
+    let badges = "";
+    if (p.isNew) badges += '<span class="fomo fomo-trend">🔥 YANGI</span>';
+    if (isLow) badges += '<span class="fomo fomo-low">⚡ Kam qoldi</span>';
+    if (p.discount > 0) badges += `<span class="fomo fomo-sale">-${p.discount}%</span>`;
+    
+    const oldPrice = p.old_price || (p.discount > 0 ? Math.round(p.price / (1 - p.discount/100)) : 0);
+    
+    return `
+      <div class="product-card" data-id="${p.id}">
+        <div class="pc-imgwrap">
+          ${img ? `<img src="${img}" alt="${p.name}" class="pc-img" loading="lazy" onload="this.classList.add('loaded')">` : '<div class="pc-emoji">📦</div>'}
+          ${badges ? `<div class="pc-badges">${badges}</div>` : ''}
+          <button class="pc-heart ${isFav ? 'active' : ''}" data-id="${p.id}" onclick="event.stopPropagation(); toggleFavorite('${p.id}')">
+            ${isFav ? '❤️' : '🤍'}
+          </button>
+        </div>
+        <div class="pc-info">
+          <div class="pc-brand">ZIMMER</div>
+          <div class="pc-name">${p.name || 'Mahsulot'}</div>
+          ${p.car ? `<div class="pc-rating">${p.car}</div>` : ''}
+          <div class="pc-pricerow">
+            <div class="pc-price">
+              ${fmt(p.price)}
+              ${oldPrice > 0 ? `<span class="old">${fmt(oldPrice)}</span>` : ''}
+            </div>
+            <button class="pc-add ${isOut ? 'out' : ''}" onclick="event.stopPropagation(); ${isOut ? 'return' : `quickAddToCart('${p.id}')`}">
+              ${isOut ? '✕' : '+'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  function toggleFavorite(id) {
+    if (!S.favorites) S.favorites = new Set();
+    
+    if (S.favorites.has(id)) {
+      S.favorites.delete(id);
+      toast("❌ Saqlanganlardan o'chirildi");
+    } else {
+      S.favorites.add(id);
+      toast("❤️ Saqlanganlarga qo'shildi");
+    }
+    
+    saveFavorites();
+    updateSavedCount();
+    renderProducts();
+    haptic("light");
+  }
+  
+  function quickAddToCart(id) {
+    const product = allProducts.find(p => p.id === id);
+    if (!product || product.stock < 1) return;
+    
+    addToCart(product, 1);
+    toast(`✅ Savatga qo'shildi`);
+    haptic("success");
   }
 
   /* ========================================================================

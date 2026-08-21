@@ -364,39 +364,41 @@
   </div>
 </div>
 
-<!-- ==================== MAHSULOT TAFSILOT MODALI ==================== -->
-<div class="product-modal hidden" id="productModal">
+<!-- ==================== MAHSULOT MODAL (IVY → Zimmer) ==================== -->
+<div id="productModal" class="product-modal hidden">
   <div class="pm-header">
-    <button class="pm-close" id="pm-close" aria-label="Yopish">✕</button>
-    <button class="pm-wishlist hidden" id="pm-wishlist" aria-label="Yoqtirgan">❤️</button>
+    <button class="pm-close" id="pm-close">✕</button>
+    <button class="pm-wishlist" id="pm-wishlist">♥</button>
   </div>
-  
-  <!-- Rasm galereyasi (swipe) -->
-  <div class="pm-gallery" id="pm-gallery">
+
+  <div class="pm-gallery">
     <div class="pm-slider" id="pm-slider"></div>
     <div class="pm-dots" id="pm-dots"></div>
   </div>
-  
-  <!-- Mahsulot ma'lumotlari -->
-  <div class="pm-body">
+
+  <div class="pm-body" id="pm-body">
     <div class="pm-badges" id="pm-badges"></div>
-    <h2 class="pm-title" id="pm-title">Mahsulot nomi</h2>
+    <h1 class="pm-title" id="pm-title"></h1>
+    
     <div class="pm-price-row">
-      <span class="pm-price" id="pm-price">0 so'm</span>
-      <span class="pm-stock" id="pm-stock"></span>
+      <div class="pm-price" id="pm-price"></div>
+      <div class="pm-stock" id="pm-stock"></div>
     </div>
-    <div class="pm-desc" id="pm-desc"></div>
+
+    <p class="pm-desc" id="pm-desc"></p>
+
     <div class="pm-specs" id="pm-specs"></div>
   </div>
-  
-  <!-- Pastki panel (sticky) -->
+
   <div class="pm-footer">
     <div class="pm-qty-wrap">
       <button class="pm-qty-btn" id="pm-qty-minus">−</button>
-      <span class="pm-qty-val" id="pm-qty-val">1</span>
+      <span class="pm-qty-val" id="pm-qty">1</span>
       <button class="pm-qty-btn" id="pm-qty-plus">+</button>
     </div>
-    <button class="btn btn-primary pm-add-cart" id="pm-add-cart">Savatga qo'shish</button>
+    <button class="btn btn-primary pm-add-cart" id="pm-add-cart">
+      Savatga qo'shish
+    </button>
   </div>
 </div>
 
