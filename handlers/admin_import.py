@@ -182,20 +182,19 @@ async def _process_dataframe(df: pd.DataFrame, batch_id: str) -> dict:
             errors.append(f"Qator {idx+2}: Narx noto'g'ri ({price})")
             continue
         
-        # Mahsulot ma'lumotlarini tayyorlash
+        # Mahsulot ma'lumotlarini tayyorlash (Avto_A1 style)
         try:
             product_id = await fb_prod.add_product(
                 name=name,
                 price=price,
                 stock=_parse_int(row.get("stock"), 0),
-                description=_parse_str(row.get("description")),
-                old_price=_parse_int(row.get("old_price")) or None,
+                desc=_parse_str(row.get("description")),  # desc (Avto_A1 style)
                 code=_parse_str(row.get("code")),
                 brand=_parse_str(row.get("brand")),
                 model=_parse_str(row.get("model")),
-                unit=_parse_str(row.get("unit")),
-                badge=_parse_str(row.get("badge")),
-                category_id=_parse_int(row.get("category_id"), 1),
+                unit=_parse_str(row.get("unit"), "dona"),  # default "dona"
+                category="umumiy",  # Avto_A1 style (string, not ID)
+                categories=["umumiy"],  # Avto_A1 style
                 is_draft=True,  # Qoralama
                 batch_id=batch_id,
             )
