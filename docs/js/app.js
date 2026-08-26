@@ -1039,11 +1039,20 @@
     haptic("warning");
   }
 
+  /** Kabinetdagi «Server uyg'onmoqda» izohini yoqadi/o'chiradi. */
+  function setOfflineNote(on) {
+    const note = $("pf-offline-note");
+    if (note) note.classList.toggle("hidden", !on);
+  }
+
   /** Yuqorida turadigan ogohlantiruv chizig'i. */
   function renderOfflineBar() {
     let bar = $("offline-bar");
     if (!S.offline) {
       if (bar) bar.remove();
+      // Chiziq bilan birga kabinetdagi izoh ham ketishi kerak — aks holda
+      // server tiklangach ham eski ogohlantirish ko'rinib turadi.
+      setOfflineNote(false);
       return;
     }
     if (bar) return;
@@ -2472,7 +2481,9 @@
       const name = (S.me.full_name || S.me.first_name || "Mijoz").trim();
       $("pf-name").textContent = name;
       $("pf-avatar").textContent = (name[0] || "M").toUpperCase();
-      $("pf-id").textContent = "ID: " + (S.me.user_id || "—");
+      // `user_id` — Render `/api/me` dagi nom, `id` — Worker `/me` dagi nom.
+      // Faqat birinchisiga tayanilgani uchun zaxira rejimda «ID: —» chiqardi.
+      $("pf-id").textContent = "ID: " + (S.me.user_id || S.me.id || "—");
       // Telefon bor bo'lsa — VIP (ring yorqinroq)
       const card = document.querySelector(".pf-card");
       if (card) card.classList.toggle("is-vip", !!S.me.phone);
@@ -2495,10 +2506,13 @@
       renderBiledOrders([]);
       renderBookings([]);
       renderOrders(offlineOrdersForView());
-      const note = $("pf-offline-note");
-      if (note) note.classList.remove("hidden");
+      setOfflineNote(true);
       return;
     }
+    // To'liq rejimda izoh YASHIRILISHI shart. Ilgari faqat `remove("hidden")`
+    // bor edi — server tiklangandan keyin ham «Server uyg'onmoqda» yozuvi
+    // kabinetda qolib ketardi.
+    setOfflineNote(false);
 
     try {
       const [biled, bookings, orders] = await Promise.all([
