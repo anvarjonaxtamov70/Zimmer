@@ -528,6 +528,7 @@ async def cmd_firebase(message: Message, state: FSMContext) -> None:
         # bo'lmasdi va Mini App'ning zaxira rejimi do'konni bo'sh ko'rsatardi.
         pushed = await sync.push_all_catalog()
         total_pushed = sum(pushed.values())
+        pushed_users = await sync.push_all_users()
         await status.edit_text(
             "✅ <b>Firebase ulangan.</b>\n\n"
             "Mijozlar, katalog va buyurtmalar tarixi doimiy saqlanadi — "
@@ -539,7 +540,8 @@ async def cmd_firebase(message: Message, state: FSMContext) -> None:
             f"🔥 Bi-LED buyurtmalar: {history.get('biled', 0)} ta\n"
             f"📦 Do'kon buyurtmalari: {history.get('orders', 0)} ta\n"
             f"🗓 Navbatlar: {history.get('bookings', 0)} ta\n\n"
-            f"<b>Bulutga yuklandi:</b> {total_pushed} yozuv\n"
+            f"<b>Bulutga yuklandi:</b> {total_pushed} katalog yozuvi, "
+            f"{pushed_users} mijoz\n"
             f"<i>{', '.join(f'{k}={v}' for k, v in pushed.items()) or 'bo‘sh'}</i>\n\n"
             "Shu tufayli Render o'chganda ham ilovada do'kon ko'rinadi.\n\n"
             "<i>0 bo'lsa — hammasi allaqachon bazada bor, demak yo'qolmagan.</i>"

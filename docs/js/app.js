@@ -203,8 +203,10 @@
       // Sahifani yangilash yordam bermaydi — ilovani YOPIB, botdagi
       // «🛍 Do'konni ochish» tugmasidan qayta ochish kerak.
       gate(
-        "Sessiya eskirgan.\n\nIlovani yopib, botdagi «🛍 Do'konni ochish» " +
-          "tugmasi orqali qaytadan oching."
+        "Ilovani yopib, botdagi «🛍 Do'konni ochish» tugmasi orqali " +
+          "qaytadan oching.",
+        "Sessiya eskirgan",
+        "🔄"
       );
       return;
     }
@@ -406,7 +408,11 @@
   function gate(text, title, icon) {
     if (text) $("gate-text").textContent = text;
     const t = $("gate-title");
-    if (t) t.textContent = title || "Ulanish yo'q";
+    // Standart sarlavha ATAYLAB betaraf: bu ekran endi faqat ikki holatda
+    // chiqadi (Telegram tashqarisida ochilgan / imzo eskirgan) va ikkisi ham
+    // o'z sarlavhasini beradi. Ilgari sarlavha qattiq «Ro'yxatdan o'tish
+    // kerak» edi va har xato uchun YOLG'ON gapirardi.
+    if (t) t.textContent = title || "Bir lahza…";
     const ic = $("gate-icon");
     if (ic) ic.textContent = icon || "⏳";
     $("splash").classList.add("hidden");
@@ -904,11 +910,40 @@
     };
   }
 
-  /** `/api/me` javobining zaxirasi — Telegram bergan ma'lumotdan.
-      DIQQAT: bu imzo TEKSHIRILMAGAN ma'lumot, faqat salomlashuv uchun
-      ishlatiladi. Hech qanday admin huquqi berilmaydi (`is_admin: false`). */
+  /** `/api/me` javobining zaxirasi.
+   *
+   *  MIJOZNI TANIB QOLISH: oxirgi MUVAFFAQIYATLI `/api/me` javobi keshlanadi
+   *  (`saveMe()`), shuning uchun server o'chganda ham mijozning ismi,
+   *  telefoni va tanlagan mashinasi eslanadi — u o'zini "notanish" his
+   *  qilmaydi. Kesh bo'lmasa Telegram bergan ismga tushamiz.
+   *
+   *  XAVFSIZLIK: `is_admin` keshdan olinadi, lekin bu HUQUQ BERMAYDI —
+   *  barcha `/api/admin/*` so'rovlari serverda imzo bilan qayta
+   *  tekshiriladi. Kesh faqat «Boshqaruv» tugmasini ko'rsatish uchun.
+   */
+  const ME_KEY = "zimmer_me_cache";
+
+  function saveMe(me) {
+    if (!me || !me.id) return;
+    try {
+      localStorage.setItem(ME_KEY, JSON.stringify({ at: Date.now(), me: me }));
+    } catch (_) {}
+  }
+
+  function cachedMe() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ME_KEY) || "null");
+      return raw && raw.me && raw.me.id ? raw.me : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function offlineMe() {
     const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+    const saved = cachedMe();
+    // Kesh AYNI SHU foydalanuvchiga tegishli bo'lsagina ishlatiladi
+    if (saved && (!u.id || String(saved.id) === String(u.id))) return saved;
     return {
       id: u.id || 0,
       first_name: u.first_name || "",
@@ -1014,7 +1049,10 @@
         // rejimga o'tish mumkinligini tekshirish uchun) — uni QAYTA
         // SO'RAMAYMIZ, aks holda kirishda ikki marta tarmoqqa chiqilardi.
         if (!S.home) S.home = await ZimmerOffline.home();
-        if (!S.home) throw { code: "offline", message: "Katalog o'qilmadi" };
+        // Zanjirning hech biri ishlamasa ham YIQILMAYMIZ: bo'sh katalog
+        // bilan davom etamiz. Ilgari bu yerda xato ko'tarilib, mijoz
+        // to'siq ekraniga tushardi — ilovaning ochilishi ancha yaxshi.
+        if (!S.home) S.home = EMPTY_HOME;
       } else {
         S.home = await api("/api/home");
       }
@@ -1024,7 +1062,7 @@
       // Katalogni keshlaymiz — bu 3-QATLAM zaxira. Server ham, Firebase ham
       // javob bermasa, BIR MARTA kirgan mijoz baribir do'konni ko'radi va
       // to'siq ekraniga TUSHMAYDI.
-      if (window.ZimmerOffline) ZimmerOffline.save(S.home);
+      if (window.ZimmerOffline && !S.offline) ZimmerOffline.save(S.home);
 
       S.shopProducts = buildShopProducts(); // kategoriyasiz, random tartib
       renderOfflineBar();
@@ -1038,9 +1076,33 @@
           ? `${S.me.car.name} uchun linza, ochki va rangni tanlang`
           : "Linza, ochki va rangni tanlab narxni ko'ring";
     } catch (err) {
+      // Zaxira rejimda xato bo'lsa ilovani YIQITMAYMIZ — bo'sh katalog
+      // ko'rsatib, sababni pastdagi chiziqda aytamiz.
+      if (S.offline) {
+        console.error("[offline] loadHome xatosi:", err);
+        S.home = EMPTY_HOME;
+        S.favorites = new Set(localFavorites());
+        S.shopProducts = [];
+        renderOfflineBar();
+        renderCatalog();
+        return;
+      }
       onError(err);
     }
   }
+
+  /** Ma'lumot topilmaganda ishlatiladigan bo'sh, LEKIN TO'G'RI SHAKLDAGI javob.
+      Render kodi `banners`, `stories`, `catalog` massivlarini kutadi — null
+      bo'lsa yiqilardi. */
+  const EMPTY_HOME = {
+    car_id: null,
+    banners: [],
+    stories: [],
+    catalog: [],
+    favorite_ids: [],
+    _offline: true,
+    _empty: true,
+  };
 
   /* ------------------------------------------------------------- stories */
   /** Ko'rilgan elementlar ro'yxati (id bo'yicha). */
@@ -1623,8 +1685,18 @@
     const products = S.shopProducts || [];
     const box = $("products");
     box.innerHTML = "";
-    $("products-empty").classList.toggle("hidden", products.length > 0);
-    $("catalog-sec").classList.toggle("hidden", !products.length);
+    // Bo'sh holat matni: zaxira rejimda sabab boshqacha, shuni aytamiz.
+    const emptyEl = $("products-empty");
+    if (emptyEl) {
+      emptyEl.textContent =
+        S.offline && (!S.home || S.home._empty)
+          ? "Katalog hozir yuklanmadi. Server uyg'onganda o'zi paydo bo'ladi."
+          : "Bu bo'limda hozircha mahsulot yo'q.";
+      emptyEl.classList.toggle("hidden", products.length > 0);
+    }
+    // Katalog bo'limini zaxira rejimda YASHIRMAYMIZ — aks holda bosh sahifa
+    // butunlay bo'sh ko'rinib, mijoz nima bo'lganini tushunmaydi.
+    $("catalog-sec").classList.toggle("hidden", !products.length && !S.offline);
 
     products.forEach((p) => {
       const card = el("div", "prod");
@@ -2951,18 +3023,20 @@
         //  zaxira ham yordam bermaydi, mijoz ilovani qayta ochishi kerak.
         // ============================================================
         if (err && err.code === "invalid_init_data") return onError(err);
-        if (!(await enterOfflineMode())) {
-          // Na server, na Firebase, na kesh — birinchi kirish va internet yo'q.
-          // Bu «ro'yxatdan o'tish» muammosi EMAS, shuning uchun matn ham
-          // boshqacha (ilgari sarlavha yolg'on gapirardi).
-          gate(
-            "Do'kon ma'lumotlari yuklanmadi.\n\n" +
-              "Internetni tekshirib, «Qayta urinish» tugmasini bosing.",
-            "Ulanish yo'q",
-            "📡"
-          );
-          return;
-        }
+        // TO'SIQ EKRANI ENDI CHIQMAYDI.
+        //
+        // Ilgari zaxira zanjiri yiqilsa `gate()` chaqirilardi va mijoz
+        // «Ulanish yo'q» devoriga urilardi. Bu keraksiz: ilovaning o'zi
+        // ochilib, do'kon bo'limi bo'sh holatini ko'rsatishi ANCHA yaxshi —
+        // mijoz kamida navigatsiya qila oladi va sabab pastdagi chiziqda
+        // yozilgan bo'ladi.
+        //
+        // `enterOfflineMode()` false qaytarsa ham davom etamiz: `loadHome()`
+        // katalogni zanjirdan (Firebase → kesh → statik nusxa) oladi, hech
+        // biri bo'lmasa bo'sh holat ko'rsatiladi.
+        await enterOfflineMode();
+        S.offline = true;
+        scheduleServerRecheck();
         cfg = offlineConfig();
         me = offlineMe();
       }
@@ -2975,6 +3049,9 @@
         city: cfg.delivery_city || "Toshkent",
       };
       S.me = me;
+      // Mijozni tanib qolish uchun keshlaymiz — server o'chganda ismi,
+      // telefoni va mashinasi eslanadi.
+      if (!S.offline) saveMe(me);
       renderPhoneWarn();
 
       // Salomlashuv: vergul yo'q, ism alohida qatorda. Harflar navbat bilan
@@ -3019,25 +3096,16 @@
     // orqali `loadHome()` → `renderCatalog()` da yuklanadi — yagona manba.
     } catch (err) {
       if (err && err.code === "invalid_init_data") return onError(err);
-      // Kutilmagan xato. Kesh bo'lsa — to'siq ko'rsatmaymiz, do'konni
-      // keshdan ochamiz: bir marta kirgan mijoz doim kira olishi kerak.
-      if (window.ZimmerOffline && ZimmerOffline.hasCache()) {
-        console.error("[boot] kutilmagan xato — keshdan ochilyapti:", err);
-        S.offline = true;
-        S.home = ZimmerOffline.cached();
-        S.currency = offlineConfig().currency;
-        S.pay = { card: "", holder: "", admin: "", city: "Toshkent" };
-        S.me = offlineMe();
-        scheduleServerRecheck();
-      } else {
-        gate(
-          "Do'kon ma'lumotlari yuklanmadi.\n\n" +
-            "Internetni tekshirib, «Qayta urinish» tugmasini bosing.",
-          "Ulanish yo'q",
-          "📡"
-        );
-        return;
-      }
+      // Kutilmagan xato — bu yerda ham TO'SIQ KO'RSATMAYMIZ. Ilova ochiladi,
+      // katalog zaxira zanjiridan olinadi, hech biri bo'lmasa bo'sh holat
+      // ko'rinadi. Mijoz doim kamida ilovaning o'ziga kira olishi kerak.
+      console.error("[boot] kutilmagan xato — zaxira rejimda ochilyapti:", err);
+      S.offline = true;
+      S.home = null; // loadHome() zanjirdan oladi
+      S.currency = offlineConfig().currency;
+      S.pay = { card: "", holder: "", admin: "", city: "Toshkent" };
+      S.me = offlineMe();
+      scheduleServerRecheck();
     }
 
     // Tugma yo'q: mijoz salomlashuvni ko'radi va bosh menyu O'ZI ochiladi.
