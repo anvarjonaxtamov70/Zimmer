@@ -59,7 +59,9 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // ESKI nusxa turganini shu bilan darhol aniqlash mumkin (aks holda "kod
 // yangilanmadimi yoki kalit buzuqmi?" degan savolga taxmin bilan javob
 // berishga to'g'ri keladi).
-const VERSION = "1.1.0";
+// Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
+// YANGI nusxa turganini tasdiqlashning eng oson yo'li.
+const VERSION = "1.2.0";
 const FEATURES = ["order", "me", "profile", "media", "admin_detect"];
 
 function json(obj, status = 200) {
@@ -172,7 +174,21 @@ async function handleHealth(env, deep) {
         { headers: authHeaders(token) }
       );
       if (!res.ok) {
-        checks.catalog_read = { ok: false, status: res.status };
+        checks.catalog_read = {
+          ok: false,
+          status: res.status,
+          // 401 = token olindi, lekin RTDB uni qabul qilmadi. Deyarli har
+          // doim scope kamligi sabab (kalit buzuqligi emas — kalit buzuq
+          // bo'lsa yuqoridagi firebase_token bosqichi yiqilardi).
+          hint:
+            res.status === 401
+              ? "Token olingan, lekin RTDB rad etdi. Sabab odatda OAuth scope: " +
+                "userinfo.email VA firebase.database — ikkisi ham kerak. " +
+                "Cloudflare'dagi Worker nusxasi eski bo'lishi mumkin."
+              : res.status === 404
+                ? "FIREBASE_DB_URL xato bo'lishi mumkin (baza manzili yoki mintaqa)."
+                : undefined,
+        };
       } else {
         const node = await res.json();
         const count = node && typeof node === "object" ? Object.keys(node).length : 0;
@@ -795,7 +811,15 @@ async function accessToken(env, force) {
   const jwt = await signJwt(
     {
       iss: env.FIREBASE_CLIENT_EMAIL,
-      scope: "https://www.googleapis.com/auth/firebase.database",
+      // DIQQAT — IKKI scope ham SHART, bo'shliq bilan ajratiladi.
+      //
+      // `userinfo.email` tushib qolsa Google tokenni MUAMMOSIZ beradi
+      // (ya'ni bu bosqichda xato ko'rinmaydi), lekin RTDB o'sha token bilan
+      // kelgan har qanday so'rovni 401 bilan rad etadi. Xato kalitda emas,
+      // aynan shu yerda bo'lgani uchun uni topish qiyin edi.
+      scope:
+        "https://www.googleapis.com/auth/userinfo.email" +
+        " https://www.googleapis.com/auth/firebase.database",
       aud: "https://oauth2.googleapis.com/token",
       iat: now,
       exp: now + 3600,
