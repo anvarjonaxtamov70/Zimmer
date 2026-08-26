@@ -1,0 +1,49 @@
+# =====================================================================
+#  Fly.io konfiguratsiyasi
+#
+#  DIQQAT: Fly.io ning bepul imkoniyati 256 MB xotirali mashinalar beradi.
+#  Zimmer `pandas` ni ishlatadi (Excel import) va u 256 MB da yiqilishi
+#  mumkin, shuning uchun pastda 512 MB ko'rsatilgan — bu bepul chegaradan
+#  oshadi va oyiga bir necha dollar turishi mumkin.
+#
+#  Bepul variant kerak bo'lsa Koyeb'ni tanlang (512 MB bepul, karta ham
+#  talab qilinmaydi). To'liq qiyoslash: DEPLOY_ALT.md
+# =====================================================================
+app = "zimmer-bot"
+primary_region = "fra"   # Frankfurt — Toshkentga eng yaqin arzon mintaqa
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # api/server.py PORT bo'lmasa API serverni UMUMAN yoqmaydi (api/server.py:96)
+  PORT = "8080"
+  FIREBASE_ROOT = "zimmer"
+  SHOP_NAME = "Zimmer"
+  TIMEZONE = "Asia/Tashkent"
+  MINI_APP_URL = "https://anvarjonaxtamov70.github.io/Zimmer/"
+  # Bepul tarifda disk yo'q — SQLite qayta deployda tozalanadi.
+  # Ma'lumot Firebase'dan tiklanadi (services/sync.py:initial_sync).
+  DB_PATH = "zimmer.db"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # MUHIM: auto_stop_machines = false BO'LISHI SHART.
+  # Telegram long-polling uchun jarayon DOIM ishlab turishi kerak. Agar
+  # mashina to'xtatilsa bot xabarlarga javob bermaydi — Render'dagi
+  # "uxlab qolish" muammosining aynan o'zi takrorlanadi.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
