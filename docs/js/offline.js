@@ -54,8 +54,55 @@
     ["aloqa", "Aloqa", "📞", "#ff5f6d", "#20060a"],
   ];
 
+  /* ------------------------------------------------------------------
+     3-QATLAM: MAHALLIY KESH
+
+     Firebase ham javob bermasligi mumkin (qoidalar hali qo'yilmagan,
+     internet yo'q, baza manzili xato). O'sha holatda ham BIR MARTA
+     muvaffaqiyatli kirgan mijoz do'konni ko'rishi kerak — aks holda u
+     to'siq ekranini ko'radi va bu juda yoqimsiz.
+
+     Shuning uchun har muvaffaqiyatli yuklashdan keyin katalog
+     localStorage'ga yoziladi va oxirgi chora sifatida shu ishlatiladi.
+     ------------------------------------------------------------------ */
+  var CACHE_KEY = "zimmer_home_cache";
+  var CACHE_MAX_AGE = 30 * 24 * 3600 * 1000; // 30 kun
+
   function available() {
     return !!DB;
+  }
+
+  /** Muvaffaqiyatli yuklangan katalogni keshga yozadi. */
+  function save(home) {
+    if (!home || !home.catalog || !home.catalog.length) return;
+    try {
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({ at: Date.now(), home: home })
+      );
+    } catch (_) {
+      // Kvota tugagan bo'lishi mumkin — kesh ixtiyoriy, e'tibor bermaymiz
+    }
+  }
+
+  /** Keshdagi katalog (yoki null). Juda eski bo'lsa ishlatilmaydi. */
+  function cached() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (!raw || !raw.home || !raw.home.catalog) return null;
+      if (Date.now() - (raw.at || 0) > CACHE_MAX_AGE) return null;
+      var home = raw.home;
+      home._offline = true;
+      home._cached = true;
+      home._cachedAt = raw.at;
+      return home;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function hasCache() {
+    return !!cached();
   }
 
   /** `{root}/catalog/{jadval}` tugunini o'qiydi. Xato bo'lsa null. */
@@ -203,7 +250,8 @@
    * Katalog o'qilmasa null qaytaradi (chaqiruvchi asl xatoni ko'rsatadi).
    */
   async function home() {
-    if (!available()) return null;
+    // Firebase sozlanmagan bo'lsa — to'g'ridan keshga
+    if (!available()) return cached();
 
     var products, categories, banners, stories;
     try {
@@ -212,13 +260,15 @@
       products = rows(pair[0]);
       categories = rows(pair[1]);
     } catch (err) {
-      console.error("[offline] katalog o'qilmadi:", err);
-      return null;
+      // Eng ko'p uchraydigan sabab: `database.rules.json` hali Firebase
+      // Console'ga qo'yilmagan, shuning uchun o'qish rad etiladi (401/403).
+      console.error("[offline] Firebase katalogi o'qilmadi:", err);
+      return cached();
     }
 
     if (!products.length) {
-      console.warn("[offline] Firebase'da mahsulot yo'q.");
-      return null;
+      console.warn("[offline] Firebase'da mahsulot yo'q — keshga o'tilyapti.");
+      return cached();
     }
 
     // Bannerlar va stories — ixtiyoriy, yiqilsa e'tibor bermaymiz.
@@ -281,11 +331,33 @@
     };
   }
 
+  /* Mashinalar alohida keshlanadi: ular `/api/home` javobiga kirmaydi,
+     lekin konfigurator va «mashinamga mos» filtri uchun kerak. */
+  var CARS_KEY = "zimmer_cars_cache";
+
+  function saveCars(list) {
+    if (!list || !list.length) return;
+    try {
+      localStorage.setItem(CARS_KEY, JSON.stringify({ at: Date.now(), cars: list }));
+    } catch (_) {}
+  }
+
+  function cachedCars() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(CARS_KEY) || "null");
+      if (!raw || !Array.isArray(raw.cars)) return [];
+      if (Date.now() - (raw.at || 0) > CACHE_MAX_AGE) return [];
+      return raw.cars;
+    } catch (_) {
+      return [];
+    }
+  }
+
   /** Mashinalar ro'yxati (`/api/cars` ning zaxirasi). */
   async function cars() {
-    if (!available()) return [];
+    if (!available()) return cachedCars();
     try {
-      return rows(await readNode("cars"))
+      var list = rows(await readNode("cars"))
         .sort(function (a, b) {
           return (a.sort || 0) - (b.sort || 0);
         })
@@ -300,9 +372,10 @@
             has_media: !!photo,
           };
         });
+      return list.length ? list : cachedCars();
     } catch (err) {
-      console.error("[offline] mashinalar o'qilmadi:", err);
-      return [];
+      console.error("[offline] mashinalar o'qilmadi — keshga o'tilyapti:", err);
+      return cachedCars();
     }
   }
 
@@ -310,5 +383,9 @@
     available: available,
     home: home,
     cars: cars,
+    save: save,
+    cached: cached,
+    hasCache: hasCache,
+    saveCars: saveCars,
   };
 })();

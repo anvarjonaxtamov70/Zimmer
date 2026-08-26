@@ -7,7 +7,10 @@ Qanday ishlaydi:
 Nima uchun shunday:
     • eng tez yo'l — telefondagi galereyadan to'g'ridan-to'g'ri yuborish;
     • fayl Telegram serverida qoladi (`file_id`), link hech qachon eskirmaydi;
-    • `file_id` Firebase'ga sinxronlanadi — qayta deployda yo'qolmaydi.
+    • `file_id` Firebase'ga sinxronlanadi — qayta deployda yo'qolmaydi;
+    • media Firebase Storage'ga ham KO'CHIRILADI (doimiy URL) — shu tufayli
+      Render o'chganda ham ilovada stories ko'rinadi. `file_id` ni faqat bot
+      tokeni bilan ochish mumkin, ya'ni u Render'dagi proksiga bog'liq.
 
 O'chirish esa ilovada: storyni ochib 🗑 tugmasini bosish (admin ko'radi).
 """
@@ -19,6 +22,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from database import queries as q
+from services import firebase_storage as fb_storage
 from services import sync
 from utils import stories as story_cfg
 from utils.filters import IsAdmin
@@ -93,7 +97,42 @@ async def add_story(message: Message, bot: Bot) -> None:
             photo_id=photo_id,
             video_id=video_id,
         )
-        # Bulutga yozamiz — qayta deployda yo'qolmasin
+
+        # ----------------------------------------------------------------
+        #  Media'ni Firebase Storage'ga KO'CHIRAMIZ (doimiy URL olish uchun)
+        #
+        #  Telegram `file_id` ni faqat bot tokeni bilan ochish mumkin, ya'ni
+        #  ilovada ko'rsatish uchun Render'dagi `/api/media/...` proksisi
+        #  kerak. Render o'chsa — stories bo'sh ko'rinadi. Storage URL'i esa
+        #  brauzerda to'g'ridan-to'g'ri ochiladi, shuning uchun Mini App'ning
+        #  zaxira rejimida ham stories normal ishlaydi.
+        #
+        #  Storage sozlanmagan bo'lsa `upload_telegram_file` file_id ni
+        #  qaytaradi — biz uni URL deb yozmaymiz, ya'ni eski xatti-harakat
+        #  saqlanadi va hech narsa buzilmaydi.
+        # ----------------------------------------------------------------
+        if fb_storage.is_storage_enabled():
+            if photo_id:
+                url = await fb_storage.upload_telegram_file(
+                    bot, photo_id, f"stories/{story_id}/photo.jpg"
+                )
+                if url and str(url).startswith("http"):
+                    await q.admin_update("stories", story_id, "photo_url", url)
+            if video_id:
+                url = await fb_storage.upload_telegram_file(
+                    bot,
+                    video_id,
+                    f"stories/{story_id}/video.mp4",
+                    content_type="video/mp4",
+                    max_bytes=MAX_MB * 1024 * 1024,
+                )
+                if url and str(url).startswith("http"):
+                    await q.admin_update("stories", story_id, "video_url", url)
+
+        # Bulutga yozamiz — qayta deployda yo'qolmasin.
+        # DIQQAT: Storage URL'lari yozilgandan KEYIN chaqiriladi, aks holda
+        # bulutdagi nusxada `photo_url` bo'sh qolib, zaxira rejimda rasm
+        # ko'rinmasdi.
         await sync.push_catalog("stories", story_id)
 
         total = len(await q.get_story_items(category))
