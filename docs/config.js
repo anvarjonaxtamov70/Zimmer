@@ -27,6 +27,24 @@ window.ZIMMER_CONFIG = {
   FIREBASE_DB_URL: "https://zimmer-42840-default-rtdb.firebaseio.com",
   FIREBASE_ROOT: "zimmer",
 
+  /* ====================================================================
+     CLOUDFLARE WORKER — Render o'chganda BUYURTMA QABUL QILISH
+     ====================================================================
+     Worker uxlamaydi va bepul. U quyidagilarni bajaradi:
+       • buyurtma yaratish (summa katalogdan, server tomonda hisoblanadi)
+       • mijozni tanib qolish (profil: ism, telefon, mashina)
+       • adminga va mijozga Telegram xabari
+       • `file_id` rasmlarni ko'rsatish (/media proksisi)
+
+     Ya'ni Render faqat BOTNI ishlatadi — do'kon va buyurtma bundan
+     mustaqil, Avto_A1 dagi kabi.
+
+     Deploy: `cloudflare-worker.js` faylini Cloudflare Workers'ga qo'yib,
+     Secret'larni kiritish. To'liq ko'rsatma: WORKER_SETUP.md
+     Bo'sh qoldirilsa — zaxira rejimda faqat KO'RISH ishlaydi.
+     ==================================================================== */
+  WORKER_URL: "",
+
   // Zaxira rejimda narx yozuvlarini server'siz shakllantirish uchun
   // (`/api/config` javob bermaydi).
   CURRENCY: "so'm",

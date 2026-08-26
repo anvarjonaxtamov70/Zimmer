@@ -800,6 +800,166 @@ async def restore_orders() -> dict[str, int]:
     return counts
 
 
+async def import_pending_orders(bot=None) -> int:
+    """Cloudflare Worker qabul qilgan buyurtmalarni SQLite ga ko'chiradi.
+
+    NEGA KERAK
+    Render o'chgan paytda Mini App buyurtmani Worker orqali qabul qiladi va
+    `{root}/pending_orders` ga yozadi (mijozga va adminga Telegram xabari
+    Worker'ning o'zi yuboradi). Bot ko'tarilganda o'sha buyurtmalar bazaga
+    tushishi kerak — aks holda ular «Ombor» va statistikada ko'rinmaydi va
+    admin panelda status o'zgartirib bo'lmaydi.
+
+    DEDUPE SERVER TOMONDA
+    `imported` maydonini FAQAT bot qo'yadi. Avto_A1 da mijoz `notified_admin`
+    ni o'zi yozib botning xabarini o'chirib qo'ya olardi — bu yerda mijoz
+    Worker'dan boshqa hech qanday yo'l bilan yozolmaydi (qoidalar yopiq).
+
+    Qaytaradi: ko'chirilgan buyurtmalar soni.
+    """
+    if not firebase.is_enabled():
+        return 0
+
+    node = await firebase.get("pending_orders")
+    if not node:
+        return 0
+
+    imported = 0
+    for key, item in firebase.items(node):
+        if item.get("imported") is True:
+            continue
+
+        code = str(item.get("code") or key)
+        try:
+            uid = int(item.get("uid") or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        if not uid:
+            logger.warning("pending_orders/%s: uid yo'q — tashlab ketildi", key)
+            continue
+
+        raw_items = item.get("items")
+        if isinstance(raw_items, dict):
+            raw_items = list(raw_items.values())
+        if not isinstance(raw_items, list) or not raw_items:
+            logger.warning("pending_orders/%s: tarkib bo'sh — tashlab ketildi", key)
+            continue
+
+        try:
+            # Mijoz bazada bo'lmasa yaratamiz (Render tozalangan bo'lishi mumkin)
+            await q.ensure_user(uid, item.get("customer_name"), item.get("phone"))
+
+            # Narx va nomni WORKER YOZGANIDEK saqlaymiz. Katalog narxi keyin
+            # o'zgargan bo'lsa ham mijoz ko'rgan summa o'zgarmasligi kerak.
+            lines = []
+            for line in raw_items:
+                if not isinstance(line, dict):
+                    continue
+                try:
+                    lines.append(
+                        {
+                            "product_id": int(line.get("product_id") or 0) or None,
+                            "name": str(line.get("name") or "Mahsulot")[:200],
+                            "price": int(line.get("price") or 0),
+                            "qty": max(1, int(line.get("qty") or 1)),
+                        }
+                    )
+                except (TypeError, ValueError):
+                    continue
+            if not lines:
+                logger.warning("pending_orders/%s: qatorlar o'qilmadi", key)
+                continue
+
+            order_id = await q.import_external_order(
+                {
+                    "user_id": uid,
+                    "total": int(item.get("total") or 0),
+                    "address": item.get("address"),
+                    "phone": item.get("phone"),
+                    "delivery_method": item.get("delivery_method"),
+                    "delivery_info": item.get("delivery_info"),
+                    "payment_method": item.get("payment_method"),
+                    "status": item.get("status") or "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                    "external_code": code,
+                },
+                lines,
+            )
+            if order_id is None:
+                # Allaqachon ko'chirilgan (external_code bo'yicha) — belgilab qo'yamiz
+                await _write(f"pending_orders/{key}", {"imported": True}, method="patch")
+                continue
+
+            await _write(
+                f"pending_orders/{key}",
+                {"imported": True, "sqlite_id": order_id},
+                method="patch",
+            )
+            imported += 1
+            logger.info("Worker buyurtmasi ko'chirildi: %s -> #%s", code, order_id)
+
+            # Worker adminga xabar yubormagan bo'lsa (masalan Telegram javob
+            # bermagan) — bot endi yuboradi. Ikki marta yuborilmasligi uchun
+            # `notified_admin` tekshiriladi.
+            if bot is not None and not item.get("notified_admin"):
+                try:
+                    from keyboards.inline import admin_new_order_kb
+                    from utils.helpers import fmt_price
+                    from utils.ui import notify_admins
+
+                    goods = "\n".join(
+                        f"• {ln['name']} × {ln['qty']} = {fmt_price(ln['price'] * ln['qty'])}"
+                        for ln in lines
+                    )
+                    await notify_admins(
+                        bot,
+                        "🔔 <b>Yangi buyurtma</b> (Mini App — server o'chiq edi)\n\n"
+                        f"🆔 #{order_id} · <code>{code}</code>\n"
+                        f"👤 {item.get('customer_name') or 'Mijoz'}\n"
+                        f"📞 {item.get('phone') or '—'}\n"
+                        f"📍 {item.get('address') or '—'}\n\n"
+                        f"{goods}\n\n"
+                        f"💰 Jami: <b>{fmt_price(int(item.get('total') or 0))}</b>",
+                        admin_new_order_kb(order_id),
+                    )
+                    await _write(
+                        f"pending_orders/{key}", {"notified_admin": True}, method="patch"
+                    )
+                except Exception as error:
+                    logger.warning("Buyurtma %s haqida xabar yuborilmadi: %s", code, error)
+
+        except Exception as error:
+            logger.warning("pending_orders/%s ko'chirilmadi: %s", key, error)
+
+    if imported:
+        logger.info("Worker buyurtmalari ko'chirildi: %s ta", imported)
+    return imported
+
+
+async def pending_orders_worker(bot=None, interval: int = 120) -> None:
+    """Fon vazifasi: Worker buyurtmalarini vaqti-vaqti bilan bazaga ko'chiradi.
+
+    Faqat ishga tushishda tekshirish YETARLI EMAS: mijozning ilovasi hali
+    zaxira rejimida bo'lishi mumkin (u serverni har 20 soniyada tekshiradi,
+    lekin ilova yopiq bo'lsa tekshirmaydi). Shu sababli bot ishlab turganda
+    ham yangi buyurtmalar kelishi mumkin.
+
+    Interval katta emas (2 daqiqa) — `pending_orders` tuguni kichik va
+    `imported` bo'yicha indekslangan.
+    """
+    if not config.has_firebase:
+        return
+    # Ishga tushishdagi `initial_sync` bilan to'qnashmaslik uchun kutamiz
+    await asyncio.sleep(interval)
+    while True:
+        try:
+            if firebase.is_enabled():
+                await import_pending_orders(bot)
+        except Exception as error:
+            logger.warning("Worker buyurtmalarini ko'chirishda xato: %s", error)
+        await asyncio.sleep(max(30, interval))
+
+
 async def push_status(kind: str, order_id: int, status: str) -> None:
     """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi (xato ko'tarmaydi)."""
     if not firebase.is_enabled():
@@ -816,8 +976,12 @@ async def push_status(kind: str, order_id: int, status: str) -> None:
 # ------------------------------------------------------------ ishga tushirish
 
 
-async def initial_sync() -> None:
-    """Ishga tushganda: adminlar → mijozlar → tovarlar → tarix qaytariladi."""
+async def initial_sync(bot=None) -> None:
+    """Ishga tushganda: adminlar → mijozlar → tovarlar → tarix qaytariladi.
+
+    `bot` berilsa, Worker buyurtmalari ko'chirilganda adminlarga xabar ham
+    yuboriladi (Worker yuborolmagan holat uchun).
+    """
     if not firebase.is_enabled():
         return
     try:
@@ -836,6 +1000,9 @@ async def initial_sync() -> None:
         # yozadi, shuning uchun eski/uzoq vaqt yozmagan mijozlar bulutda
         # bo'lmasdi va qayta deployda yo'qolardi.
         await push_all_users()
+        # Render o'chgan paytda Worker qabul qilgan buyurtmalarni bazaga
+        # ko'chiramiz — aks holda ular «Ombor» va statistikada ko'rinmaydi.
+        await import_pending_orders(bot)
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
         # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin
@@ -845,7 +1012,7 @@ async def initial_sync() -> None:
         logger.warning("Boshlang'ich sinxronizatsiya xatosi: %s", error)
 
 
-async def sync_when_ready(attempts: int = 30, delay: int = 20) -> None:
+async def sync_when_ready(bot=None, attempts: int = 30, delay: int = 20) -> None:
     """Firebase tayyor bo'lishini kutib, keyin sinxronizatsiya qiladi.
 
     Ilgari `initial_sync()` faqat bot ishga tushgan paytda BIR MARTA
@@ -857,7 +1024,7 @@ async def sync_when_ready(attempts: int = 30, delay: int = 20) -> None:
         return
     for attempt in range(1, attempts + 1):
         if firebase.is_enabled():
-            await initial_sync()
+            await initial_sync(bot)
             return
         if attempt == 1:
             logger.info("Firebase tokeni kutilmoqda — sinxronizatsiya keyinroq bajariladi")

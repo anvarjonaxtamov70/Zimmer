@@ -1657,6 +1657,96 @@ async def restore_biled_order(data: dict[str, Any]) -> bool:
     return cur.rowcount > 0
 
 
+async def import_external_order(data: dict[str, Any], items: Sequence[dict]) -> int | None:
+    """Tashqi manbadan (Cloudflare Worker) kelgan buyurtmani bazaga yozadi.
+
+    `restore_shop_order` dan farqi:
+      • buyurtma raqami BAZADA yaratiladi (bulutda raqam yo'q, `ZM-XXXXXX`
+        kodi bor) — shuning uchun `id` berilmaydi;
+      • `external_code` yoziladi va u YAGONA indeks bilan himoyalangan, ya'ni
+        bir buyurtma ikki marta ko'chirilmaydi (bir vaqtda ikki import
+        ishlasa ham baza o'zi to'xtatadi);
+      • `product_id` saqlanadi (bulutda bor), shuning uchun ombor qoldig'i
+        ham kamaytiriladi — `restore_shop_order` da esa tarix tiklanadi va
+        qoldiqqa tegilmaydi.
+
+    Qaytaradi: yangi `order_id`, yoki None — allaqachon ko'chirilgan bo'lsa.
+    """
+    db = get_db()
+    code = data.get("external_code")
+
+    # Allaqachon ko'chirilganmi?
+    if code:
+        async with db.execute(
+            "SELECT id FROM orders WHERE external_code = ?", (code,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return None
+
+    total = int(data.get("total") or 0)
+    # Summa berilmagan bo'lsa qatorlardan hisoblaymiz (himoya)
+    if total <= 0:
+        total = sum(int(i.get("price") or 0) * int(i.get("qty") or 1) for i in items)
+
+    try:
+        cur = await db.execute(
+            "INSERT INTO orders"
+            " (user_id, total, address, phone, delivery_method, delivery_info,"
+            "  payment_method, status, created_at, external_code)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)",
+            (
+                int(data["user_id"]),
+                total,
+                data.get("address"),
+                data.get("phone"),
+                data.get("delivery_method"),
+                data.get("delivery_info"),
+                data.get("payment_method"),
+                data.get("status") or "new",
+                data.get("created_at"),
+                code,
+            ),
+        )
+    except aiosqlite.IntegrityError:
+        # Yagona indeks ishga tushdi — boshqa import allaqachon yozgan
+        await db.commit()
+        return None
+
+    order_id = int(cur.lastrowid)
+
+    rows = [
+        (
+            order_id,
+            item.get("product_id"),
+            str(item.get("name") or "Tovar")[:200],
+            int(item.get("price") or 0),
+            max(1, int(item.get("qty") or 1)),
+        )
+        for item in items
+    ]
+    if rows:
+        await db.executemany(
+            "INSERT INTO order_items (order_id, product_id, name, price, qty)"
+            " VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+    # Ombor qoldig'ini kamaytiramiz. Worker bulutdagi NUSXANI allaqachon
+    # kamaytirgan, lekin SQLite asosiy manba va unga tegilmagan edi.
+    for item in items:
+        product_id = item.get("product_id")
+        if not product_id:
+            continue
+        await db.execute(
+            "UPDATE products SET stock = MAX(stock - ?, 0) WHERE id = ?",
+            (max(1, int(item.get("qty") or 1)), int(product_id)),
+        )
+
+    await db.commit()
+    return order_id
+
+
 async def restore_shop_order(data: dict[str, Any], items: Sequence[dict]) -> bool:
     """Do'kon buyurtmasini va tarkibini tiklaydi. True — yangi qo'shildi."""
     db = get_db()

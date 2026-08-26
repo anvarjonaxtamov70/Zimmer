@@ -39,6 +39,8 @@
   var DB = (CFG.FIREBASE_DB_URL || "").replace(/\/$/, "");
   var ROOT = (CFG.FIREBASE_ROOT || "zimmer").replace(/^\/|\/$/g, "");
   var CURRENCY = CFG.CURRENCY || "so'm";
+  // Cloudflare Worker — Render o'chganda buyurtma, profil va rasm proksisi
+  var WORKER = (CFG.WORKER_URL || "").replace(/\/$/, "");
 
   /* Stories halqalari KODDA belgilanadi — `utils/stories.py` dagi
      STORY_CATEGORIES bilan bir xil bo'lishi SHART. Aks holda offline'da
@@ -209,18 +211,36 @@
     return sign + digits + " " + CURRENCY;
   }
 
-  /** Faqat TASHQI (http) rasm offline'da ishlaydi — `file_id` ni tashlaymiz. */
   function externalUrl(raw) {
     var s = (raw == null ? "" : String(raw)).trim();
     return /^https?:\/\//.test(s) ? s : null;
   }
 
+  /** Telegram `file_id` ni Worker media proksisining manziliga aylantiradi.
+   *
+   *  Ilgari `file_id` bilan saqlangan rasmlar zaxira rejimda UMUMAN
+   *  ko'rinmasdi: ularni faqat bot tokeni bilan ochish mumkin, ya'ni
+   *  Render'dagi `/api/media/...` proksisi kerak edi. Worker o'sha ishni
+   *  bajaradi va u uxlamaydi — shuning uchun endi ESKI rasmlar ham
+   *  Render'siz ko'rinadi.
+   */
+  function mediaUrl(fileId) {
+    var id = (fileId == null ? "" : String(fileId)).trim();
+    if (!id || !WORKER) return null;
+    return WORKER + "/media?id=" + encodeURIComponent(id);
+  }
+
+  /** Rasm manzili: avval tashqi URL, bo'lmasa Worker orqali `file_id`. */
+  function photo(urlValue, fileId) {
+    return externalUrl(urlValue) || mediaUrl(fileId);
+  }
+
   /** SQLite qatorini `/api/home` dagi mahsulot shakliga keltiradi. */
   function toProduct(r) {
     var images = [
-      externalUrl(r.photo_url),
-      externalUrl(r.photo2_url),
-      externalUrl(r.photo3_url),
+      photo(r.photo_url, r.photo_id),
+      photo(r.photo2_url, r.photo2_id),
+      photo(r.photo3_url, r.photo3_id),
     ].filter(Boolean);
 
     return {
@@ -236,7 +256,7 @@
       old_price_label: r.old_price ? priceLabel(r.old_price) : null,
       photo_url: images[0] || null,
       photo_external: !!images[0],
-      video_url: externalUrl(r.video_url),
+      video_url: photo(r.video_url, r.video_id),
       video_external: true,
       has_media: !!images[0],
       images: images,
@@ -245,7 +265,7 @@
   }
 
   function toBanner(r) {
-    var photo = externalUrl(r.photo_url);
+    var pic = photo(r.photo_url, r.photo_id);
     return {
       id: r.id,
       title: r.title || "",
@@ -253,11 +273,11 @@
       tag: r.tag || "",
       color_from: r.color_from || "#c1121f",
       color_to: r.color_to || "#101215",
-      photo_url: photo,
-      photo_external: !!photo,
-      video_url: externalUrl(r.video_url),
+      photo_url: pic,
+      photo_external: !!pic,
+      video_url: photo(r.video_url, r.video_id),
       video_external: true,
-      has_media: !!photo,
+      has_media: !!pic,
     };
   }
 
@@ -273,7 +293,7 @@
           return (a.sort || 0) - (b.sort || 0) || (a.id || 0) - (b.id || 0);
         })
         .map(function (r) {
-          var photo = externalUrl(r.photo_url);
+          var pic = photo(r.photo_url, r.photo_id);
           return {
             id: r.id,
             heading: r.heading || r.title || "",
@@ -281,11 +301,11 @@
             emoji: r.emoji || def[2],
             color_from: r.color_from || def[3],
             color_to: r.color_to || def[4],
-            photo_url: photo,
-            photo_external: !!photo,
-            video_url: externalUrl(r.video_url),
+            photo_url: pic,
+            photo_external: !!pic,
+            video_url: photo(r.video_url, r.video_id),
             video_external: true,
-            has_media: !!photo,
+            has_media: !!pic,
           };
         });
 
@@ -420,14 +440,14 @@
           return (a.sort || 0) - (b.sort || 0);
         })
         .map(function (r) {
-          var photo = externalUrl(r.photo_url);
+          var pic = photo(r.photo_url, r.photo_id);
           return {
             id: r.id,
             name: r.name || "",
             years: r.years || null,
             note: r.note || null,
-            photo_url: photo,
-            has_media: !!photo,
+            photo_url: pic,
+            has_media: !!pic,
           };
         });
       return list.length ? list : await cachedOrSnapshotCars();
@@ -437,10 +457,87 @@
     }
   }
 
+  /* ==================================================================
+     WORKER — Render o'chganda buyurtma va profil
+
+     Cloudflare Worker uxlamaydi va bepul. U service-account tokeni
+     bilan Firebase'ga yozadi, shuning uchun brauzerga RTDB huquqi
+     berish KERAK EMAS (Avto_A1 da beriladi va natijada mijoz soxta
+     summa yozib qo'ya oladi).
+
+     Barcha chaqiruvlar `initData` bilan ketadi — Worker imzoni HMAC
+     bilan tekshiradi. Xatolar YASHIRILMAYDI, chaqiruvchiga qaytariladi.
+     ================================================================== */
+
+  function workerReady() {
+    return !!WORKER;
+  }
+
+  function initData() {
+    try {
+      return (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  async function callWorker(path, payload) {
+    if (!WORKER) throw { code: "no_worker", message: "WORKER_URL sozlanmagan" };
+    var data = initData();
+    if (!data) throw { code: "no_init_data", message: "Telegram imzosi yo'q" };
+
+    var res;
+    try {
+      res = await fetch(WORKER + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ initData: data }, payload || {})),
+      });
+    } catch (_) {
+      throw { code: "network", message: "Internetga ulanmadi" };
+    }
+
+    var body = null;
+    try {
+      body = await res.json();
+    } catch (_) {}
+
+    if (!res.ok || !body || body.ok !== true) {
+      throw {
+        code: (body && body.error) || "http_" + res.status,
+        message: (body && (body.message || body.error)) || "Xatolik",
+        problems: body && body.problems,
+      };
+    }
+    return body;
+  }
+
+  /** Mijoz profili + buyurtma tarixi (`/api/me` va `/api/orders` zaxirasi). */
+  function me() {
+    return callWorker("/me", {});
+  }
+
+  /** Profilni saqlash — telefon, ism, mashina. */
+  function saveProfile(fields) {
+    return callWorker("/profile", fields || {});
+  }
+
+  /** Buyurtma yaratish. Summa Worker tomonida KATALOGDAN hisoblanadi.
+   *  `client_key` — idempotent kalit: ikki marta bosilsa bitta buyurtma. */
+  function createOrder(order) {
+    return callWorker("/order", order);
+  }
+
   window.ZimmerOffline = {
     available: available,
     home: home,
     cars: cars,
+    // Worker
+    workerReady: workerReady,
+    me: me,
+    saveProfile: saveProfile,
+    createOrder: createOrder,
+    mediaUrl: mediaUrl,
     save: save,
     cached: cached,
     hasCache: hasCache,
