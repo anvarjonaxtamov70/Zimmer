@@ -1,0 +1,133 @@
+name: Tashxis (nima ishlayapti, nima yo'q)
+
+# =====================================================================
+#  NEGA BU KERAK?
+#  «Ilova ochilmayapti» degan holatda sabab uchta joydan biri bo'lishi
+#  mumkin va ularni tashqaridan tekshirmasdan aniqlash qiyin:
+#
+#    1) Render (bot API'si)      — uxlagan / kvota tugagan / crash
+#    2) Firebase RTDB            — qoidalar qo'yilmagan / manzil xato /
+#                                  `{root}/catalog` BO'SH
+#    3) GitHub Pages (ilova)     — fayllar chiqmagan / kesh eski
+#
+#  Bu workflow uchalasini ham GitHub serveridan tekshiradi va aniq
+#  javob beradi. Hech narsani o'zgartirmaydi — faqat o'qiydi.
+#
+#  ISHGA TUSHIRISH: Actions -> «Tashxis» -> Run workflow
+# =====================================================================
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Uchala qatlamni tekshirish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sozlamalarni docs/config.js dan o'qish
+        id: cfg
+        run: |
+          set -uo pipefail
+          # config.js — JS fayl, shuning uchun qiymatlarni grep bilan olamiz
+          db=$(grep -oP 'FIREBASE_DB_URL:\s*"\K[^"]+' docs/config.js || echo "")
+          root=$(grep -oP 'FIREBASE_ROOT:\s*"\K[^"]+' docs/config.js || echo "zimmer")
+          api=$(grep -oP 'API_BASE:\s*"\K[^"]+' docs/config.js || echo "")
+          echo "db=$db"     >> "$GITHUB_OUTPUT"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "api=$api"   >> "$GITHUB_OUTPUT"
+          echo "Firebase: ${db:-(yo'q)}"
+          echo "Root:     $root"
+          echo "API:      ${api:-(yo'q)}"
+
+      - name: 1) Render (bot API)
+        run: |
+          set -uo pipefail
+          API="${{ steps.cfg.outputs.api }}"
+          if [ -z "$API" ]; then echo "::warning::API_BASE topilmadi"; exit 0; fi
+
+          code=$(curl -sS -o /tmp/health.txt -L -w '%{http_code}' --max-time 90 "$API/health" || echo 000)
+          echo "GET $API/health -> $code"
+          head -c 300 /tmp/health.txt || true; echo
+
+          case "$code" in
+            2*) echo "✅ Render ISHLAYAPTI — ilova to'liq rejimda ochilishi kerak." ;;
+            503) echo "::error title=Render to'xtatilgan::503. Bu sovuq start EMAS. Render -> Billing -> free instance hours tugaganmi? Render -> Events: oxirgi deploy yiqilganmi?" ;;
+            404) echo "::error title=Render xizmati yo'q::404. API_BASE manzili xato yoki xizmat o'chirilgan." ;;
+            000) echo "::error title=Render javob bermadi::Ulanish yo'q (timeout)." ;;
+            *)   echo "::warning title=Render kutilmagan javob::$code" ;;
+          esac
+
+      - name: 2) Firebase RTDB — zaxira rejim shu yerdan o'qiydi
+        run: |
+          set -uo pipefail
+          DB="${{ steps.cfg.outputs.db }}"
+          ROOT="${{ steps.cfg.outputs.root }}"
+          if [ -z "$DB" ]; then
+            echo "::error title=FIREBASE_DB_URL yo'q::docs/config.js da bo'sh — zaxira rejim o'chiq."
+            exit 0
+          fi
+
+          URL="${DB%/}/${ROOT}/catalog/products.json"
+          code=$(curl -sS -o /tmp/fb.json -L -w '%{http_code}' --max-time 60 "$URL" || echo 000)
+          echo "GET $URL -> $code"
+          echo "--- javob (birinchi 400 belgi) ---"
+          head -c 400 /tmp/fb.json || true; echo
+          echo "----------------------------------"
+
+          case "$code" in
+            200)
+              body=$(cat /tmp/fb.json)
+              if [ "$body" = "null" ] || [ -z "$body" ]; then
+                echo "::error title=Firebase OCHIQ, lekin katalog BO'SH::${ROOT}/catalog/products = null. Qoidalar to'g'ri, ammo bulutga hech narsa yozilmagan. Bot ishga tushganda /firebase buyrug'ini yuboring — u butun katalogni bulutga yuklaydi."
+              else
+                # Nechta mahsulot borligini sanaymiz
+                n=$(python3 -c "import json,sys; d=json.load(open('/tmp/fb.json')); print(len(d) if isinstance(d,(dict,list)) else 0)" 2>/dev/null || echo "?")
+                echo "✅ Firebase OCHIQ va katalog TO'LA ($n yozuv) — zaxira rejim ishlashi kerak."
+              fi
+              ;;
+            401|403)
+              echo "::error title=Firebase o'qishni RAD ETDI ($code)::Qoidalar hali qo'yilmagan. Firebase Console -> Realtime Database -> Rules -> repo ildizidagi database.rules.json matnini qo'yib «Publish» bosing."
+              ;;
+            404)
+              echo "::error title=Baza topilmadi (404)::FIREBASE_DB_URL xato. Firebase Console -> Realtime Database sahifasidagi ANIQ manzilni oling. Diqqat: boshqa mintaqadagi bazalar '.firebasedatabase.app' bilan tugaydi, masalan https://<loyiha>-default-rtdb.europe-west1.firebasedatabase.app"
+              ;;
+            000) echo "::error title=Firebase javob bermadi::timeout" ;;
+            *)   echo "::warning title=Firebase kutilmagan javob::$code" ;;
+          esac
+
+      - name: 3) GitHub Pages — ilova fayllari
+        run: |
+          set -uo pipefail
+          BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          ok=1
+          for f in "" "config.js" "js/offline.js" "js/app.js"; do
+            url="$BASE/$f"
+            code=$(curl -sS -o /dev/null -L -w '%{http_code}' --max-time 30 "$url" || echo 000)
+            echo "GET $url -> $code"
+            case "$code" in 2*) ;; *) ok=0 ;; esac
+          done
+          if [ "$ok" = "1" ]; then
+            echo "✅ Pages ISHLAYAPTI va offline.js joyida."
+          else
+            echo "::error title=Pages muammosi::Yuqoridagi fayl(lar) ochilmadi. «Mini App'ni gh-pages'ga chiqarish» workflow'i muvaffaqiyatli o'tganini tekshiring."
+          fi
+
+      - name: Xulosa
+        if: always()
+        run: |
+          echo "### Nima qilish kerak" >> "$GITHUB_STEP_SUMMARY"
+          echo "Yuqoridagi qadamlardagi ❌ / ⚠️ xabarlarni o'qing." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Firebase 401/403** → qoidalarni Console'ga qo'yish (\`database.rules.json\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Firebase 200 + null** → bot ishga tushganda \`/firebase\` yuborish (katalogni bulutga yuklaydi)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Firebase 404** → \`docs/config.js\` dagi \`FIREBASE_DB_URL\` ni tuzatish" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Render 503** → Billing (kvota) yoki Events (yiqilgan deploy)" >> "$GITHUB_STEP_SUMMARY"

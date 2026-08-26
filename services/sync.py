@@ -456,6 +456,71 @@ async def push_catalog(table: str, row_id: int) -> None:
         logger.warning("«%s» #%s bulutga yozilmadi: %s", table, row_id, error)
 
 
+async def push_all_catalog() -> dict[str, int]:
+    """BUTUN mahalliy katalogni bulutga yozadi.
+
+    NEGA BU KERAK BO'LDI
+    Ilgari bulutga faqat `push_catalog(jadval, id)` orqali — ya'ni admin
+    biror yozuvni O'ZGARTIRGANDA — bittalab yozilardi. Butun katalogni
+    yuklaydigan funksiya YO'Q edi, `initial_sync()` esa faqat
+    `restore_*` (bulut → SQLite) yo'nalishida ishlardi.
+
+    Natijada `{root}/catalog` da FAQAT admin qo'l tekkizgan yozuvlar
+    bo'lardi. Boshlang'ich (seed) tovarlar, Excel'dan import qilinganlar
+    va Firebase sozlanishidan oldin qo'shilganlar bulutga HECH QACHON
+    tushmasdi.
+
+    Bu ikki narsani buzardi:
+      • Render qayta deploy bo'lganda SQLite tozalanadi va `restore_catalog()`
+        bulutdan faqat o'sha bir nechta yozuvni tiklaydi — qolgani yo'qoladi;
+      • Mini App'ning zaxira rejimi (Render o'chganda) bulutdan o'qiydi va
+        do'kon BO'SH ko'rinadi.
+
+    Tezlik: har jadval BITTA so'rov bilan yoziladi (PATCH bilan bir necha
+    yuz yozuv birga). Bittalab yozsak 500 ta so'rov bo'lardi.
+    """
+    if not firebase.is_enabled():
+        return {}
+
+    stats: dict[str, int] = {}
+    for table in q.CATALOG_ORDER:
+        if table not in q.CATALOG_KEY:
+            continue
+        try:
+            rows = await q.admin_list(table, limit=1000)
+        except Exception as error:
+            logger.warning("«%s» o'qilmadi: %s", table, error)
+            continue
+        if not rows:
+            continue
+
+        payload: dict[str, dict] = {}
+        for row in rows:
+            try:
+                payload[str(row["id"])] = await _catalog_payload(table, row)
+            except Exception as error:
+                logger.warning("«%s» #%s tayyorlanmadi: %s", table, row["id"], error)
+
+        if not payload:
+            continue
+
+        # PATCH — bulutdagi qo'shimcha yozuvlarni O'CHIRMAYDI (PUT o'chirardi).
+        if await _write(f"{CATALOG_ROOT}/{table}", payload, method="patch"):
+            stats[table] = len(payload)
+        else:
+            logger.warning("«%s» bulutga yozilmadi (%s yozuv)", table, len(payload))
+
+    if stats:
+        logger.info(
+            "Katalog bulutga yuklandi: %s (jami %s yozuv)",
+            ", ".join(f"{k}={v}" for k, v in stats.items()),
+            sum(stats.values()),
+        )
+    else:
+        logger.info("Katalog bulutga yuklanmadi (bo'sh yoki Firebase ulanmagan)")
+    return stats
+
+
 async def delete_catalog(table: str, row_id: int, key_value: str | None) -> None:
     """Bulutda «o'chirilgan» deb belgilaydi (tarix yo'qolmasin)."""
     if table not in q.CATALOG_KEY:
@@ -709,6 +774,12 @@ async def initial_sync() -> None:
         await import_products()
         # Admin panelda qilingan katalog o'zgarishlari — demo katalog ustidan
         await restore_catalog()
+        # …va TESKARI yo'nalish: mahalliy katalogni butunlay bulutga yozamiz.
+        # Bu qator bo'lmasa `{root}/catalog` da faqat admin qo'l tekkizgan
+        # yozuvlar bo'lib qolardi — natijada Mini App'ning zaxira rejimi
+        # (Render o'chganda) do'konni BO'SH ko'rsatardi va qayta deployda
+        # tiklanadigan tovarlar ham to'liq bo'lmasdi.
+        await push_all_catalog()
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
         # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin
