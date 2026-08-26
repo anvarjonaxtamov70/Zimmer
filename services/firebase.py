@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 SCOPES = [
     "https://www.googleapis.com/auth/firebase.database",
     "https://www.googleapis.com/auth/userinfo.email",
+    # DIQQAT: Firebase Storage (mahsulot rasmlari) GCS ustida ishlaydi va
+    # ALOHIDA ruxsat talab qiladi. Bu qator bo'lmasa `services/firebase_storage.py`
+    # olgan token Storage uchun YARAMAYDI va har bir yuklash 401/403 bilan
+    # qaytardi — "rasm yuklanmadi" muammosining asosiy sababi shu edi.
+    "https://www.googleapis.com/auth/devstorage.read_write",
 ]
 
 _creds = None
@@ -230,6 +235,24 @@ def _url(path: str, params: dict | None = None) -> str:
     if params:
         query.update(params)
     return url + ("?" + urllib.parse.urlencode(query) if query else "")
+
+
+def url(path: str, params: dict | None = None) -> str:
+    """`_url` ning OMMAVIY nomi — boshqa modullar shu nomni ishlatadi.
+
+    `services/firebase_products.py` ETag (if-match) bilan atomik yozish uchun
+    to'liq manzilni o'zi yasashi kerak. Ilgari u `fb.url(...)` deb chaqirardi,
+    lekin bu modulda faqat `_url` bor edi — natijada HAR BIR mahsulot qo'shish
+    `AttributeError: module 'services.firebase' has no attribute 'url'` bilan
+    yiqilib, xato `except Exception` ichida yutilardi va admin "qo'shilmadi"
+    degan tushunarsiz javob olardi.
+    """
+    return _url(path, params)
+
+
+async def session() -> aiohttp.ClientSession:
+    """Umumiy (keshlangan) HTTP sessiya — tashqi modullar uchun."""
+    return await _get_session()
 
 
 async def get(path: str, params: dict | None = None):

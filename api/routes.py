@@ -127,6 +127,19 @@ def _decorate_catalog(catalog: list[dict]) -> None:
             product["video_external"] = video_ext
             product["has_media"] = bool(photo or video)
 
+            # Mahsulot modalidagi galereya uchun barcha rasmlar (1–3 ta).
+            images = [photo]
+            for slot, kind in (("2", "photo2"), ("3", "photo3")):
+                extra, _ = _media_from_raw(
+                    "products",
+                    product["id"],
+                    product.pop(f"photo{slot}_url_raw", None),
+                    product.pop(f"has_photo{slot}", False),
+                    kind,
+                )
+                images.append(extra)
+            product["images"] = [url for url in images if url]
+
 
 def _booking_json(row) -> dict:
     return {
