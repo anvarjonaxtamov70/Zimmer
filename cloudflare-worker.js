@@ -59,7 +59,9 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // ESKI nusxa turganini shu bilan darhol aniqlash mumkin (aks holda "kod
 // yangilanmadimi yoki kalit buzuqmi?" degan savolga taxmin bilan javob
 // berishga to'g'ri keladi).
-const VERSION = "1.1.0";
+// Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
+// YANGI nusxa turganini tasdiqlashning eng oson yo'li.
+const VERSION = "1.2.0";
 const FEATURES = ["order", "me", "profile", "media", "admin_detect"];
 
 function json(obj, status = 200) {
