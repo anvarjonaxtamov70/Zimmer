@@ -68,6 +68,47 @@
   var CACHE_KEY = "zimmer_home_cache";
   var CACHE_MAX_AGE = 30 * 24 * 3600 * 1000; // 30 kun
 
+  /* ------------------------------------------------------------------
+     4-QATLAM: STATIK NUSXA (catalog.json)
+
+     Kesh ham bo'sh bo'lishi mumkin — mijoz ilovaga BIRINCHI MARTA
+     kirganda. Aynan shu holat 2026-08-26 da yuz berdi:
+        Render  -> 503 (bepul kvota tugagan)
+        Firebase-> 401 (qoidalar hali Console'ga qo'yilmagan)
+        kesh    -> bo'sh (birinchi kirish)
+     Natijada mijoz «Ulanish yo'q» devoriga urildi.
+
+     `catalog.json` ilovaning O'ZI bilan BIR MANZILDAN (GitHub Pages)
+     beriladi. Shuning uchun u:
+        • Render'ga bog'liq emas;
+        • Firebase'ga bog'liq emas (so'rov paytida);
+        • qoidalar talab qilmaydi;
+        • CORS muammosi bermaydi;
+        • birinchi kirishda ham ishlaydi.
+
+     Fayl `scripts/build_catalog_snapshot.py` bilan yasaladi; workflow uni
+     Firebase'dan (ochiq bo'lganda) yangilab turadi.
+     ------------------------------------------------------------------ */
+  var SNAPSHOT_URL = "catalog.json";
+  var _snapshot; // undefined = hali so'ralmagan, null = yo'q
+
+  async function snapshot() {
+    if (_snapshot !== undefined) return _snapshot;
+    try {
+      // Nisbiy manzil — ilova qaysi papkada bo'lsa, fayl ham shu yerda.
+      var res = await fetch(SNAPSHOT_URL, { cache: "no-cache" });
+      if (!res.ok) throw new Error("catalog.json -> " + res.status);
+      var data = await res.json();
+      if (!data || !data.catalog || !data.catalog.length) throw new Error("bo'sh");
+      data._offline = true;
+      _snapshot = data;
+    } catch (err) {
+      console.error("[offline] statik nusxa o'qilmadi:", err);
+      _snapshot = null;
+    }
+    return _snapshot;
+  }
+
   function available() {
     return !!DB;
   }
@@ -99,6 +140,23 @@
     } catch (_) {
       return null;
     }
+  }
+
+  /** Kesh, bo'lmasa statik nusxa. Kesh ustuvor: u JONLI serverdan kelgan. */
+  async function cachedOrSnapshot() {
+    return cached() || (await snapshot());
+  }
+
+  async function cachedOrSnapshotCars() {
+    var list = cachedCars();
+    if (list.length) return list;
+    var snap = await snapshot();
+    return (snap && snap.cars) || [];
+  }
+
+  /** Ko'rsatishga ARZIYDIGAN ma'lumot bormi? (kesh yoki statik nusxa) */
+  async function hasAnyData() {
+    return !!(await cachedOrSnapshot());
   }
 
   function hasCache() {
@@ -251,7 +309,7 @@
    */
   async function home() {
     // Firebase sozlanmagan bo'lsa — to'g'ridan keshga
-    if (!available()) return cached();
+    if (!available()) return (await cachedOrSnapshot());
 
     var products, categories, banners, stories;
     try {
@@ -263,12 +321,12 @@
       // Eng ko'p uchraydigan sabab: `database.rules.json` hali Firebase
       // Console'ga qo'yilmagan, shuning uchun o'qish rad etiladi (401/403).
       console.error("[offline] Firebase katalogi o'qilmadi:", err);
-      return cached();
+      return await cachedOrSnapshot();
     }
 
     if (!products.length) {
       console.warn("[offline] Firebase'da mahsulot yo'q — keshga o'tilyapti.");
-      return cached();
+      return await cachedOrSnapshot();
     }
 
     // Bannerlar va stories — ixtiyoriy, yiqilsa e'tibor bermaymiz.
@@ -355,7 +413,7 @@
 
   /** Mashinalar ro'yxati (`/api/cars` ning zaxirasi). */
   async function cars() {
-    if (!available()) return cachedCars();
+    if (!available()) return await cachedOrSnapshotCars();
     try {
       var list = rows(await readNode("cars"))
         .sort(function (a, b) {
@@ -372,10 +430,10 @@
             has_media: !!photo,
           };
         });
-      return list.length ? list : cachedCars();
+      return list.length ? list : await cachedOrSnapshotCars();
     } catch (err) {
       console.error("[offline] mashinalar o'qilmadi — keshga o'tilyapti:", err);
-      return cachedCars();
+      return await cachedOrSnapshotCars();
     }
   }
 
@@ -386,6 +444,8 @@
     save: save,
     cached: cached,
     hasCache: hasCache,
+    hasAnyData: hasAnyData,
+    snapshot: snapshot,
     saveCars: saveCars,
   };
 })();

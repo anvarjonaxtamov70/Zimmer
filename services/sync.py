@@ -101,6 +101,58 @@ async def push_user(user_id: int, profile: dict) -> None:
     await _write(f"users/{user_id}/profile", _profile_payload(user_id, profile))
 
 
+async def push_all_users() -> int:
+    """BARCHA mijozlarni bulutga yozadi.
+
+    NEGA KERAK
+    `push_user` mijoz har xabar yozganda `identity.remember()` orqali
+    chaqiriladi — ya'ni mijoz FAOL bo'lsa bulutga tushadi. Lekin:
+
+      • Firebase sozlanishidan OLDIN ro'yxatdan o'tgan mijozlar hech qachon
+        yozilmagan;
+      • token vaqtincha olinmagan paytda yozuv yiqilgan bo'lsa,
+        `identity._pushed` keshi uni «yozilgan» deb belgilab, keyingi
+        urinishni `_PUSH_INTERVAL` gacha kechiktiradi;
+      • uzoq vaqt yozmagan mijoz Render qayta deployda SQLite tozalanishi
+        bilan butunlay yo'qoladi.
+
+    Bu funksiya ro'yxatni to'liq tekislaydi: har bir mijoz uchun profil
+    payload'i yasaladi va BITTA PATCH so'rovi bilan yuboriladi.
+    """
+    if not firebase.is_enabled():
+        return 0
+
+    try:
+        user_ids = await q.get_all_user_ids()
+    except Exception as error:
+        logger.warning("Mijozlar ro'yxati o'qilmadi: %s", error)
+        return 0
+    if not user_ids:
+        return 0
+
+    payload: dict[str, dict] = {}
+    for user_id in user_ids:
+        try:
+            row = await q.get_user_with_car(user_id) or await q.get_user(user_id)
+            if row is None:
+                continue
+            profile = {key: row[key] for key in row.keys()}
+            payload[str(user_id)] = {"profile": _profile_payload(user_id, profile)}
+        except Exception as error:
+            logger.warning("Mijoz #%s tayyorlanmadi: %s", user_id, error)
+
+    if not payload:
+        return 0
+
+    # PATCH — bulutdagi boshqa mijozlarni O'CHIRMAYDI (PUT o'chirardi)
+    if await _write("users", payload, method="patch"):
+        logger.info("Mijozlar bulutga yuklandi: %s ta", len(payload))
+        return len(payload)
+
+    logger.warning("Mijozlar bulutga yozilmadi (%s ta)", len(payload))
+    return 0
+
+
 async def fetch_user(user_id: int) -> dict | None:
     """Firebase'dan BITTA mijoz profilini oladi.
 
@@ -780,6 +832,10 @@ async def initial_sync() -> None:
         # (Render o'chganda) do'konni BO'SH ko'rsatardi va qayta deployda
         # tiklanadigan tovarlar ham to'liq bo'lmasdi.
         await push_all_catalog()
+        # Mijozlar ham to'liq bulutga chiqsin: `push_user` faqat FAOL mijozni
+        # yozadi, shuning uchun eski/uzoq vaqt yozmagan mijozlar bulutda
+        # bo'lmasdi va qayta deployda yo'qolardi.
+        await push_all_users()
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
         # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin

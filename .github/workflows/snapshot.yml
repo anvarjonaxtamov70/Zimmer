@@ -1,0 +1,87 @@
+name: Katalog nusxasini yangilash (docs/catalog.json)
+
+# =====================================================================
+#  NEGA BU KERAK?
+#  `docs/catalog.json` — Mini App'ning 4-QATLAM zaxirasi. U ilova bilan
+#  bir manzildan (GitHub Pages) beriladi, shuning uchun Render o'chganda,
+#  Firebase qoidalari qo'yilmaganda va mijoz BIRINCHI marta kirganda ham
+#  do'kon ko'rinadi.
+#
+#  Bu workflow uni jonli ma'lumot bilan yangilab turadi:
+#    • Firebase `{root}/catalog` ochiq bo'lsa — shundan;
+#    • bo'lmasa — SQLite seed'dan (repo ichidagi boshlang'ich katalog).
+#
+#  O'zgarish bo'lmasa commit qilmaydi (bo'sh commitlar yig'ilmaydi).
+# =====================================================================
+on:
+  schedule:
+    # Kuniga bir marta, 02:30 UTC (07:30 Toshkent) — Render kvotasiga
+    # ta'sir qilmaydi, chunki Firebase'ni to'g'ridan o'qiydi.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      seed_only:
+        description: "Firebase'ni o'qimasdan, faqat seed'dan yasash"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog-snapshot
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Nusxani yasash va commit qilish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Kutubxonalar
+        run: pip install --quiet -r requirements.txt
+
+      - name: Sozlamalarni docs/config.js dan o'qish
+        id: cfg
+        run: |
+          set -uo pipefail
+          db=$(grep -oP 'FIREBASE_DB_URL:\s*"\K[^"]+' docs/config.js || echo "")
+          root=$(grep -oP 'FIREBASE_ROOT:\s*"\K[^"]+' docs/config.js || echo "zimmer")
+          echo "db=$db"     >> "$GITHUB_OUTPUT"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Nusxani yasash
+        env:
+          FIREBASE_DB_URL: ${{ steps.cfg.outputs.db }}
+          FIREBASE_ROOT: ${{ steps.cfg.outputs.root }}
+        run: |
+          set -uo pipefail
+          if [ "${{ github.event.inputs.seed_only }}" = "true" ]; then
+            python scripts/build_catalog_snapshot.py --seed-only
+          else
+            python scripts/build_catalog_snapshot.py
+          fi
+
+      - name: O'zgargan bo'lsa commit qilish
+        run: |
+          set -uo pipefail
+          if git diff --quiet -- docs/catalog.json; then
+            echo "O'zgarish yo'q — commit qilinmadi."
+            exit 0
+          fi
+
+          src=$(python3 -c "import json;print(json.load(open('docs/catalog.json')).get('_source','?'))")
+          n=$(python3 -c "import json;d=json.load(open('docs/catalog.json'));print(sum(len(g['products']) for g in d['catalog']))")
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/catalog.json
+          git commit -q -m "chore: katalog nusxasi yangilandi (manba: ${src}, ${n} mahsulot)"
+          git push -q
+          echo "✅ docs/catalog.json yangilandi (manba: ${src}, ${n} mahsulot)"
