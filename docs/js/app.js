@@ -399,15 +399,20 @@
     }
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
-    // Boshqaruv paneli Render'dagi `/api/admin/*` ni talab qiladi. Zaxira
-    // rejimda uni ochsak har bir so'rov xato beradi — shuning uchun sababni
-    // ochiq aytamiz. Admin BARIBIR tanilgan bo'ladi (tugma ko'rinadi),
-    // faqat panel ishlamaydi.
-    if (page === "admin" && S.offline) {
-      offlineBlocked("Boshqaruv paneli");
-      return;
+    // Boshqaruv paneli: ONLINE bo'lsa to'liq panel (`admin.js`, Render),
+    // zaxira rejimda esa Worker orqali ishlaydigan ixcham panel.
+    //
+    // Ilgari bu yerda `offlineBlocked()` turardi — ya'ni Render uxlaganda
+    // admin umuman hech narsa qila olmasdi. Endi tovar qo'shish, narx va
+    // qoldiqni o'zgartirish hamda buyurtmalarni boshqarish ishlaydi.
+    if (page === "admin") {
+      if (S.offline && window.ZimmerAdminOffline) {
+        window.ZimmerAdminOffline.open();
+      } else if (window.ZimmerAdmin) {
+        if (window.ZimmerAdminOffline) window.ZimmerAdminOffline.close();
+        window.ZimmerAdmin.open();
+      }
     }
-    if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
     window.scrollTo({ top: 0 });
     syncBackButton();
@@ -422,8 +427,16 @@
   }
 
   function goBack() {
-    // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz
-    if (S.page === "admin" && window.ZimmerAdmin && window.ZimmerAdmin.back()) return;
+    // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz.
+    // Zaxira rejimda boshqa panel ishlayotgani uchun avval o'shani so'raymiz.
+    if (S.page === "admin") {
+      const offPanel = window.ZimmerAdminOffline;
+      if (offPanel && offPanel.isActive()) {
+        if (offPanel.back()) return;
+      } else if (window.ZimmerAdmin && window.ZimmerAdmin.back()) {
+        return;
+      }
+    }
     if (S.page === "flow" && S.step > 1) return setStep(S.step - 1);
     if (S.page !== "home") return show("home");
   }
@@ -1039,11 +1052,20 @@
     haptic("warning");
   }
 
+  /** Kabinetdagi «Server uyg'onmoqda» izohini yoqadi/o'chiradi. */
+  function setOfflineNote(on) {
+    const note = $("pf-offline-note");
+    if (note) note.classList.toggle("hidden", !on);
+  }
+
   /** Yuqorida turadigan ogohlantiruv chizig'i. */
   function renderOfflineBar() {
     let bar = $("offline-bar");
     if (!S.offline) {
       if (bar) bar.remove();
+      // Chiziq bilan birga kabinetdagi izoh ham ketishi kerak — aks holda
+      // server tiklangach ham eski ogohlantirish ko'rinib turadi.
+      setOfflineNote(false);
       return;
     }
     if (bar) return;
@@ -2472,7 +2494,9 @@
       const name = (S.me.full_name || S.me.first_name || "Mijoz").trim();
       $("pf-name").textContent = name;
       $("pf-avatar").textContent = (name[0] || "M").toUpperCase();
-      $("pf-id").textContent = "ID: " + (S.me.user_id || "—");
+      // `user_id` — Render `/api/me` dagi nom, `id` — Worker `/me` dagi nom.
+      // Faqat birinchisiga tayanilgani uchun zaxira rejimda «ID: —» chiqardi.
+      $("pf-id").textContent = "ID: " + (S.me.user_id || S.me.id || "—");
       // Telefon bor bo'lsa — VIP (ring yorqinroq)
       const card = document.querySelector(".pf-card");
       if (card) card.classList.toggle("is-vip", !!S.me.phone);
@@ -2495,10 +2519,13 @@
       renderBiledOrders([]);
       renderBookings([]);
       renderOrders(offlineOrdersForView());
-      const note = $("pf-offline-note");
-      if (note) note.classList.remove("hidden");
+      setOfflineNote(true);
       return;
     }
+    // To'liq rejimda izoh YASHIRILISHI shart. Ilgari faqat `remove("hidden")`
+    // bor edi — server tiklangandan keyin ham «Server uyg'onmoqda» yozuvi
+    // kabinetda qolib ketardi.
+    setOfflineNote(false);
 
     try {
       const [biled, bookings, orders] = await Promise.all([

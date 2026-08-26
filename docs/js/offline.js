@@ -528,6 +528,43 @@
     return callWorker("/order", order);
   }
 
+  /* ==================================================================
+     ADMIN — Render'siz katalog boshqaruvi
+
+     Worker har chaqiruvda imzoni tekshirib, uid ni ADMIN_IDS bilan
+     solishtiradi. Ya'ni bu funksiyalarni oddiy mijoz chaqirsa 403
+     oladi — himoya brauzerda emas, Worker tomonida.
+
+     Yangi tovar `pending_products` ga tushadi (katalogga EMAS): bot
+     katalogni to'liq qayta yozadi, shu sababli to'g'ridan yozilgan
+     tovar keyingi sinxronda o'chib ketardi.
+     ================================================================== */
+
+  /** Ombor ko'rinishi: katalog + kutilayotgan tuzatishlar + qoralamalar. */
+  function adminCatalog() {
+    return callWorker("/admin/catalog", {});
+  }
+
+  /** Yangi tovar qo'shish. `client_key` — ikki marta bosilsa bitta yozuv. */
+  function adminAddProduct(product) {
+    return callWorker("/admin/product", product || {});
+  }
+
+  /** Mavjud tovarning narx / qoldiq / ko'rinishini o'zgartirish. */
+  function adminEdit(fields) {
+    return callWorker("/admin/edit", fields || {});
+  }
+
+  /** Zaxira rejimda tushgan buyurtmalar. */
+  function adminOrders() {
+    return callWorker("/admin/orders", {});
+  }
+
+  /** Buyurtma holatini o'zgartirish — mijozga xabar Worker yuboradi. */
+  function adminOrderStatus(key, status) {
+    return callWorker("/admin/order-status", { key: key, status: status });
+  }
+
   window.ZimmerOffline = {
     available: available,
     home: home,
@@ -537,6 +574,12 @@
     me: me,
     saveProfile: saveProfile,
     createOrder: createOrder,
+    // Worker — admin
+    adminCatalog: adminCatalog,
+    adminAddProduct: adminAddProduct,
+    adminEdit: adminEdit,
+    adminOrders: adminOrders,
+    adminOrderStatus: adminOrderStatus,
     mediaUrl: mediaUrl,
     save: save,
     cached: cached,

@@ -1636,14 +1636,29 @@ window.ZimmerAdmin = (function () {
   function bind() {
     const backBtn = $("admin-back");
     const reload = $("admin-reload");
+    // Zaxira rejimda `admin-offline.js` paneli ishlaydi — tepadagi tugmalar
+    // bitta (DOM'da bitta topbar bor), shuning uchun qaysi panel faol
+    // bo'lsa unga yo'naltiramiz. Aks holda orqaga/yangilash ishlamay qolardi.
+    const offPanel = () => {
+      const p = window.ZimmerAdminOffline;
+      return p && p.isActive() ? p : null;
+    };
+
     if (backBtn)
       backBtn.onclick = () => {
         haptic();
+        const p = offPanel();
+        if (p) {
+          if (!p.back() && app().show) app().show("home");
+          return;
+        }
         if (!back() && app().show) app().show("home");
       };
     if (reload)
       reload.onclick = () => {
         haptic();
+        const p = offPanel();
+        if (p) return p.reload();
         if (S.view === "inventory") return openInventory();
         if (S.view === "addproduct") return openAddProduct();
         if (S.view === "list") return openList(S.key);
