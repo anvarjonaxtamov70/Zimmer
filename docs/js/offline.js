@@ -457,6 +457,154 @@
     }
   }
 
+  /** SQLite qatorini `/api/tuning` dagi linza shakliga keltiradi. */
+  function toBiled(r) {
+    var pic = photo(r.photo_url, r.photo_id);
+    return {
+      id: r.id,
+      name: r.name || "",
+      brand: r.brand || null,
+      size: r.size || null,
+      kelvin: r.kelvin || null,
+      lumen: r.lumen || null,
+      warranty: r.warranty || null,
+      description: r.description || null,
+      price: Number(r.price) || 0,
+      price_label: priceLabel(r.price),
+      badge: r.badge || null,
+      glow: r.glow || null,
+      photo_url: pic,
+      photo_external: !!pic,
+      video_url: photo(r.video_url, r.video_id),
+      video_external: true,
+      has_media: !!pic,
+    };
+  }
+
+  function toShroud(r) {
+    var pic = photo(r.photo_url, r.photo_id);
+    return {
+      id: r.id,
+      name: r.name || "",
+      style: r.style || null,
+      ring_color: r.ring_color || null,
+      description: r.description || null,
+      price: Number(r.price) || 0,
+      price_label: priceLabel(r.price),
+      photo_url: pic,
+      photo_external: !!pic,
+      video_url: photo(r.video_url, r.video_id),
+      video_external: true,
+      has_media: !!pic,
+    };
+  }
+
+  function toColor(r) {
+    var pic = photo(r.photo_url, r.photo_id);
+    return {
+      id: r.id,
+      name: r.name || "",
+      hex_from: r.hex_from || null,
+      hex_to: r.hex_to || null,
+      description: r.description || null,
+      price: Number(r.price) || 0,
+      price_label: priceLabel(r.price),
+      photo_url: pic,
+      photo_external: !!pic,
+      video_url: photo(r.video_url, r.video_id),
+      video_external: true,
+      has_media: !!pic,
+    };
+  }
+
+  /** `/api/tuning` zaxirasi — konfigurator variantlari.
+   *
+   *  MUHIM: `biled_types`, `shrouds`, `optic_colors` jadvallari ALLAQACHON
+   *  bulutga ko'chiriladi (`database/queries.py: CATALOG_KEY` da bor,
+   *  `services/sync.py: push_all_catalog` ularni yuboradi). Ya'ni ma'lumot
+   *  bor edi — shu paytgacha faqat frontend uni O'QIMASDI va konfigurator
+   *  Render'siz ishlamasdi. Backendga o'zgartirish KERAK EMAS.
+   */
+  async function tuning() {
+    try {
+      var three = await Promise.all([
+        readNode("biled_types"),
+        readNode("shrouds"),
+        readNode("optic_colors"),
+      ]);
+      var out = {
+        biled_types: rows(three[0]).map(toBiled),
+        shrouds: rows(three[1]).map(toShroud),
+        colors: rows(three[2]).map(toColor),
+      };
+      // Linzalar bo'lmasa konfigurator ma'nosiz — keshga tayanamiz.
+      if (out.biled_types.length) {
+        saveBlob(TUNING_KEY, out);
+        return out;
+      }
+      return cachedOr(TUNING_KEY, out);
+    } catch (err) {
+      console.error("[offline] tuning o'qilmadi — keshga o'tilyapti:", err);
+      return cachedOr(TUNING_KEY, { biled_types: [], shrouds: [], colors: [] });
+    }
+  }
+
+  /** `/api/services` zaxirasi — navbat uchun xizmatlar.
+   *  `services` jadvali ham bulutga ko'chiriladi (CATALOG_KEY da bor). */
+  async function services() {
+    try {
+      var list = rows(await readNode("services")).map(function (r) {
+        return {
+          id: r.id,
+          name: r.name || "",
+          duration_min: Number(r.duration_min) || 0,
+          price: Number(r.price) || 0,
+          price_label: priceLabel(r.price),
+        };
+      });
+      if (list.length) {
+        saveBlob(SERVICES_KEY, list);
+        return list;
+      }
+      return cachedOr(SERVICES_KEY, list);
+    } catch (err) {
+      console.error("[offline] xizmatlar o'qilmadi — keshga o'tilyapti:", err);
+      return cachedOr(SERVICES_KEY, []);
+    }
+  }
+
+  /* ---- Umumiy kesh (bosh sahifa keshi alohida — u `save`/`cached`) ----
+     Firebase ham o'qilmagan holat uchun: mijoz ilgari ko'rgan variantlar
+     saqlanib qoladi, ya'ni konfigurator butunlay bo'sh chiqmaydi. */
+  var TUNING_KEY = "zimmer_tuning_cache";
+  var SERVICES_KEY = "zimmer_services_cache";
+  var BLOB_MAX_AGE = 30 * 24 * 3600 * 1000; // 30 kun
+
+  function saveBlob(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ at: Date.now(), v: value }));
+    } catch (_) {
+      // Kvota tugagan bo'lishi mumkin — kesh ixtiyoriy
+    }
+  }
+
+  function readBlob(key) {
+    try {
+      var raw = JSON.parse(localStorage.getItem(key) || "null");
+      if (!raw || raw.v == null) return null;
+      if (Date.now() - (raw.at || 0) > BLOB_MAX_AGE) return null;
+      return raw.v;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Keshda saqlangan nusxa bo'lsa uni, aks holda berilgan zaxirani qaytaradi. */
+  function cachedOr(key, fallback) {
+    var hit = readBlob(key);
+    return hit || fallback;
+  }
+
   /* ==================================================================
      WORKER — Render o'chganda buyurtma va profil
 
@@ -569,6 +717,8 @@
     available: available,
     home: home,
     cars: cars,
+    tuning: tuning,
+    services: services,
     // Worker
     workerReady: workerReady,
     me: me,

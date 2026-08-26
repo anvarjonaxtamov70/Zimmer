@@ -714,7 +714,13 @@
 
   async function loadTuning() {
     try {
-      S.tuning = await api("/api/tuning");
+      // Zaxira rejimda variantlar Firebase'dan o'qiladi. `biled_types`,
+      // `shrouds`, `optic_colors` allaqachon bulutga ko'chiriladi —
+      // shu paytgacha faqat o'qilmasdi, shuning uchun konfigurator
+      // Render'siz ishlamasdi.
+      S.tuning = S.offline
+        ? await ZimmerOffline.tuning()
+        : await api("/api/tuning");
       renderBiled();
       renderShrouds();
       renderColors();
@@ -2774,7 +2780,12 @@
     BK.time = null;
     openSheet("🗓 Xizmatni tanlang", '<div class="bk-load">Yuklanmoqda...</div>');
     try {
-      BK.services = await api("/api/services");
+      // `services` jadvali ham bulutda bor — navbat ro'yxati Render'siz
+      // ko'rinadi. Vaqt tanlash hali serverni talab qiladi (bo'sh
+      // soatlarni hisoblash uchun jonli buyurtma ma'lumoti kerak).
+      BK.services = S.offline
+        ? await ZimmerOffline.services()
+        : await api("/api/services");
     } catch (err) {
       closeSheet();
       return onError(err);
