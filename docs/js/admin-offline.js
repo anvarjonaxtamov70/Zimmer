@@ -26,7 +26,11 @@ window.ZimmerAdminOffline = (function () {
 
   const app = () => window.ZIMMER_APP || {};
   const off = () => window.ZimmerOffline || {};
+  const fb = () => window.ZimmerFB;
   const $ = (id) => document.getElementById(id);
+
+  /** Katalogdagi tovarlar yo'li. */
+  const P_PRODUCTS = "catalog/products";
 
   const esc = (v) => (app().esc ? app().esc(v) : String(v == null ? "" : v));
   const toast = (m) => (app().toast ? app().toast(m) : void 0);
@@ -75,12 +79,13 @@ window.ZimmerAdminOffline = (function () {
 
     if (code === "forbidden" || code === "http_403") {
       hint = "Sizning Telegram ID raqamingiz Worker'dagi ADMIN_IDS ro'yxatida yo'q.";
-    } else if (code === "http_404" || /Bunday manzil/.test(msg)) {
-      // Aynan shu holat «na ombor ishlayapti na tovar qo'shish» ga olib kelgan.
-      msg = "Cloudflare'dagi Worker eski";
+    } else if (code === "rules") {
+      // Eng ko'p uchraydigan sabab: qoidalar Firebase Console'ga qo'yilmagan.
       hint =
-        "Bu amal Worker'ning 1.3.0 versiyasida paydo bo'ldi. Cloudflare " +
-        "GitHub'dan o'zi yangilanmaydi — kodni qo'lda qo'yib Deploy qilish kerak.";
+        "Firebase Console -> Realtime Database -> Rules bo'limiga " +
+        "database.rules.json faylidagi matnni qo'yib «Publish» bosing.";
+    } else if (code === "no_db") {
+      hint = "docs/config.js da FIREBASE_DB_URL ko'rsatilmagan.";
     } else if (code === "no_worker") {
       hint = "Worker manzili sozlanmagan (config.js -> WORKER_URL).";
     } else if (code === "no_init_data") {
@@ -118,54 +123,23 @@ window.ZimmerAdminOffline = (function () {
      sababni faqat men topa olardim. Endi panel o'zi aniqlab, ANIQ nima
      qilish kerakligini ko'rsatadi.
      ================================================================== */
-  const RAW_URL =
-    "https://raw.githubusercontent.com/anvarjonaxtamov70/Zimmer/main/cloudflare-worker.js";
-
-  /** Worker eski bo'lsa ko'rsatma ekranini chizadi va `true` qaytaradi. */
-  async function blockedByOldWorker() {
-    const sup = off().workerSupports ? await off().workerSupports("admin_catalog") : null;
-    // Aniqlab bo'lmasa (internet yo'q, /health javob bermadi) — to'sib
-    // qo'ymaymiz, mijoz baribir urinib ko'rsin.
-    if (!sup || sup.ok) return false;
-
-    setHead("Worker yangilanishi kerak", "Bir marta qilinadi");
+  /** Baza sozlanmagan bo'lsa ko'rsatma chizadi va `true` qaytaradi. */
+  function blockedNoDb() {
+    if (fb() && fb().available()) return false;
+    setHead("Baza sozlanmagan", "");
     body().innerHTML =
       '<div class="adm-fail">' +
       '<div class="adm-fail-icon">⚙️</div>' +
-      "<p><b>Cloudflare'dagi Worker eski.</b></p>" +
-      '<p class="adm-hint">Hozirgi versiya: <b>' +
-      esc(sup.version) +
-      "</b>. Admin amallari uchun <b>1.3.0</b> yoki yuqorisi kerak. " +
-      "Cloudflare GitHub'dan o'zi yangilanmaydi — kodni bir marta qo'lda qo'yish kerak." +
-      "</p>" +
-      '<div class="adm-hint-block">' +
-      "<b>1.</b> Shu manzilni brauzerda ochib, Ctrl+A → Ctrl+C qiling:<br>" +
-      '<span class="adm-mini">' +
-      esc(RAW_URL) +
-      "</span><br><br>" +
-      "<b>2.</b> Cloudflare → Workers → <b>zimmer-worker</b> → Edit code — " +
-      "hammasini o'chirib, nusxani qo'ying.<br><br>" +
-      "<b>3.</b> <b>Deploy</b> tugmasini bosing.<br><br>" +
-      "<b>4.</b> Shu ekranga qaytib «Qayta tekshirish» ni bosing." +
-      "</div>" +
-      '<button class="btn btn-primary btn-sm" id="admo-recheck">Qayta tekshirish</button>' +
+      "<p><b>FIREBASE_DB_URL sozlanmagan.</b></p>" +
+      '<p class="adm-hint">docs/config.js faylida baza manzilini ko\'rsatish kerak.</p>' +
       "</div>";
-    const btn = $("admo-recheck");
-    if (btn)
-      btn.onclick = () => {
-        haptic();
-        openMenu();
-      };
     return true;
   }
 
-  async function openMenu() {
+  function openMenu() {
     S.view = "menu";
-    setHead("Boshqaruv", "Zaxira rejim — Render'siz");
-    loading("Tekshirilmoqda...");
-    // Worker eski bo'lsa — plitkalarni ko'rsatishning ma'nosi yo'q, ularning
-    // har biri 404 beradi. Sababni darhol aytamiz.
-    if (await blockedByOldWorker()) return;
+    setHead("Boshqaruv", "Bazaga to'g'ridan ulangan");
+    if (blockedNoDb()) return;
     body().innerHTML =
       '<div class="adm-hint-block">' +
       "Server hozir uxlagan. Shunga qaramay <b>tovar qo'shish</b>, " +
@@ -280,17 +254,38 @@ window.ZimmerAdminOffline = (function () {
     btn.textContent = "Saqlanmoqda...";
 
     try {
-      // `client_key` — tarmoq uzilib qayta bosilsa ikkinchi nusxa yaralmaydi.
-      const res = await off().adminAddProduct({
+      // Id ni sanoqchidan olamiz (ETag bilan) — ikki admin bir vaqtda
+      // qo'shsa ham id'lar har xil bo'ladi.
+      const id = await fb().nextProductId();
+
+      // Maydonlar `services/sync.py: _catalog_payload` bilan bir xil, shuning
+      // uchun bot uyg'onganda `restore_catalog()` bu tovarni SQLite ga
+      // O'ZI ko'chiradi — ya'ni tovar yo'qolmaydi va botga ham yetib boradi.
+      //   `_key`        -> CATALOG_KEY["products"] = "name"
+      //   `categoryName`-> CATALOG_LINKS orqali category_id ga aylanadi
+      await fb().put(P_PRODUCTS + "/" + id, {
+        id: id,
+        _key: name,
         name: name,
+        description: desc || null,
         price: price,
+        old_price: null,
         stock: stock,
+        badge: null,
         photo_url: photo || null,
-        description: desc,
-        client_key: name + ":" + price + ":" + stock,
+        photo_id: null,
+        is_active: 1,
+        deleted: false,
+        categoryName: "Boshqa",
+        carName: null,
+        updatedAt: Date.now(),
+        source: "miniapp",
       });
+
       haptic("success");
-      toast(res && res.duplicate ? "Bu tovar allaqachon saqlangan" : "✅ Tovar saqlandi");
+      toast("✅ Tovar qo'shildi — do'konda ko'rinadi");
+      // Bosh sahifa keshi eskirdi: yangi tovar darhol chiqishi kerak.
+      if (app().state) app().state.home = null;
       openInventory();
     } catch (err) {
       // Xato matnini AYNAN ko'rsatamiz — "saqlanmadi" deb qo'yish foydasiz.
@@ -310,9 +305,28 @@ window.ZimmerAdminOffline = (function () {
     setHead("Ombor", "Zaxira rejim");
     loading("Ombor o'qilmoqda...");
     try {
-      const res = await off().adminCatalog();
-      S.items = res.items || [];
-      S.drafts = res.drafts || [];
+      // To'g'ridan katalogdan o'qiymiz — Worker ham, Render ham qatnashmaydi.
+      const node = await fb().get(P_PRODUCTS);
+      S.items = [];
+      S.drafts = [];
+      if (node && typeof node === "object") {
+        Object.keys(node).forEach((key) => {
+          const r = node[key];
+          if (!r || typeof r !== "object" || r.deleted) return;
+          S.items.push({
+            id: r.id == null ? key : r.id,
+            name: String(r.name || "Nomsiz"),
+            price: Number(r.price) || 0,
+            stock: Number(r.stock) || 0,
+            is_active: r.is_active !== 0 && r.is_active !== false,
+            photo_url: r.photo_url || null,
+            photo_id: r.photo_id || null,
+            pending: false,
+          });
+        });
+        // Yangi qo'shilgan tovar TEPADA turishi kerak.
+        S.items.sort((a, b) => Number(b.id) - Number(a.id));
+      }
       renderInventory();
     } catch (err) {
       fail(err, openInventory);
@@ -460,9 +474,20 @@ window.ZimmerAdminOffline = (function () {
     if (S.busy) return;
     S.busy = true;
     try {
-      await off().adminEdit(fields);
+      const id = fields.id;
+      const patch = { updatedAt: Date.now() };
+      if (fields.price !== undefined) patch.price = fields.price;
+      if (fields.stock !== undefined) patch.stock = fields.stock;
+      // `is_active` katalogda son sifatida saqlanadi (SQLite bilan bir xil).
+      if (fields.is_active !== undefined) patch.is_active = fields.is_active ? 1 : 0;
+
+      // PATCH — faqat o'zgargan maydonlar. PUT qilsak qolgan maydonlar
+      // (rasm, tavsif, kategoriya) o'chib ketardi.
+      await fb().patch(P_PRODUCTS + "/" + id, patch);
+
       haptic("success");
       toast(okMsg);
+      if (app().state) app().state.home = null;
       openInventory();
     } catch (err) {
       toast((err && err.message) || "Saqlanmadi");
@@ -492,8 +517,30 @@ window.ZimmerAdminOffline = (function () {
     setHead("Buyurtmalar", "Zaxira rejim");
     loading("Buyurtmalar o'qilmoqda...");
     try {
-      const res = await off().adminOrders();
-      S.orders = res.orders || [];
+      const node = await fb().get("pending_orders");
+      S.orders = [];
+      if (node && typeof node === "object") {
+        Object.keys(node).forEach((key) => {
+          const r = node[key];
+          if (!r || typeof r !== "object") return;
+          const total = Number(r.total) || 0;
+          S.orders.push({
+            key: key,
+            code: r.code || key,
+            uid: r.uid || null,
+            name: r.customer_name || r.name || "",
+            phone: r.phone || "",
+            address: r.address || "",
+            total: total,
+            total_label: money(total),
+            status: r.status || "new",
+            items: Array.isArray(r.items) ? r.items : [],
+            created_at: r.createdAt || null,
+            imported: !!r.imported,
+          });
+        });
+        S.orders.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+      }
       renderOrders();
     } catch (err) {
       fail(err, openOrders);
@@ -558,9 +605,32 @@ window.ZimmerAdminOffline = (function () {
     if (S.busy) return;
     S.busy = true;
     try {
-      await off().adminOrderStatus(order.key, status);
+      // Holatni to'g'ridan bazaga yozamiz — bu HAR DOIM ishlaydi.
+      await fb().patch("pending_orders/" + order.key, {
+        status: status,
+        status_at: Date.now(),
+      });
       haptic("success");
-      toast("✅ Holat o'zgardi — mijozga xabar ketdi");
+
+      // Mijozga Telegram xabari — bot tokeni faqat Worker'da, shuning uchun
+      // xabar Worker orqali ketadi. Worker javob bermasa HOLAT BARIBIR
+      // o'zgargan bo'ladi; shu sababli xabarni alohida aytamiz, aks holda
+      // admin "o'zgarmadi shekilli" deb o'ylaydi.
+      let notified = false;
+      try {
+        if (off().adminOrderStatus) {
+          await off().adminOrderStatus(order.key, status);
+          notified = true;
+        }
+      } catch (_) {
+        notified = false;
+      }
+
+      toast(
+        notified
+          ? "✅ Holat o'zgardi — mijozga xabar ketdi"
+          : "✅ Holat o'zgardi (mijozga xabar ketmadi)"
+      );
       openOrders();
     } catch (err) {
       toast((err && err.message) || "O'zgarmadi");

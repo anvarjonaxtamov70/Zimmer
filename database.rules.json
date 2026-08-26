@@ -1,31 +1,46 @@
 // =====================================================================
 //  ZIMMER — Firebase Realtime Database qoidalari
 //
-//  TAMOYIL: «hammasi yopiq, faqat kerakli joy ochiq».
+//  MODEL: Avto_A1 bilan bir xil — brauzer bazaga TO'G'RIDAN o'qiydi va
+//  yozadi. Shuning uchun mini app Render'dan (va hatto Cloudflare
+//  Worker'dan) mustaqil ishlaydi: tovar qo'shish, tahrirlash, buyurtma
+//  berish — hammasi brauzerdan bajariladi.
 //
-//  Bot service-account tokeni bilan yozadi. Service-account BU QOIDALARNI
-//  CHETLAB O'TADI (admin huquqi), shuning uchun hamma joyda `.write: false`
-//  bo'lsa ham bot normal ishlaydi. Ya'ni BRAUZERDAN HECH NARSA YOZIB
-//  BO'LMAYDI — bu ataylab shunday.
+//  Bu ATAYLAB tanlangan yo'l (loyiha egasining qarori). Ilgari bu yerda
+//  hammasi yopiq edi va yozishni faqat Worker bajarardi.
 //
-//  `catalog` esa OCHIQ O'QILADI: Mini App Render javob bermagan paytda
-//  katalogni to'g'ridan-to'g'ri shu tugundan o'qiydi (docs/js/offline.js).
-//  Bu do'kon vitrinasi — nom, narx, rasm. Ular baribir ilovada hammaga
-//  ko'rinadi, shuning uchun ochiq o'qish yangi ma'lumot oshkor qilmaydi.
+//  ---------------------------------------------------------------------
+//  NIMA OCHIQ — ro'yxat aniq bo'lsin, keyinchalik yopish oson bo'ladi:
 //
-//  MUHIM: mijozlar (users), buyurtmalar (orders / biled_orders), navbatlar
-//  (bookings), saqlanganlar va adminlar — QAT'IY YOPIQ. Ularni faqat bot
-//  o'qiy va yoza oladi. `zimmer/products` (Excel import qoralamalari,
-//  ta'minotchi narxlari) ham yopiq.
+//    catalog          o'qish + YOZISH  (tovar, narx, qoldiq, banner...)
+//    pending_orders   o'qish + yozish  (buyurtma berish va admin ko'rishi)
+//    pending_products o'qish + yozish  (qoralamalar)
+//    pending_edits    o'qish + yozish  (tuzatishlar)
+//    users            o'qish + yozish  (profil, saqlanganlar)
+//    bookings         o'qish + yozish  (navbat)
+//    biled_orders     o'qish + yozish  (Bi-LED buyurtmalari)
+//    favorites        o'qish + yozish
+//    products_counter o'qish + yozish  (yangi tovar id si)
 //
+//  YOPIQ QOLADI (mini app ularga murojaat qilmaydi):
+//    orders           botning SQLite nusxasi — brauzer tegmasligi kerak
+//    products         Excel qoralamalari, TA'MINOTCHI NARXLARI
+//    admins           adminlar ro'yxati
+//
+//  ---------------------------------------------------------------------
+//  BILIB TURING: baza manzili `docs/config.js` da, GitHub Pages'da ochiq.
+//  Yuqoridagi tugunlarni istalgan odam o'qiy va o'zgartira oladi.
+//  Loyiha egasi bundan xabardor; bot to'liq tayyor bo'lgach qoidalar
+//  qaytadan yopiladi.
+//
+//  Yopishga qaytish OSON: Worker orqali yozish yo'li (`/order`,
+//  `/profile`, `/admin/*`) saqlanib qoldi va ishlashda davom etadi.
+//  Faqat shu faylni eski holatga qaytarish kifoya.
+//
+//  ---------------------------------------------------------------------
 //  DEPLOY:
-//    firebase deploy --only database
-//  yoki: Firebase Console -> Realtime Database -> Rules -> shu matnni qo'yib
-//  «Publish» bosish.
-//
-//  DIQQAT: bu qoidalarni qo'yguncha zaxira rejim ISHLAMAYDI (o'qish rad
-//  etiladi). Agar bazada hozir «test mode» (hammasi ochiq) bo'lsa, bu fayl
-//  xavfsizlikni ANCHA kuchaytiradi.
+//    Firebase Console -> Realtime Database -> Rules -> shu matnni qo'yib
+//    «Publish» bosish.
 // =====================================================================
 {
   "rules": {
@@ -33,48 +48,86 @@
     ".write": false,
 
     "zimmer": {
-      // ---- Do'kon vitrinasi: Mini App zaxira rejimida o'qiydigan yagona joy.
-      // RTDB'da qoidalar faqat CHUQURLASHGANDA ruxsat BERADI — shuning uchun
-      // yuqoridagi `false` bu tugunga ta'sir qilmaydi.
+      // ---- Do'kon vitrinasi: o'qish HAM, yozish HAM ochiq.
+      // Admin paneli tovarni to'g'ridan shu yerga yozadi, shuning uchun
+      // yangi tovar do'konda DARHOL ko'rinadi (Avto_A1 dagidek).
       "catalog": {
         ".read": true,
-        ".write": false
+        ".write": true,
+        "products": {
+          // Qidiruv va tartiblash indekslari
+          ".indexOn": ["category_id", "car_id", "is_active"]
+        }
       },
 
-      // ---- Qat'iy yopiq (faqat bot va Worker ko'radi)
+      // ---- Buyurtmalar (Render o'chgan paytda ham qabul qilinadi).
+      // Bot bu tugunni o'qib SQLite ga ko'chiradi va `imported: true` deb
+      // belgilaydi — shuning uchun buyurtma botga ham yetib boradi.
       //
-      // DIQQAT: Cloudflare Worker service-account tokeni bilan ishlaydi,
-      // ya'ni u ham bu qoidalarni CHETLAB O'TADI. Shuning uchun brauzerga
-      // hech qanday yozish huquqi berish KERAK EMAS — buyurtma va profil
-      // Worker orqali yoziladi. Avto_A1 da brauzer to'g'ridan yozgani
-      // uchun unda `users`/`orders` ga ruxsat berilgan va natijada mijoz
-      // `total: 0` yoki `status: "yetkazildi"` yozib qo'ya olardi.
-      "users": { ".read": false, ".write": false },
-
-      // Botning buyurtma nusxasi (`sync._put_order`) — raqamli SQLite id bilan
-      "orders": { ".read": false, ".write": false },
-
-      // Worker qabul qilgan buyurtmalar (Render o'chgan paytda berilgan).
-      // ALOHIDA tugun: yuqoridagi `orders` ni bot raqamli id bilan yozadi va
-      // `restore_orders` ham raqamli id kutadi — aralashtirsak bir-birini
-      // buzardi. Bot bu tugunni o'qib SQLite ga ko'chiradi va `imported: true`
-      // deb belgilaydi.
-      //
-      // `.indexOn`: Worker `/me` da `orderBy="uid"`, bot esa
-      // `orderBy="imported"` bilan izlaydi. Indeks bo'lmasa Firebase butun
-      // tugunni skanerlaydi va ogohlantirish beradi.
+      // `.indexOn`: `/me` da `orderBy="uid"`, bot esa `orderBy="imported"`
+      // bilan izlaydi. Indeks bo'lmasa Firebase butun tugunni skanerlaydi.
       "pending_orders": {
-        ".read": false,
-        ".write": false,
+        ".read": true,
+        ".write": true,
         ".indexOn": ["uid", "createdAt", "imported"]
       },
 
-      "biled_orders": { ".read": false, ".write": false },
-      "bookings": { ".read": false, ".write": false },
-      "favorites": { ".read": false, ".write": false },
-      "admins": { ".read": false, ".write": false },
+      // ---- Zaxira rejimda qo'shilgan tovarlar va tuzatishlar.
+      // Worker yo'li ular bilan ishlaydi; brauzer to'g'ridan katalogga
+      // yozgani uchun bu tugunlar endi majburiy emas, lekin ikkala yo'l
+      // birga ishlashi uchun ochiq qoldiriladi.
+      "pending_products": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["imported", "createdAt"]
+      },
+      "pending_edits": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["imported", "updatedAt"]
+      },
+
+      // ---- Mijoz ma'lumotlari: profil, saqlanganlar, savat.
+      "users": {
+        ".read": true,
+        ".write": true
+      },
+
+      // ---- Navbat va Bi-LED buyurtmalari
+      "bookings": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["uid", "day", "imported"]
+      },
+      "biled_orders": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["uid", "createdAt", "imported"]
+      },
+      "favorites": {
+        ".read": true,
+        ".write": true
+      },
+
+      // ---- Yangi tovar id si. Brauzer bu sanoqchini oshirib id oladi.
+      // SQLite avto-inkrementi bilan urishmasligi uchun sanoq YUQORI
+      // oraliqdan boshlanadi (`docs/js/fb.js`: ID_BASE).
+      "products_counter": {
+        ".read": true,
+        ".write": true
+      },
+
+      // ---- YOPIQ QOLADI
+      //
+      // `orders` — botning SQLite nusxasi (`sync._put_order`), raqamli id
+      // bilan. Brauzer bunga yozsa `restore_orders` buziladi.
+      "orders": { ".read": false, ".write": false },
+
+      // `products` — Excel importi qoralamalari va TA'MINOTCHI NARXLARI.
+      // Bu savdo maxfiyati, vitrinada ko'rinmaydi.
       "products": { ".read": false, ".write": false },
-      "products_counter": { ".read": false, ".write": false }
+
+      "admins": { ".read": false, ".write": false }
     }
   }
 }
