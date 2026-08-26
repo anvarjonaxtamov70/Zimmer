@@ -61,8 +61,19 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // berishga to'g'ri keladi).
 // Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
 // YANGI nusxa turganini tasdiqlashning eng oson yo'li.
-const VERSION = "1.2.0";
-const FEATURES = ["order", "me", "profile", "media", "admin_detect"];
+const VERSION = "1.3.0";
+const FEATURES = [
+  "order",
+  "me",
+  "profile",
+  "media",
+  "admin_detect",
+  // Render'siz admin amallari — katalogni telefondan boshqarish
+  "admin_catalog",
+  "admin_product_add",
+  "admin_edit",
+  "admin_orders",
+];
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -107,6 +118,14 @@ export default {
       if (path === "/me") return handleMe(request, env);
       if (path === "/profile") return handleProfile(request, env);
       if (path === "/order") return handleOrder(request, env);
+
+      // ---- Admin: Render'siz katalog boshqaruvi. Har biri imzoni tekshirib,
+      // uid ni ADMIN_IDS bilan solishtiradi (`requireAdmin`).
+      if (path === "/admin/catalog") return handleAdminCatalog(request, env);
+      if (path === "/admin/product") return handleAdminProduct(request, env);
+      if (path === "/admin/edit") return handleAdminEdit(request, env);
+      if (path === "/admin/orders") return handleAdminOrders(request, env);
+      if (path === "/admin/order-status") return handleAdminOrderStatus(request, env);
 
       return json({ ok: false, error: "Bunday manzil yo'q" }, 404);
     } catch (error) {
@@ -300,6 +319,9 @@ async function handleMe(request, env) {
     ok: true,
     me: {
       id: Number(uid),
+      // Render `/api/me` bu maydonni `user_id` deb ataydi. Ikkalasini ham
+      // beramiz — frontend qaysi rejimda bo'lsa ham ID ni topadi.
+      user_id: Number(uid),
       first_name: user.first_name || "",
       full_name:
         profile.name || [user.first_name, user.last_name].filter(Boolean).join(" ") || "Mijoz",
@@ -551,6 +573,344 @@ async function handleOrder(request, env) {
     },
     201
   );
+}
+
+// =====================================================================
+//  ADMIN QATLAMI — Render'siz katalog boshqaruvi
+//
+//  NEGA KATALOGGA TO'G'RIDAN YOZILMAYDI (eng muhim qaror):
+//  Bot katalogni `services/sync.py` da `method="put"` bilan yuboradi
+//  (`push_catalog`, `push_all_catalog`) — ya'ni `zimmer/catalog/products`
+//  tuguni USTIDAN to'liq qayta yoziladi. Zimmer'da haqiqiy manba SQLite,
+//  Firebase esa uning ko'zgusi.
+//
+//  Shuning uchun admin qo'shgan tovarni to'g'ridan `catalog/products` ga
+//  yozish XATO bo'lardi: Render uyg'onib birinchi sinxron qilganda tovar
+//  JIMGINA O'CHIB KETARDI va admin buni bilmasdi.
+//
+//  (Avto_A1 da bu muammo yo'q, chunki uning yagona manbasi RTDB. Bizda
+//  esa ikkita manba bor — shu sababli usulni ko'chirib bo'lmaydi.)
+//
+//  Yechim — `pending_orders` uchun allaqachon ishlaydigan naqsh:
+//    zimmer/pending_products/{kalit}  — offline qo'shilgan yangi tovarlar
+//    zimmer/pending_edits/{tovar_id}  — mavjud tovarga qilingan tuzatish
+//  Ikkisi ham katalog sinxronidan TASHQARIDA — ustidan yozilmaydi. Bot
+//  uyg'onganda ularni SQLite ga ko'chiradi (`imported: true` belgisi bilan).
+//
+//  Yangi tovarga RAQAMLI id BERILMAYDI — kalit `off_<uid>_<hash>`. Aks holda
+//  SQLite avto-inkrementi bir kun o'sha raqamga yetib, ikki xil tovar bitta
+//  id ga tushib qolardi.
+// =====================================================================
+
+/** Har bir admin endpointi uchun yagona darvoza: imzo -> uid -> ADMIN_IDS. */
+async function requireAdmin(request, env) {
+  const c = cfg(env);
+  if (!c.dbUrl) {
+    return { error: json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500) };
+  }
+  const body = await readJson(request);
+  const verified = await verifyInitData(body.initData, env);
+  if (!verified.ok) return { error: json({ ok: false, error: verified.error }, 401) };
+
+  const uid = String(verified.user.id);
+  // uid HMAC imzosidan olinadi — mijoz yuborgan qiymatga ISHONILMAYDI.
+  // ADMIN_IDS esa Worker env'ida, brauzerda emas.
+  if (!c.admins.includes(uid)) {
+    return {
+      error: json({ ok: false, error: "forbidden", message: "Bu amal faqat admin uchun" }, 403),
+    };
+  }
+  return { c, body, uid, user: verified.user };
+}
+
+/** Musbat butun son; noto'g'ri qiymat -> null (0 haqiqiy qiymat sifatida qoladi). */
+function toCount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Math.floor(Number(String(value).replace(/[^\d-]/g, "")));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/** Narx: bo'shliq/probel bilan yozilgan "120 000" ni ham tushunadi. */
+function toPrice(value) {
+  const n = toCount(value);
+  return n === null || n <= 0 ? null : n;
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/catalog — ombor ko'rinishi (katalog + kutilayotgan tuzatishlar)
+// ---------------------------------------------------------------------
+async function handleAdminCatalog(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c } = gate;
+
+  const token = await accessToken(env);
+  const [catalog, edits, pending] = await Promise.all([
+    rtdbGet(c.dbUrl, `${c.root}/catalog/products`, token),
+    rtdbGet(c.dbUrl, `${c.root}/pending_edits`, token),
+    rtdbGet(c.dbUrl, `${c.root}/pending_products`, token),
+  ]);
+
+  const items = [];
+  if (catalog && typeof catalog === "object") {
+    for (const [id, row] of Object.entries(catalog)) {
+      if (!row || typeof row !== "object") continue;
+      if (row.deleted) continue;
+      // Kutilayotgan tuzatish BOR bo'lsa — admin o'zi kiritgan qiymatni
+      // ko'rsatamiz, aks holda "saqlamadim shekilli" degan taassurot bo'ladi.
+      const patch = edits && edits[id] && !edits[id].imported ? edits[id] : null;
+      items.push({
+        id,
+        name: String(row.name || "Nomsiz"),
+        price: patch && patch.price != null ? patch.price : Number(row.price || 0),
+        stock: patch && patch.stock != null ? patch.stock : Number(row.stock || 0),
+        is_active:
+          patch && patch.is_active != null ? !!patch.is_active : row.is_active !== 0,
+        photo_id: row.photo_id || null,
+        photo_url: row.photo_url || null,
+        pending: !!patch,
+      });
+    }
+  }
+
+  const drafts = [];
+  if (pending && typeof pending === "object") {
+    for (const [key, row] of Object.entries(pending)) {
+      if (!row || typeof row !== "object" || row.imported) continue;
+      drafts.push({
+        key,
+        name: String(row.name || "Nomsiz"),
+        price: Number(row.price || 0),
+        stock: Number(row.stock || 0),
+        photo_url: row.photo_url || null,
+        created_at: row.createdAt || null,
+      });
+    }
+  }
+
+  return json({ ok: true, items, drafts, counts: { items: items.length, drafts: drafts.length } });
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/product — Render'siz YANGI tovar qo'shish
+// ---------------------------------------------------------------------
+async function handleAdminProduct(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c, body, uid } = gate;
+
+  const name = clean(body.name, 200);
+  if (!name || name.length < 2) {
+    return json({ ok: false, error: "Tovar nomini kiriting" }, 400);
+  }
+  const price = toPrice(body.price);
+  if (price === null) return json({ ok: false, error: "Narxni to'g'ri kiriting" }, 400);
+
+  const stock = toCount(body.stock);
+  if (stock === null) return json({ ok: false, error: "Qoldiqni to'g'ri kiriting" }, 400);
+
+  // Rasm: faqat http(s) havola. `javascript:` va `data:` ataylab rad etiladi.
+  const photoUrl = clean(body.photo_url, 600);
+  if (photoUrl && !/^https:\/\/[^\s]+$/i.test(photoUrl)) {
+    return json({ ok: false, error: "Rasm havolasi https:// bilan boshlanishi kerak" }, 400);
+  }
+
+  // Idempotentlik: tarmoq uzilib qayta yuborilsa ikkinchi nusxa yaralmaydi.
+  const key = "off_" + uid + "_" + shortHash(uid + ":" + (body.client_key || name + price));
+  const token = await accessToken(env);
+  const path = `${c.root}/pending_products/${key}`;
+
+  const exists = await rtdbGet(c.dbUrl, path, token);
+  if (exists && typeof exists === "object") {
+    return json({ ok: true, key, duplicate: true, product: { name, price, stock } });
+  }
+
+  const record = {
+    name,
+    price,
+    stock,
+    description: clean(body.description, 2000) || "",
+    photo_url: photoUrl || null,
+    category_id: toCount(body.category_id),
+    // Bu maydonlarni FAQAT server qo'yadi — mijoz yuborgani e'tiborsiz.
+    created_by: Number(uid),
+    createdAt: { ".sv": "timestamp" },
+    source: "miniapp_offline",
+    imported: false,
+  };
+
+  const res = await rtdbPut(c.dbUrl, path, record, token);
+  if (!res.ok) {
+    return json({ ok: false, error: "Firebase yozmadi", status: res.status }, 502);
+  }
+
+  await notifyAdmins(
+    env,
+    c,
+    "🆕 <b>Yangi tovar qo'shildi</b> (zaxira rejim)\n\n" +
+      `📦 ${escHtml(name)}\n` +
+      `💰 ${fmtPrice(price)}\n` +
+      `📊 Qoldiq: ${stock}\n\n` +
+      "<i>Server uyg'onganda katalogga o'tadi.</i>"
+  ).catch(() => {});
+
+  return json({ ok: true, key, product: { name, price, stock } }, 201);
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/edit — mavjud tovarning narx/qoldiq/ko'rinishini o'zgartirish
+// ---------------------------------------------------------------------
+async function handleAdminEdit(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c, body, uid } = gate;
+
+  const id = clean(body.id, 40);
+  if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) {
+    return json({ ok: false, error: "Tovar id noto'g'ri" }, 400);
+  }
+
+  const patch = {};
+  if (body.price !== undefined) {
+    const price = toPrice(body.price);
+    if (price === null) return json({ ok: false, error: "Narxni to'g'ri kiriting" }, 400);
+    patch.price = price;
+  }
+  if (body.stock !== undefined) {
+    const stock = toCount(body.stock);
+    if (stock === null) return json({ ok: false, error: "Qoldiqni to'g'ri kiriting" }, 400);
+    patch.stock = stock;
+  }
+  if (body.is_active !== undefined) patch.is_active = !!body.is_active;
+
+  if (!Object.keys(patch).length) {
+    return json({ ok: false, error: "O'zgartirish uchun maydon berilmadi" }, 400);
+  }
+
+  const token = await accessToken(env);
+
+  // Tovar HAQIQATAN bormi? Yo'q bo'lsa "saqlandi" deb yolg'on aytmaymiz.
+  const row = await rtdbGet(c.dbUrl, `${c.root}/catalog/products/${id}`, token);
+  if (!row || typeof row !== "object") {
+    return json({ ok: false, error: "Bunday tovar katalogda yo'q" }, 404);
+  }
+
+  patch.updatedAt = { ".sv": "timestamp" };
+  patch.updated_by = Number(uid);
+  patch.imported = false;
+
+  const res = await rtdbPatch(c.dbUrl, `${c.root}/pending_edits/${id}`, patch, token);
+  if (!res.ok) {
+    return json({ ok: false, error: "Firebase yozmadi", status: res.status }, 502);
+  }
+  return json({ ok: true, id, applied: patch });
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/orders — zaxira rejimda tushgan buyurtmalar
+// ---------------------------------------------------------------------
+async function handleAdminOrders(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c } = gate;
+
+  const token = await accessToken(env);
+  const node = await rtdbGet(c.dbUrl, `${c.root}/pending_orders`, token);
+
+  const orders = [];
+  if (node && typeof node === "object") {
+    for (const [key, row] of Object.entries(node)) {
+      if (!row || typeof row !== "object") continue;
+      orders.push({
+        key,
+        code: row.code || key,
+        uid: row.uid || null,
+        name: row.customer_name || row.name || "",
+        phone: row.phone || "",
+        address: row.address || "",
+        total: Number(row.total || 0),
+        total_label: fmtPrice(Number(row.total || 0)),
+        status: row.status || "new",
+        items: Array.isArray(row.items) ? row.items : [],
+        created_at: row.createdAt || null,
+        imported: !!row.imported,
+      });
+    }
+    // Yangi buyurtma TEPADA turishi kerak.
+    orders.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+  }
+
+  return json({ ok: true, orders, count: orders.length });
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/order-status — buyurtma holatini o'zgartirish
+// ---------------------------------------------------------------------
+const ORDER_STATUSES = ["new", "accepted", "delivering", "done", "cancelled"];
+
+async function handleAdminOrderStatus(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c, body, uid } = gate;
+
+  const key = clean(body.key, 120);
+  if (!key || !/^[A-Za-z0-9_-]+$/.test(key)) {
+    return json({ ok: false, error: "Buyurtma kaliti noto'g'ri" }, 400);
+  }
+  const status = clean(body.status, 20);
+  if (!ORDER_STATUSES.includes(status)) {
+    return json(
+      { ok: false, error: "Holat noto'g'ri", allowed: ORDER_STATUSES },
+      400
+    );
+  }
+
+  const token = await accessToken(env);
+  const path = `${c.root}/pending_orders/${key}`;
+  const row = await rtdbGet(c.dbUrl, path, token);
+  if (!row || typeof row !== "object") {
+    return json({ ok: false, error: "Bunday buyurtma yo'q" }, 404);
+  }
+
+  const res = await rtdbPatch(
+    c.dbUrl,
+    path,
+    { status, status_by: Number(uid), status_at: { ".sv": "timestamp" } },
+    token
+  );
+  if (!res.ok) {
+    return json({ ok: false, error: "Firebase yozmadi", status: res.status }, 502);
+  }
+
+  // Mijozga xabar — buyurtma holatini bilmay qolmasin.
+  const TEXT = {
+    accepted: "✅ Buyurtmangiz qabul qilindi",
+    delivering: "🚚 Buyurtmangiz yo'lda",
+    done: "🎉 Buyurtmangiz yetkazildi",
+    cancelled: "❌ Buyurtmangiz bekor qilindi",
+  };
+  if (TEXT[status] && row.uid) {
+    await sendMessage(env, row.uid, `${TEXT[status]}\n\n🧾 ${escHtml(row.code || key)}`).catch(
+      () => {}
+    );
+  }
+
+  return json({ ok: true, key, status });
+}
+
+/** Barcha adminlarga bir xil xabar. */
+async function notifyAdmins(env, c, text) {
+  if (!env.BOT_TOKEN || !c.admins.length) return false;
+  await Promise.all(c.admins.map((id) => sendMessage(env, id, text).catch(() => {})));
+  return true;
+}
+
+/** Qisqa, barqaror hash — idempotent kalitlar uchun. */
+function shortHash(text) {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
 }
 
 // ---------------------------------------------------------------------
