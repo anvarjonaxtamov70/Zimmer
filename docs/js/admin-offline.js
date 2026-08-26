@@ -75,6 +75,12 @@ window.ZimmerAdminOffline = (function () {
 
     if (code === "forbidden" || code === "http_403") {
       hint = "Sizning Telegram ID raqamingiz Worker'dagi ADMIN_IDS ro'yxatida yo'q.";
+    } else if (code === "http_404" || /Bunday manzil/.test(msg)) {
+      // Aynan shu holat «na ombor ishlayapti na tovar qo'shish» ga olib kelgan.
+      msg = "Cloudflare'dagi Worker eski";
+      hint =
+        "Bu amal Worker'ning 1.3.0 versiyasida paydo bo'ldi. Cloudflare " +
+        "GitHub'dan o'zi yangilanmaydi — kodni qo'lda qo'yib Deploy qilish kerak.";
     } else if (code === "no_worker") {
       hint = "Worker manzili sozlanmagan (config.js -> WORKER_URL).";
     } else if (code === "no_init_data") {
@@ -101,9 +107,65 @@ window.ZimmerAdminOffline = (function () {
   /* ==================================================================
      MENYU
      ================================================================== */
-  function openMenu() {
+  /* ==================================================================
+     WORKER TEKSHIRUVI — «na ombor ishlayapti na tovar qo'shish» sababi
+
+     Cloudflare GitHub'dan O'ZI yangilanmaydi: kod qo'lda qo'yiladi.
+     Repoda `/admin/*` endpointlari bo'lsa ham, Cloudflare'da eski nusxa
+     turgan bo'lishi mumkin — o'sha holatda har chaqiruv 404 qaytaradi.
+
+     Ilgari bunda tushunarsiz «Bunday manzil yo'q» xatosi chiqardi va
+     sababni faqat men topa olardim. Endi panel o'zi aniqlab, ANIQ nima
+     qilish kerakligini ko'rsatadi.
+     ================================================================== */
+  const RAW_URL =
+    "https://raw.githubusercontent.com/anvarjonaxtamov70/Zimmer/main/cloudflare-worker.js";
+
+  /** Worker eski bo'lsa ko'rsatma ekranini chizadi va `true` qaytaradi. */
+  async function blockedByOldWorker() {
+    const sup = off().workerSupports ? await off().workerSupports("admin_catalog") : null;
+    // Aniqlab bo'lmasa (internet yo'q, /health javob bermadi) — to'sib
+    // qo'ymaymiz, mijoz baribir urinib ko'rsin.
+    if (!sup || sup.ok) return false;
+
+    setHead("Worker yangilanishi kerak", "Bir marta qilinadi");
+    body().innerHTML =
+      '<div class="adm-fail">' +
+      '<div class="adm-fail-icon">⚙️</div>' +
+      "<p><b>Cloudflare'dagi Worker eski.</b></p>" +
+      '<p class="adm-hint">Hozirgi versiya: <b>' +
+      esc(sup.version) +
+      "</b>. Admin amallari uchun <b>1.3.0</b> yoki yuqorisi kerak. " +
+      "Cloudflare GitHub'dan o'zi yangilanmaydi — kodni bir marta qo'lda qo'yish kerak." +
+      "</p>" +
+      '<div class="adm-hint-block">' +
+      "<b>1.</b> Shu manzilni brauzerda ochib, Ctrl+A → Ctrl+C qiling:<br>" +
+      '<span class="adm-mini">' +
+      esc(RAW_URL) +
+      "</span><br><br>" +
+      "<b>2.</b> Cloudflare → Workers → <b>zimmer-worker</b> → Edit code — " +
+      "hammasini o'chirib, nusxani qo'ying.<br><br>" +
+      "<b>3.</b> <b>Deploy</b> tugmasini bosing.<br><br>" +
+      "<b>4.</b> Shu ekranga qaytib «Qayta tekshirish» ni bosing." +
+      "</div>" +
+      '<button class="btn btn-primary btn-sm" id="admo-recheck">Qayta tekshirish</button>' +
+      "</div>";
+    const btn = $("admo-recheck");
+    if (btn)
+      btn.onclick = () => {
+        haptic();
+        openMenu();
+      };
+    return true;
+  }
+
+  async function openMenu() {
     S.view = "menu";
     setHead("Boshqaruv", "Zaxira rejim — Render'siz");
+    loading("Tekshirilmoqda...");
+    // Worker eski bo'lsa — plitkalarni ko'rsatishning ma'nosi yo'q, ularning
+    // har biri 404 beradi. Sababni darhol aytamiz.
+    if (await blockedByOldWorker()) return;
     body().innerHTML =
       '<div class="adm-hint-block">' +
       "Server hozir uxlagan. Shunga qaramay <b>tovar qo'shish</b>, " +

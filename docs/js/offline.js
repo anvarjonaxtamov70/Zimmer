@@ -621,6 +621,36 @@
     return !!WORKER;
   }
 
+  /** Worker'ning `/health` javobi — versiya va qo'llaydigan amallar ro'yxati.
+   *
+   *  NEGA KERAK: Cloudflare GitHub'dan O'ZI yangilanmaydi — kod qo'lda
+   *  qo'yiladi. Shu sababli repoda yangi endpoint bo'lsa-da, Cloudflare'da
+   *  eski nusxa turishi mumkin. O'sha holatda `/admin/catalog` 404 qaytaradi
+   *  va foydalanuvchi «Bunday manzil yo'q» degan tushunarsiz xatoni ko'radi.
+   *
+   *  Bu funksiya `features` ro'yxatini beradi, shunda panel muammoni O'ZI
+   *  aniqlab, «Worker eski — yangilash kerak» deb aniq aytadi.
+   *
+   *  `initData` KERAK EMAS — `/health` maxfiy ma'lumot bermaydi.
+   */
+  async function workerHealth() {
+    if (!WORKER) return null;
+    try {
+      var res = await fetch(WORKER + "/health", { cache: "no-store" });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Worker berilgan amalni qo'llaydimi. Aniqlab bo'lmasa `null`. */
+  async function workerSupports(feature) {
+    var h = await workerHealth();
+    if (!h || !Array.isArray(h.features)) return null;
+    return { ok: h.features.indexOf(feature) !== -1, version: h.version || "?" };
+  }
+
   function initData() {
     try {
       return (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || "";
@@ -721,6 +751,8 @@
     services: services,
     // Worker
     workerReady: workerReady,
+    workerHealth: workerHealth,
+    workerSupports: workerSupports,
     me: me,
     saveProfile: saveProfile,
     createOrder: createOrder,
