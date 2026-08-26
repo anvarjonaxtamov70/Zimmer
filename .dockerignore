@@ -1,0 +1,44 @@
+# =====================================================================
+#  Image ichiga TUSHMASLIGI kerak bo'lgan fayllar.
+#
+#  Eng muhimi — MAXFIY KALITLAR. `.env` va `serviceAccount.json` image
+#  ichida qolsa, registry'ga yuklanadi va image'ni ochgan har kim
+#  Firebase bazasiga to'liq kirish imkonini oladi.
+# =====================================================================
+
+# ---- Maxfiy
+.env
+.env.*
+serviceAccount.json
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+*.pem
+*.key
+
+# ---- Baza (konteynerda yangisi yaratiladi)
+*.db
+*.db-journal
+*.sqlite3
+
+# ---- Git va CI
+.git
+.gitignore
+.github
+.vscode
+
+# ---- Python
+__pycache__
+*.py[cod]
+.venv
+venv
+env
+.ruff_cache
+.mypy_cache
+.pytest_cache
+
+# ---- Mini App (GitHub Pages'dan beriladi, botga kerak emas)
+docs
+
+# ---- Hujjatlar
+*.md
+!README.md
