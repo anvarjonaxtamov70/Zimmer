@@ -1,0 +1,55 @@
+// =====================================================================
+//  ZIMMER — Firebase Realtime Database qoidalari
+//
+//  TAMOYIL: «hammasi yopiq, faqat kerakli joy ochiq».
+//
+//  Bot service-account tokeni bilan yozadi. Service-account BU QOIDALARNI
+//  CHETLAB O'TADI (admin huquqi), shuning uchun hamma joyda `.write: false`
+//  bo'lsa ham bot normal ishlaydi. Ya'ni BRAUZERDAN HECH NARSA YOZIB
+//  BO'LMAYDI — bu ataylab shunday.
+//
+//  `catalog` esa OCHIQ O'QILADI: Mini App Render javob bermagan paytda
+//  katalogni to'g'ridan-to'g'ri shu tugundan o'qiydi (docs/js/offline.js).
+//  Bu do'kon vitrinasi — nom, narx, rasm. Ular baribir ilovada hammaga
+//  ko'rinadi, shuning uchun ochiq o'qish yangi ma'lumot oshkor qilmaydi.
+//
+//  MUHIM: mijozlar (users), buyurtmalar (orders / biled_orders), navbatlar
+//  (bookings), saqlanganlar va adminlar — QAT'IY YOPIQ. Ularni faqat bot
+//  o'qiy va yoza oladi. `zimmer/products` (Excel import qoralamalari,
+//  ta'minotchi narxlari) ham yopiq.
+//
+//  DEPLOY:
+//    firebase deploy --only database
+//  yoki: Firebase Console -> Realtime Database -> Rules -> shu matnni qo'yib
+//  «Publish» bosish.
+//
+//  DIQQAT: bu qoidalarni qo'yguncha zaxira rejim ISHLAMAYDI (o'qish rad
+//  etiladi). Agar bazada hozir «test mode» (hammasi ochiq) bo'lsa, bu fayl
+//  xavfsizlikni ANCHA kuchaytiradi.
+// =====================================================================
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "zimmer": {
+      // ---- Do'kon vitrinasi: Mini App zaxira rejimida o'qiydigan yagona joy.
+      // RTDB'da qoidalar faqat CHUQURLASHGANDA ruxsat BERADI — shuning uchun
+      // yuqoridagi `false` bu tugunga ta'sir qilmaydi.
+      "catalog": {
+        ".read": true,
+        ".write": false
+      },
+
+      // ---- Qat'iy yopiq (faqat bot ko'radi)
+      "users": { ".read": false, ".write": false },
+      "orders": { ".read": false, ".write": false },
+      "biled_orders": { ".read": false, ".write": false },
+      "bookings": { ".read": false, ".write": false },
+      "favorites": { ".read": false, ".write": false },
+      "admins": { ".read": false, ".write": false },
+      "products": { ".read": false, ".write": false },
+      "products_counter": { ".read": false, ".write": false }
+    }
+  }
+}

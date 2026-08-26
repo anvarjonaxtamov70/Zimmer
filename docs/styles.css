@@ -3422,3 +3422,48 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   line-height: 1.5;
   color: var(--muted);
 }
+
+
+/* ==========================================================================
+   ZAXIRA (OFFLINE) REJIM — Render javob bermaganda
+   Katalog Firebase'dan o'qiladi; mijoz nima ishlayotganini aniq bilishi kerak.
+   ========================================================================== */
+.offline-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  padding: 9px 14px calc(9px + env(safe-area-inset-bottom));
+  background: linear-gradient(135deg, #7a4a00 0%, #3a2200 100%);
+  color: #ffd9a0;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+  border-top: 1px solid rgba(255, 190, 100, 0.28);
+  /* Pastdagi navigatsiya ustida turadi, lekin uni bosishga to'sqinlik qilmaydi */
+  pointer-events: none;
+  animation: offlineBarIn 0.35s ease both;
+}
+
+@keyframes offlineBarIn {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pf-offline-note {
+  margin: 10px 0 2px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: rgba(255, 170, 60, 0.09);
+  border: 1px solid rgba(255, 170, 60, 0.24);
+  color: #ffd9a0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
