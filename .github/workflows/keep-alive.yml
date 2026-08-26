@@ -1,25 +1,40 @@
 name: Keep Alive (botni uyg'oq tutish)
 
 # =====================================================================
-#  NEGA BU KERAK?
-#  Render.com bepul "web service" 15 daqiqa davomida kiruvchi so'rov
-#  bo'lmasa uxlab qoladi — konteyner to'xtaydi va bot javob bermaydi.
-#  Bot ichidan o'ziga ping yuborish yordam bermaydi, chunki bot ham
-#  o'chgan bo'ladi. Shu sababli TASHQARIDAN ping kerak.
+#  NEGA BU FAYL O'ZGARTIRILDI? — 2026-08 dagi «bot ishlamayapti» sababi
 #
-#  Bu workflow har 10 daqiqada /health manziliga GET yuboradi.
+#  Render bepul tarifda IKKI CHEKLOV bor:
+#    1) 15 daqiqa so'rov bo'lmasa xizmat uxlaydi (spin down);
+#    2) BUTUN WORKSPACE uchun oyiga 750 "instance hour" beriladi.
+#       Kvota tugasa — bepul xizmatlar KEYINGI OYGA QADAR TO'XTATILADI
+#       va /health doimiy 503 qaytaradi (sovuq start emas!).
+#
+#  Ilgari bu workflow har 10 daqiqada, KUNIGA 24 SOAT ping yuborardi.
+#  Bitta xizmatni 24/7 uyg'oq tutish = ~720 soat/oy. Zimmer + Avto_A1
+#  ikkalasi bitta Render workspace'da = ~1440 soat/oy, kvota esa 750 —
+#  ya'ni kvota oyning o'rtasida tugab, IKKALA BOT HAM o'chib qolardi.
+#
+#  YECHIM: faqat ISH VAQTIDA uyg'oq tutamiz.
+#    04:00–13:50 UTC = 09:00–18:50 Toshkent (WORK_START_HOUR/WORK_END_HOUR)
+#    Hisob: 2 xizmat x ~10 soat x 31 kun = ~620 soat < 750 ✅
+#
+#  Kechasi bot uxlaydi — mijoz yozganda 30–60 soniyada o'zi uyg'onadi.
+#  24/7 uyg'oq bo'lishi SHART bo'lsa, yagona yo'l — pullik tarif
+#  (xizmat uchun $7/oy) yoki faqat BITTA botni 24/7 qoldirish.
+#
+#  MUHIM: Avto_A1 repo'sidagi keep-alive ham xuddi shunday cheklangan.
+#  Bittasini 24/7 ga qaytarsangiz — ikkinchisi ham o'chib qoladi.
 #
 #  MANZILNI O'ZGARTIRISH: repo -> Settings -> Secrets and variables ->
 #  Actions -> Variables -> New variable:
 #     Name:  KEEP_ALIVE_URLS
 #     Value: https://zimmer-bot.onrender.com
-#  (bir nechta bo'lsa bo'sh joy bilan ajratib yozing)
 # =====================================================================
 on:
   schedule:
-    # Har 10 daqiqada. GitHub cron'ni band paytlarda kechiktirishi mumkin —
-    # bu normal, 15 daqiqalik limitga yetadi.
-    - cron: '*/10 * * * *'
+    # Faqat ish vaqti: 04:00–13:50 UTC (= 09:00–18:50 Toshkent), har 10 daqiqada.
+    # DIQQAT: bu qatorni 24 soatga qaytarsangiz kvota yana tugaydi.
+    - cron: '*/10 4-13 * * *'
   workflow_dispatch:
     inputs:
       url:
@@ -60,6 +75,8 @@ jobs:
 
           ok=0
           fail=0
+          suspended=0
+          missing=0
 
           for raw in $URLS; do
             base="${raw%/}"
@@ -83,20 +100,29 @@ jobs:
 
             case "$code" in
               2*|3*)
-                echo "✅ $url -> $code"
+                echo "✅ $url -> $code (uyg'oq)"
                 ok=$((ok + 1))
                 ;;
+              404)
+                echo "::warning title=Xizmat topilmadi::$url -> 404. Render'da bu nomdagi xizmat mavjud emas. Manzilni tekshiring."
+                missing=$((missing + 1))
+                ;;
+              503)
+                # 3 marta urinishdan keyin ham 503 — bu UYQU EMAS.
+                echo "::error title=Xizmat to'xtatilgan (503)::$url -> 503. Bu sovuq start EMAS (3 marta urinildi). Tekshiring: (1) Render -> Billing -> free instance hours tugaganmi? (2) Render -> xizmat -> Events: oxirgi deploy yiqilganmi? (3) Logs: bot ishga tushayotganda xato beryaptimi?"
+                suspended=$((suspended + 1))
+                ;;
               *)
-                echo "::warning title=Ping muvaffaqiyatsiz::$url -> $code (manzil to'g'rimi? Render'da xizmat yaratilganmi?)"
+                echo "::warning title=Ping muvaffaqiyatsiz::$url -> $code"
                 fail=$((fail + 1))
                 ;;
             esac
           done
 
           echo ""
-          echo "Natija: $ok ta uyg'oq, $fail ta javob bermadi."
+          echo "Natija: $ok uyg'oq | $suspended to'xtatilgan(503) | $missing topilmadi(404) | $fail boshqa xato"
 
-          if [ "$ok" -eq 0 ]; then
-            echo "::error title=Bot javob bermadi::KEEP_ALIVE_URLS variable'ini yoki Render paneldagi xizmat holatini tekshiring."
+          if [ "$ok" -eq 0 ] && [ $((suspended + fail)) -gt 0 ]; then
+            echo "::error title=Bot javob bermadi::Yuqoridagi izohlarni o'qing."
             exit 1
           fi
