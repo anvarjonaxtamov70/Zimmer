@@ -55,6 +55,13 @@ const CORS = {
 const DEFAULT_ROOT = "zimmer";
 const DEFAULT_MAX_AGE = 86400; // 24 soat
 
+// Deploy qilingan kod versiyasi. `/health` shuni qaytaradi — Cloudflare'da
+// ESKI nusxa turganini shu bilan darhol aniqlash mumkin (aks holda "kod
+// yangilanmadimi yoki kalit buzuqmi?" degan savolga taxmin bilan javob
+// berishga to'g'ri keladi).
+const VERSION = "1.1.0";
+const FEATURES = ["order", "me", "profile", "media", "admin_detect"];
+
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -85,7 +92,11 @@ export default {
 
     try {
       if (path === "/media" || path === "/file") return handleMedia(request, env);
-      if (path === "/health" || path === "/") return handleHealth(env);
+      if (path === "/health" || path === "/") {
+        // `?deep=1` — sozlamalar BOR-YO'QLIGINI emas, HAQIQATAN ISHLASHINI
+        // tekshiradi: Firebase kalitini imzolab ko'radi va katalogni o'qiydi.
+        return handleHealth(env, url.searchParams.get("deep") === "1");
+      }
 
       if (request.method !== "POST") {
         return json({ ok: false, error: "Faqat POST" }, 405);
@@ -107,12 +118,17 @@ export default {
 // =====================================================================
 //  GET /health
 // =====================================================================
-function handleHealth(env) {
+async function handleHealth(env, deep) {
   const c = cfg(env);
-  return json({
+  const payload = {
     status: "ok",
     service: "zimmer-worker",
-    // Faqat sozlangan/sozlanmagan — qiymatlar oshkor qilinmaydi
+    // Cloudflare'da qaysi nusxa turganini bilish uchun
+    version: VERSION,
+    features: FEATURES,
+    // DIQQAT: bu faqat «kiritilgan / yo'q». Qiymatlar oshkor qilinmaydi va
+    // kalitning HAQIQATAN ishlashi bu yerda tekshirilmaydi — buning uchun
+    // `?deep=1` kerak.
     configured: {
       bot_token: !!env.BOT_TOKEN,
       firebase_key: !!(env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY),
@@ -120,7 +136,73 @@ function handleHealth(env) {
       admins: c.admins.length,
     },
     time: new Date().toISOString(),
-  });
+  };
+
+  if (!deep) return json(payload);
+
+  // ---- Chuqur tekshiruv: har bir bo'lak ALOHIDA sinaladi, shunda muammo
+  // aynan qayerda ekani ko'rinadi (kalitda? bazada? katalogda?).
+  const checks = {};
+
+  // 1) Firebase kaliti haqiqatan imzolay oladimi va Google token beradimi?
+  let token = null;
+  try {
+    // `force` — keshni chetlab o'tamiz, aks holda tashxis eski tokenga
+    // qarab «joyida» deb yolg'on gapirardi.
+    token = await accessToken(env, true);
+    checks.firebase_token = { ok: true };
+  } catch (error) {
+    checks.firebase_token = {
+      ok: false,
+      // Kalit matni buzilgan bo'lsa odatda shu yerda "Invalid keyData"
+      // yoki "invalid_grant" chiqadi.
+      error: String(error).slice(0, 300),
+      hint:
+        "FIREBASE_PRIVATE_KEY matni buzilgan bo'lishi mumkin. " +
+        "serviceAccount.json dagi private_key ni -----BEGIN dan -----END gacha " +
+        "TO'LIQ nusxalang, ichidagi \\n larni o'zgartirmang.",
+    };
+  }
+
+  // 2) Baza o'qiladimi va katalog bormi?
+  if (token) {
+    try {
+      const res = await fetch(
+        `${c.dbUrl}/${c.root}/catalog/products.json?shallow=true`,
+        { headers: authHeaders(token) }
+      );
+      if (!res.ok) {
+        checks.catalog_read = { ok: false, status: res.status };
+      } else {
+        const node = await res.json();
+        const count = node && typeof node === "object" ? Object.keys(node).length : 0;
+        checks.catalog_read = {
+          ok: count > 0,
+          products: count,
+          hint: count ? undefined : "Katalog bo'sh — botga /firebase yuborilishi kerak.",
+        };
+      }
+    } catch (error) {
+      checks.catalog_read = { ok: false, error: String(error).slice(0, 200) };
+    }
+  }
+
+  // 3) Bot tokeni haqiqiymi?
+  if (env.BOT_TOKEN) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getMe`);
+      const data = await res.json();
+      checks.bot_token = data && data.ok
+        ? { ok: true, username: data.result && data.result.username }
+        : { ok: false, error: (data && data.description) || "getMe ishlamadi" };
+    } catch (error) {
+      checks.bot_token = { ok: false, error: String(error).slice(0, 200) };
+    }
+  }
+
+  payload.checks = checks;
+  payload.status = Object.values(checks).every((x) => x.ok) ? "ok" : "problem";
+  return json(payload);
 }
 
 // =====================================================================
@@ -697,9 +779,18 @@ async function createCustomToken(uid, env) {
 // murojaat qilinardi — bu keraksiz kechikish va kvota sarfi.
 let _tokenCache = { value: null, exp: 0 };
 
-async function accessToken(env) {
+/**
+ * @param force  Keshni CHETLAB O'TIB, yangi token oladi.
+ *
+ *  Nega kerak: kesh modul darajasida turadi va bir soat yashaydi. Shu
+ *  sababli `/health?deep=1` keshdagi ESKI (ishlaydigan) tokenni qaytarib,
+ *  kalit buzuq bo'lsa ham «hammasi joyida» deb ko'rsatardi — ya'ni tashxis
+ *  yolg'on gapirardi. Kalit almashtirilgan holatda ham xuddi shu muammo
+ *  bo'lardi: Worker bir soatgacha eski tokendan foydalanib turardi.
+ */
+async function accessToken(env, force) {
   const now = Math.floor(Date.now() / 1000);
-  if (_tokenCache.value && _tokenCache.exp - 60 > now) return _tokenCache.value;
+  if (!force && _tokenCache.value && _tokenCache.exp - 60 > now) return _tokenCache.value;
 
   const jwt = await signJwt(
     {
