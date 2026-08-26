@@ -43,7 +43,7 @@ window.ZIMMER_CONFIG = {
      Secret'larni kiritish. To'liq ko'rsatma: WORKER_SETUP.md
      Bo'sh qoldirilsa — zaxira rejimda faqat KO'RISH ishlaydi.
      ==================================================================== */
-  WORKER_URL: "",
+  WORKER_URL: "https://zimmer-worker.anvaraxtamov70.workers.dev",
 
   // Zaxira rejimda narx yozuvlarini server'siz shakllantirish uchun
   // (`/api/config` javob bermaydi).
