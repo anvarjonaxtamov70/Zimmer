@@ -1,7 +1,23 @@
 .env
+.env.local
 *.db
 *.db-journal
 *.sqlite3
+
+# ---------------------------------------------------------------------
+#  MAXFIY KALITLAR — hech qachon commit bo'lmasin
+#
+#  DIQQAT: `.env.example` da `SERVICE_ACCOUNT_FILE=serviceAccount.json`
+#  deb yozilgan, ya'ni faylni repo ildiziga qo'yish tavsiya qilinadi.
+#  Ilgari bu fayl .gitignore da YO'Q edi — tasodifan `git add .` qilinsa
+#  Firebase'ning MAXFIY KALITI GitHub'ga tushib ketardi. Kalit ochilsa
+#  butun bazaga (mijozlar, buyurtmalar) to'liq kirish imkoni beriladi.
+# ---------------------------------------------------------------------
+serviceAccount.json
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+*.pem
+*.key
 
 __pycache__/
 *.py[cod]
@@ -15,6 +31,11 @@ env/
 .pytest_cache/
 
 .idea/
-.vscode/
 .DS_Store
 *.log
+
+# VS Code: shaxsiy sozlamalar e'tiborsiz, lekin umumiy ishga tushirish
+# konfiguratsiyasi (launch.json) repoda qoladi — jamoa bir xil ishlatsin.
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
