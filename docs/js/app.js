@@ -61,6 +61,9 @@
     delivery: null, // {method, address, summary}
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
     pay: {}, // karta rekvizitlari (/api/config dan)
+    // Zaxira rejim: server javob bermaydi, katalog Firebase'dan o'qilgan.
+    // Bu holatda faqat KO'RISH mumkin — buyurtma/navbat bloklanadi.
+    offline: false,
   };
 
   const fmt = (v) =>
@@ -585,12 +588,19 @@
     renderCars();
     if ($("sheet-cars")) closeSheet();
 
-    try {
-      await api("/api/me/car", { method: "POST", body: { car_id: car.id } });
+    // Zaxira rejimda tanlov serverga yozilmaydi — lekin ekranda ishlaydi,
+    // shunda mijoz mashinasiga mos tovarlarni ko'ra oladi.
+    if (S.offline) {
       if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
       $("car-chip-name").textContent = car.name;
-    } catch (err) {
-      onError(err);
+    } else {
+      try {
+        await api("/api/me/car", { method: "POST", body: { car_id: car.id } });
+        if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
+        $("car-chip-name").textContent = car.name;
+      } catch (err) {
+        onError(err);
+      }
     }
 
     if (S.page === "flow") {
@@ -788,6 +798,7 @@
   function submitConfig() {
     if (!S.car || !S.biled) return toast("Mashina va linzani tanlang");
     return withPhone(async () => {
+      if (S.offline) return offlineBlocked("Bi-LED buyurtmasi");
       const btn = $("flow-next");
       btn.disabled = true;
       btn.textContent = "Yuborilmoqda...";
@@ -833,6 +844,143 @@
   }
 
   /* ======================================================================
+     ZAXIRA (OFFLINE) REJIM
+
+     Render bepul tarifda uxlaydi yoki oylik kvota tugasa butunlay to'xtaydi.
+     Ilgari o'sha payt ilova "Server javob bermadi" ekranida qotib qolardi.
+
+     Endi katalog to'g'ridan-to'g'ri Firebase'dan o'qiladi (bot uni doim
+     ko'chirib turadi) — Avto_A1 dagi kabi: server o'chsa ham do'kon ishlaydi.
+
+     Nima ISHLAYDI: katalog, mahsulot kartochkasi va modali, qidirish,
+     savat, saqlanganlar (mahalliy), bannerlar, stories, mashinalar ro'yxati.
+     Nima ISHLAMAYDI: buyurtma, navbat, profil o'zgartirish — ular ombor
+     kamaytirish va adminga xabar berishni talab qiladi, ya'ni serversiz
+     bajarilsa ma'lumot buziladi. Ular bloklanadi va sabab aytiladi.
+     ====================================================================== */
+
+  const OFFLINE_KEY = "zimmer_offline_favorites";
+
+  /** Zaxira rejimga o'tishga harakat qiladi. true — muvaffaqiyatli. */
+  async function enterOfflineMode() {
+    if (!window.ZimmerOffline || !ZimmerOffline.available()) {
+      console.warn("[offline] FIREBASE_DB_URL sozlanmagan — zaxira rejim o'chiq.");
+      return false;
+    }
+    // Katalogni HOZIR o'qib ko'ramiz: o'qilmasa zaxira rejimning ma'nosi yo'q
+    // (bo'sh do'kon ko'rsatgandan ko'ra aniq xato yaxshiroq).
+    const probe = await ZimmerOffline.home();
+    if (!probe) return false;
+
+    S.offline = true;
+    S.home = probe; // ikkinchi marta so'ramaymiz — `loadHome()` shuni ishlatadi
+    console.warn("[offline] Server javob bermadi — katalog Firebase'dan o'qildi.");
+    scheduleServerRecheck();
+    return true;
+  }
+
+  /** `/api/config` javobining zaxirasi (config.js dagi qiymatlardan). */
+  function offlineConfig() {
+    const c = window.ZIMMER_CONFIG || {};
+    return {
+      currency: c.CURRENCY || "so'm",
+      pay_card_number: "",
+      pay_card_holder: "",
+      pay_admin_username: c.SHOP_TELEGRAM || "",
+      delivery_city: "Toshkent",
+    };
+  }
+
+  /** `/api/me` javobining zaxirasi — Telegram bergan ma'lumotdan.
+      DIQQAT: bu imzo TEKSHIRILMAGAN ma'lumot, faqat salomlashuv uchun
+      ishlatiladi. Hech qanday admin huquqi berilmaydi (`is_admin: false`). */
+  function offlineMe() {
+    const u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+    return {
+      id: u.id || 0,
+      first_name: u.first_name || "",
+      full_name: [u.first_name, u.last_name].filter(Boolean).join(" "),
+      phone: null,
+      car: null,
+      is_admin: false,
+    };
+  }
+
+  /** Saqlanganlar — zaxira rejimda faqat mahalliy xotirada. */
+  function localFavorites() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(OFFLINE_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveLocalFavorites() {
+    try {
+      localStorage.setItem(OFFLINE_KEY, JSON.stringify([...(S.favorites || [])]));
+    } catch (_) {}
+  }
+
+  /** Zaxira rejimda serverni talab qiladigan amal bosilganda. */
+  function offlineBlocked(what) {
+    const c = window.ZIMMER_CONFIG || {};
+    const lines = [
+      `${what} uchun server kerak, u hozir javob bermayapti.`,
+      "",
+      "Katalogni ko'rishda davom etishingiz mumkin — server tiklanganda",
+      "ilova o'zi to'liq rejimga o'tadi.",
+    ];
+    if (c.SHOP_TELEGRAM) lines.push("", `Telegram: @${c.SHOP_TELEGRAM}`);
+    if (c.SHOP_PHONE) lines.push(`Telefon: ${c.SHOP_PHONE}`);
+    openSheet("⏳ Server uyg'onmoqda", `<p class="step-sub">${esc(lines.join("\n"))}</p>`);
+    haptic("warning");
+  }
+
+  /** Yuqorida turadigan ogohlantiruv chizig'i. */
+  function renderOfflineBar() {
+    let bar = $("offline-bar");
+    if (!S.offline) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (bar) return;
+    bar = el(
+      "div",
+      "offline-bar",
+      "⏳ Server uyg'onmoqda — katalog ko'rish mumkin, buyurtma vaqtincha ishlamaydi"
+    );
+    bar.id = "offline-bar";
+    document.body.appendChild(bar);
+  }
+
+  /** Fonda serverni tekshirib turadi; tiklansa to'liq rejimga o'tadi.
+      Render "sovuq start" 30–60 soniya oladi, shuning uchun har 20 soniyada. */
+  function scheduleServerRecheck() {
+    if (S._recheck) return;
+    S._recheck = setInterval(async () => {
+      try {
+        const res = await fetch(API + "/health", { cache: "no-store" });
+        if (!res.ok) return;
+      } catch (_) {
+        return;
+      }
+      clearInterval(S._recheck);
+      S._recheck = null;
+      S.offline = false;
+      renderOfflineBar();
+      toast("✅ Server tiklandi — to'liq rejim");
+      try {
+        S.me = await api("/api/me");
+        S.home = null; // zaxira nusxa emas, serverdan yangisi olinsin
+        await loadHome();
+      } catch (_) {
+        // Tiklanish yarim qolsa — mijoz ilovani qayta ochsa to'liq yuklanadi
+      }
+    }, 20000);
+  }
+
+  /* ======================================================================
      ASOSIY MENYU
      ====================================================================== */
 
@@ -841,9 +989,23 @@
       $("products").innerHTML = '<div class="skel"></div><div class="skel"></div>';
     }
     try {
-      S.home = await api("/api/home");
-      S.favorites = new Set(S.home.favorite_ids || []);
+      if (S.offline) {
+        // Zaxira rejim: katalog Firebase'dan. Shakl `/api/home` bilan bir xil,
+        // shuning uchun pastdagi render kodi umuman o'zgarmaydi.
+        //
+        // `enterOfflineMode()` katalogni allaqachon o'qib qo'ygan (zaxira
+        // rejimga o'tish mumkinligini tekshirish uchun) — uni QAYTA
+        // SO'RAMAYMIZ, aks holda kirishda ikki marta tarmoqqa chiqilardi.
+        if (!S.home) S.home = await ZimmerOffline.home();
+        if (!S.home) throw { code: "offline", message: "Katalog o'qilmadi" };
+      } else {
+        S.home = await api("/api/home");
+      }
+      S.favorites = new Set(
+        S.offline ? localFavorites() : S.home.favorite_ids || []
+      );
       S.shopProducts = buildShopProducts(); // kategoriyasiz, random tartib
+      renderOfflineBar();
       renderStories();
       renderBanners();
       renderCatalog();
@@ -1305,6 +1467,15 @@
     }
     haptic(wasSaved ? "light" : "medium");
 
+    // Zaxira rejim: server yo'q — faqat mahalliy xotiraga yozamiz.
+    // Server tiklanganda mijoz yuraklarni qaytadan bosishi kerak bo'lmasin
+    // uchun ro'yxat localStorage'da saqlanadi.
+    if (S.offline) {
+      saveLocalFavorites();
+      toast(wasSaved ? "Saqlanganlardan olindi" : "Saqlanganlarga qo'shildi ❤️");
+      return;
+    }
+
     try {
       const res = await api("/api/favorites", {
         method: "POST",
@@ -1330,12 +1501,19 @@
     if (!box) return;
 
     let items = [];
-    try {
-      const res = await api("/api/favorites");
-      items = res.items || [];
-    } catch (err) {
-      onError(err);
-      return;
+    if (S.offline) {
+      // Zaxira rejim: saqlanganlarni mahalliy ro'yxat + Firebase katalogidan
+      // yig'amiz (server javob bermaydi).
+      const ids = new Set(localFavorites());
+      items = (S.shopProducts || []).filter((p) => ids.has(p.id));
+    } else {
+      try {
+        const res = await api("/api/favorites");
+        items = res.items || [];
+      } catch (err) {
+        onError(err);
+        return;
+      }
     }
 
     S.favorites = new Set(items.map((p) => p.id));
@@ -2065,6 +2243,10 @@
 
   /** Yakuniy qadam: buyurtmani serverga yuboradi. */
   function placeOrder(paymentLabel, openAdminChat) {
+    // Zaxira rejimda buyurtma qabul qilinmaydi: ombor kamaytirish va adminga
+    // xabar berish serverni talab qiladi. Serversiz "qabul qilindi" deb
+    // ko'rsatish — mijozni aldash bo'lardi (Avto_A1 dagi aynan shu muammo).
+    if (S.offline) return offlineBlocked("Buyurtma berish");
     if (!S.delivery) return toast("Yetkazib berish usulini tanlang");
     if (!S.cart.length) return toast("Savatcha bo'sh");
 
@@ -2147,6 +2329,20 @@
     }
     // "Saqlangan" endi alohida bo'lim — bu yerda faqat sonini ko'rsatamiz
     animateStat("pf-stat-saved", S.favorites ? S.favorites.size : 0);
+
+    // Zaxira rejim: buyurtma/navbat tarixi FAQAT serverda turadi, uni
+    // bulutdagi katalogdan tiklab bo'lmaydi. Bo'sh ro'yxat ko'rsatish
+    // "buyurtmalarim yo'qolgan" degan taassurot beradi — shuning uchun
+    // aniq sabab yoziladi.
+    if (S.offline) {
+      renderBiledOrders([]);
+      renderBookings([]);
+      renderOrders([]);
+      const note = $("pf-offline-note");
+      if (note) note.classList.remove("hidden");
+      return;
+    }
+
     try {
       const [biled, bookings, orders] = await Promise.all([
         api("/api/biled-orders"),
@@ -2362,6 +2558,9 @@
   }
 
   async function openBookingSheet() {
+    // Navbat bo'sh vaqtni serverdan hisoblashni talab qiladi (band slotlar
+    // bazada). Zaxira rejimda buni bajarish mumkin emas.
+    if (S.offline) return offlineBlocked("Navbat olish");
     haptic();
     BK.step = 1;
     BK.service = null;
@@ -2707,7 +2906,36 @@
     saveCart();
 
     try {
-      const [cfg, me] = await Promise.all([api("/api/config"), api("/api/me")]);
+      let cfg, me;
+      try {
+        [cfg, me] = await Promise.all([api("/api/config"), api("/api/me")]);
+      } catch (err) {
+        // ============================================================
+        //  ZAXIRA REJIM
+        //  Ilgari bu yerda darhol `gate(...)` chaqirilardi — Render
+        //  uxlagan yoki kvota tugagan payt ilova "Server javob bermadi"
+        //  ekranida QOTIB qolardi, ya'ni do'kon umuman ochilmasdi.
+        //
+        //  Endi katalogni to'g'ridan-to'g'ri Firebase'dan o'qishga
+        //  harakat qilamiz (bot uni doim ko'chirib turadi). Shunda
+        //  Avto_A1 dagi kabi: server o'chsa ham do'kon ko'rinadi.
+        //
+        //  Imzo xatosi (invalid_init_data) — boshqa masala: unda
+        //  zaxira ham yordam bermaydi, mijoz ilovani qayta ochishi kerak.
+        // ============================================================
+        if (err && err.code === "invalid_init_data") return onError(err);
+        if (!(await enterOfflineMode())) {
+          gate(
+            (err && err.message ? err.message : "Server javob bermadi") +
+              "\n\nServer: " +
+              (API || "ko'rsatilmagan")
+          );
+          return;
+        }
+        cfg = offlineConfig();
+        me = offlineMe();
+      }
+
       S.currency = cfg.currency || "so'm";
       S.pay = {
         card: cfg.pay_card_number || "",
@@ -2743,7 +2971,7 @@
 
     // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
     // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
-    carsReady = api("/api/cars")
+    carsReady = (S.offline ? ZimmerOffline.cars() : api("/api/cars"))
       .then((list) => {
         S.cars = list || [];
         if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
