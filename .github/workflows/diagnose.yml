@@ -41,12 +41,15 @@ jobs:
           db=$(grep -oP 'FIREBASE_DB_URL:\s*"\K[^"]+' docs/config.js || echo "")
           root=$(grep -oP 'FIREBASE_ROOT:\s*"\K[^"]+' docs/config.js || echo "zimmer")
           api=$(grep -oP 'API_BASE:\s*"\K[^"]+' docs/config.js || echo "")
-          echo "db=$db"     >> "$GITHUB_OUTPUT"
-          echo "root=$root" >> "$GITHUB_OUTPUT"
-          echo "api=$api"   >> "$GITHUB_OUTPUT"
+          worker=$(grep -oP 'WORKER_URL:\s*"\K[^"]*' docs/config.js || echo "")
+          echo "db=$db"         >> "$GITHUB_OUTPUT"
+          echo "root=$root"     >> "$GITHUB_OUTPUT"
+          echo "api=$api"       >> "$GITHUB_OUTPUT"
+          echo "worker=$worker" >> "$GITHUB_OUTPUT"
           echo "Firebase: ${db:-(yo'q)}"
           echo "Root:     $root"
           echo "API:      ${api:-(yo'q)}"
+          echo "Worker:   ${worker:-(sozlanmagan)}"
 
       - name: 1) Render (bot API)
         run: |
@@ -104,7 +107,37 @@ jobs:
             *)   echo "::warning title=Firebase kutilmagan javob::$code" ;;
           esac
 
-      - name: 3) GitHub Pages — ilova fayllari
+      - name: 3) Cloudflare Worker — Render'siz buyurtma qabul qilish
+        run: |
+          set -uo pipefail
+          W="${{ steps.cfg.outputs.worker }}"
+          if [ -z "$W" ]; then
+            echo "::warning title=Worker sozlanmagan::docs/config.js da WORKER_URL bo'sh. Render o'chganda katalog KO'RINADI, lekin buyurtma qabul qilinmaydi va file_id rasmlar chiqmaydi. Sozlash: WORKER_SETUP.md"
+            exit 0
+          fi
+
+          code=$(curl -sS -o /tmp/w.json -L -w '%{http_code}' --max-time 30 "${W%/}/health" || echo 000)
+          echo "GET ${W%/}/health -> $code"
+          head -c 400 /tmp/w.json || true; echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error title=Worker javob bermadi::$code. Manzilni va Cloudflare'da deploy qilinganini tekshiring."
+            exit 0
+          fi
+
+          # Sozlamalar to'liqligini alohida skript tekshiradi.
+          # DIQQAT: bu yerda `python3 -c "..."` ham, heredoc ham ISHLATILMAYDI —
+          # YAML blok skalyari + bash + Python qo'shtirnoqlari birga kelganda
+          # escape qilish xatoga juda moyil (heredoc esa YAML'ni buzadi).
+          miss=$(python3 scripts/check_worker_health.py /tmp/w.json || true)
+
+          if [ -n "$miss" ]; then
+            echo "::error title=Worker sozlamalari to'liq emas::Kiritilmagan: $miss — Cloudflare -> Worker -> Settings -> Variables and Secrets"
+          else
+            echo "✅ Worker ISHLAYAPTI va to'liq sozlangan — Render o'chsa ham buyurtma qabul qilinadi."
+          fi
+
+      - name: 4) GitHub Pages — ilova fayllari
         run: |
           set -uo pipefail
           BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
