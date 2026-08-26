@@ -207,9 +207,22 @@ async function handleMe(request, env) {
         profile.name || [user.first_name, user.last_name].filter(Boolean).join(" ") || "Mijoz",
       phone: profile.phone || null,
       car: profile.carId ? { id: profile.carId, name: profile.carName || "" } : null,
-      // Admin huquqi Worker orqali BERILMAYDI — admin panel serverni talab
-      // qiladi va u imzoni qayta tekshiradi.
-      is_admin: false,
+      // ADMINNI TANIB OLAMIZ — va bu XAVFSIZ.
+      //
+      // `uid` yuqorida `verifyInitData` orqali Telegram HMAC IMZOSI bilan
+      // tasdiqlangan, ya'ni uni soxtalashtirish mumkin emas. `ADMIN_IDS`
+      // esa Worker'ning o'zida (env), brauzerda emas.
+      //
+      // Avto_A1 da bu boshqacha: `ADMIN_IDS` BRAUZERDA yozilgan va
+      // `isAdmin()` `window.currentUser` ni solishtiradi — u esa
+      // `localStorage` dan olinadi, ya'ni istalgan odam o'zini admin
+      // qilib ko'rsatishi mumkin. Bizdagi usul shundan xavfsizroq.
+      //
+      // Bu belgi FAQAT «Boshqaruv» tugmasini ko'rsatish uchun. Haqiqiy
+      // admin amallari Render'dagi `/api/admin/*` ga boradi va u imzoni
+      // QAYTA tekshiradi — ya'ni bu yerda xato bo'lsa ham ma'lumot
+      // oshkor bo'lmaydi.
+      is_admin: c.admins.includes(uid),
     },
     orders,
   });

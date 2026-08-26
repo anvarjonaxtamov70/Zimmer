@@ -399,6 +399,14 @@
     }
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
+    // Boshqaruv paneli Render'dagi `/api/admin/*` ni talab qiladi. Zaxira
+    // rejimda uni ochsak har bir so'rov xato beradi — shuning uchun sababni
+    // ochiq aytamiz. Admin BARIBIR tanilgan bo'ladi (tugma ko'rinadi),
+    // faqat panel ishlamaydi.
+    if (page === "admin" && S.offline) {
+      offlineBlocked("Boshqaruv paneli");
+      return;
+    }
     if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
     window.scrollTo({ top: 0 });
