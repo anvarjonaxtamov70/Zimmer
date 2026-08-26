@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=29">
+  <link rel="stylesheet" href="styles.css?v=30">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -31,13 +31,20 @@
   </div>
 </section>
 
-<!-- ==================== RO'YXATDAN O'TMAGAN ==================== -->
+<!-- ==================== TO'SIQ EKRANI (oxirgi chora) ====================
+     DIQQAT: sarlavha ilgari QATTIQ «Ro'yxatdan o'tish kerak» deb yozilgan edi
+     va `gate()` faqat pastdagi matnni o'zgartirardi. Natijada server o'chganda
+     ham mijoz «Ro'yxatdan o'tish kerak» degan YOLG'ON xabarni ko'rardi —
+     vaholanki u allaqachon ro'yxatda edi.
+
+     Endi sarlavha ham `gate()` orqali o'rnatiladi va bu ekran faqat HAQIQATAN
+     iloji yo'q holatda (Telegram tashqarisida ochilganda) chiqadi. -->
 <section id="gate" class="gate hidden">
-  <div class="gate-icon">🔐</div>
-  <h2>Ro'yxatdan o'tish kerak</h2>
-  <p id="gate-text">Ilovadan foydalanish uchun botda ism va telefon raqamingizni qoldiring.</p>
+  <div class="gate-icon" id="gate-icon">⏳</div>
+  <h2 id="gate-title">Bir lahza…</h2>
+  <p id="gate-text">Ma'lumotlar yuklanmoqda.</p>
   <button class="btn btn-primary" id="gate-close">Botga qaytish</button>
-  <button class="btn btn-ghost" id="gate-retry">Qayta tekshirish</button>
+  <button class="btn btn-ghost" id="gate-retry">Qayta urinish</button>
 </section>
 
 <!-- ==================== KONFIGURATOR ==================== -->
@@ -412,16 +419,16 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=29"></script>
+<script src="config.js?v=30"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<script src="js/offline.js?v=29"></script>
-<script src="js/headlight.js?v=29"></script>
-<script src="js/cars.js?v=29"></script>
+<script src="js/offline.js?v=30"></script>
+<script src="js/headlight.js?v=30"></script>
+<script src="js/cars.js?v=30"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=29"></script>
+<script src="js/bts.js?v=30"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=29"></script>
-<script src="js/app.js?v=29"></script>
+<script src="js/admin.js?v=30"></script>
+<script src="js/app.js?v=30"></script>
 </body>
 </html>

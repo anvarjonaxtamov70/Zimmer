@@ -29,71 +29,96 @@ def is_storage_enabled() -> bool:
     return bool(STORAGE_BUCKET) and firebase.is_enabled()
 
 
-async def upload_telegram_photo(bot: Bot, file_id: str, product_id: int, index: int = 0) -> Optional[str]:
-    """Telegram rasmni Firebase Storage'ga yuklaydi va doimiy URL qaytaradi.
-    
+async def upload_telegram_file(
+    bot: Bot,
+    file_id: str,
+    storage_path: str,
+    *,
+    content_type: str = "image/jpeg",
+    max_bytes: int = 20 * 1024 * 1024,
+) -> Optional[str]:
+    """Telegram faylini Firebase Storage'ga ko'chiradi va DOIMIY URL qaytaradi.
+
+    NEGA BU MUHIM
+    Telegram `file_id` ni faqat bot tokeni bilan ochish mumkin, ya'ni uni
+    ilovaga ko'rsatish uchun Render'dagi `/api/media/...` proksisi kerak.
+    Render o'chsa — barcha rasm va videolar yo'qoladi. Firebase Storage
+    URL'i esa to'g'ridan-to'g'ri brauzerda ochiladi, shuning uchun
+    Mini App'ning zaxira rejimi ham normal ko'rinadi.
+
     Args:
-        bot: Aiogram Bot instance
-        file_id: Telegram file_id
-        product_id: Mahsulot ID (fayl nomi uchun)
-        index: Rasm tartib raqami (0, 1, 2...)
-    
+        storage_path: Storage ichidagi yo'l, masalan "stories/12/photo.jpg"
+        content_type: "image/jpeg" yoki "video/mp4"
+        max_bytes: bundan katta fayl ko'chirilmaydi
+
     Returns:
-        Firebase Storage URL yoki Telegram file_id (agar Storage o'chiq bo'lsa)
+        Firebase Storage URL, yoki muvaffaqiyatsizlikda `file_id` (chaqiruvchi
+        eski usulda ishlashda davom etadi — hech narsa buzilmaydi).
     """
     if not is_storage_enabled():
         logger.debug("Firebase Storage o'chiq — file_id qaytarilmoqda")
         return file_id
-    
+
     try:
         # 1. Telegram'dan file path olish
         file_info = await bot.get_file(file_id)
         if not file_info or not file_info.file_path:
-            logger.error(f"Telegram file info olinmadi: {file_id}")
+            logger.error("Telegram file info olinmadi: %s", file_id)
             return file_id
-        
-        file_path = file_info.file_path
-        
-        # 2. Telegram file URL
-        token = config.bot_token
-        download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
-        
-        # 3. Faylni yuklab olish (timeout bilan)
-        timeout = aiohttp.ClientTimeout(total=30)
+
+        # 2. Faylni yuklab olish (timeout bilan)
+        download_url = (
+            f"https://api.telegram.org/file/bot{config.bot_token}/{file_info.file_path}"
+        )
+        timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(download_url) as response:
                 if response.status != 200:
-                    logger.error(f"Telegram file yuklash xatosi: {response.status}")
+                    logger.error("Telegram file yuklash xatosi: %s", response.status)
                     return file_id
-                
-                file_data = await response.read()
-                
-                # Rasm hajmini tekshirish (max 10MB)
-                if len(file_data) > 10 * 1024 * 1024:
-                    logger.error(f"Rasm hajmi juda katta: {len(file_data)} bytes")
-                    return file_id
-        
-        # 4. Firebase Storage'ga yuklash
-        # Fayl nomi: products/{product_id}/image_{index}.jpg
-        file_name = f"products/{product_id}/image_{index}.jpg"
-        storage_url = await _upload_to_storage(file_data, file_name)
-        
-        if storage_url:
-            logger.info(f"Rasm Firebase'ga yuklandi: {file_name}")
-            return storage_url
-        else:
-            logger.error("Firebase Storage'ga yuklash xatosi — file_id qaytarilmoqda")
+                data = await response.read()
+
+        if len(data) > max_bytes:
+            logger.error(
+                "Fayl juda katta (%s bayt > %s) — Storage'ga ko'chirilmadi",
+                len(data),
+                max_bytes,
+            )
             return file_id
-    
+
+        # 3. Firebase Storage'ga yuklash
+        url = await _upload_to_storage(data, storage_path, content_type=content_type)
+        if url:
+            logger.info("Fayl Firebase Storage'ga ko'chirildi: %s", storage_path)
+            return url
+
+        logger.error("Firebase Storage'ga yuklanmadi (%s) — file_id qaytarilmoqda", storage_path)
+        return file_id
+
     except asyncio.TimeoutError:
-        logger.error(f"Rasmni yuklashda timeout: {file_id}")
+        logger.error("Storage'ga ko'chirishda timeout: %s", file_id)
         return file_id
     except Exception as e:
-        logger.error(f"Rasmni Firebase'ga yuklashda xato: {e}", exc_info=True)
+        logger.error("Storage'ga ko'chirishda xato: %s", e, exc_info=True)
         return file_id
 
 
-async def _upload_to_storage(file_data: bytes, file_name: str) -> Optional[str]:
+async def upload_telegram_photo(
+    bot: Bot, file_id: str, product_id: int, index: int = 0
+) -> Optional[str]:
+    """Mahsulot rasmi uchun qisqartma (eski nom — moslik uchun saqlangan)."""
+    return await upload_telegram_file(
+        bot,
+        file_id,
+        f"products/{product_id}/image_{index}.jpg",
+        content_type="image/jpeg",
+        max_bytes=10 * 1024 * 1024,
+    )
+
+
+async def _upload_to_storage(
+    file_data: bytes, file_name: str, *, content_type: str = "image/jpeg"
+) -> Optional[str]:
     """Firebase Storage REST API orqali faylni yuklaydi.
     
     Firebase Storage REST API:
@@ -117,11 +142,11 @@ async def _upload_to_storage(file_data: bytes, file_name: str) -> Optional[str]:
             f"?name={file_name}&access_token={token}"
         )
         
-        headers = {
-            "Content-Type": "image/jpeg",
-        }
-        
-        async with aiohttp.ClientSession() as session:
+        headers = {"Content-Type": content_type}
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=120)
+        ) as session:
             async with session.post(upload_url, data=file_data, headers=headers) as response:
                 if response.status not in (200, 201):
                     error_text = await response.text()

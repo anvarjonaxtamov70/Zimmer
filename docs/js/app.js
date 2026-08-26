@@ -394,8 +394,21 @@
     if (S.page !== "home") return show("home");
   }
 
-  function gate(text) {
+  /** To'siq ekrani — OXIRGI CHORA.
+   *
+   *  Ilgari HTML'da sarlavha qattiq «Ro'yxatdan o'tish kerak» deb yozilgan
+   *  edi va bu funksiya faqat pastdagi matnni almashtirardi. Shuning uchun
+   *  server o'chganda ham mijoz «Ro'yxatdan o'tish kerak» degan YOLG'ON
+   *  xabarni ko'rardi — u allaqachon ro'yxatdan o'tgan bo'lsa ham.
+   *
+   *  Endi sarlavha va belgi ham shu yerdan beriladi.
+   */
+  function gate(text, title, icon) {
     if (text) $("gate-text").textContent = text;
+    const t = $("gate-title");
+    if (t) t.textContent = title || "Ulanish yo'q";
+    const ic = $("gate-icon");
+    if (ic) ic.textContent = icon || "⏳";
     $("splash").classList.add("hidden");
     show("gate");
     $("nav").classList.add("hidden");
@@ -945,10 +958,14 @@
       return;
     }
     if (bar) return;
+    // Kesh nusxasi eskirgan bo'lishi mumkin — mijozga rostini aytamiz.
+    const stale = S.home && S.home._cached;
     bar = el(
       "div",
       "offline-bar",
-      "⏳ Server uyg'onmoqda — katalog ko'rish mumkin, buyurtma vaqtincha ishlamaydi"
+      stale
+        ? "⏳ Server uyg'onmoqda — saqlangan katalog ko'rsatilyapti, narxlar o'zgargan bo'lishi mumkin"
+        : "⏳ Server uyg'onmoqda — katalog ko'rish mumkin, buyurtma vaqtincha ishlamaydi"
     );
     bar.id = "offline-bar";
     document.body.appendChild(bar);
@@ -1004,6 +1021,11 @@
       S.favorites = new Set(
         S.offline ? localFavorites() : S.home.favorite_ids || []
       );
+      // Katalogni keshlaymiz — bu 3-QATLAM zaxira. Server ham, Firebase ham
+      // javob bermasa, BIR MARTA kirgan mijoz baribir do'konni ko'radi va
+      // to'siq ekraniga TUSHMAYDI.
+      if (window.ZimmerOffline) ZimmerOffline.save(S.home);
+
       S.shopProducts = buildShopProducts(); // kategoriyasiz, random tartib
       renderOfflineBar();
       renderStories();
@@ -2897,8 +2919,13 @@
     }
 
     if (!tg || !tg.initData) {
+      // Bu «ro'yxatdan o'tish» emas: Telegram Mini App faqat Telegram ichida
+      // ishlaydi (haptic, BackButton, safe-area — hammasi shundan keladi).
       gate(
-        "Do'konni Telegram ichidan oching — botga /start yuborib «🛍 Do'konni ochish» tugmasini bosing."
+        "Do'kon Telegram ilovasi ichida ochiladi.\n\n" +
+          "Botga /start yuboring va «🛍 Do'konni ochish» tugmasini bosing.",
+        "Telegram ichidan oching",
+        "📱"
       );
       return;
     }
@@ -2925,10 +2952,14 @@
         // ============================================================
         if (err && err.code === "invalid_init_data") return onError(err);
         if (!(await enterOfflineMode())) {
+          // Na server, na Firebase, na kesh — birinchi kirish va internet yo'q.
+          // Bu «ro'yxatdan o'tish» muammosi EMAS, shuning uchun matn ham
+          // boshqacha (ilgari sarlavha yolg'on gapirardi).
           gate(
-            (err && err.message ? err.message : "Server javob bermadi") +
-              "\n\nServer: " +
-              (API || "ko'rsatilmagan")
+            "Do'kon ma'lumotlari yuklanmadi.\n\n" +
+              "Internetni tekshirib, «Qayta urinish» tugmasini bosing.",
+            "Ulanish yo'q",
+            "📡"
           );
           return;
         }
@@ -2974,6 +3005,9 @@
     carsReady = (S.offline ? ZimmerOffline.cars() : api("/api/cars"))
       .then((list) => {
         S.cars = list || [];
+        // Serverdan kelgan ro'yxatni keshlaymiz — keyingi safar server
+        // o'chgan bo'lsa konfigurator baribir ishlaydi.
+        if (!S.offline && window.ZimmerOffline) ZimmerOffline.saveCars(S.cars);
         if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
       })
       .catch(() => {});
@@ -2985,12 +3019,25 @@
     // orqali `loadHome()` → `renderCatalog()` da yuklanadi — yagona manba.
     } catch (err) {
       if (err && err.code === "invalid_init_data") return onError(err);
-      gate(
-        (err && err.message ? err.message : "Server javob bermadi") +
-          "\n\nServer: " +
-          (API || "ko'rsatilmagan")
-      );
-      return;
+      // Kutilmagan xato. Kesh bo'lsa — to'siq ko'rsatmaymiz, do'konni
+      // keshdan ochamiz: bir marta kirgan mijoz doim kira olishi kerak.
+      if (window.ZimmerOffline && ZimmerOffline.hasCache()) {
+        console.error("[boot] kutilmagan xato — keshdan ochilyapti:", err);
+        S.offline = true;
+        S.home = ZimmerOffline.cached();
+        S.currency = offlineConfig().currency;
+        S.pay = { card: "", holder: "", admin: "", city: "Toshkent" };
+        S.me = offlineMe();
+        scheduleServerRecheck();
+      } else {
+        gate(
+          "Do'kon ma'lumotlari yuklanmadi.\n\n" +
+            "Internetni tekshirib, «Qayta urinish» tugmasini bosing.",
+          "Ulanish yo'q",
+          "📡"
+        );
+        return;
+      }
     }
 
     // Tugma yo'q: mijoz salomlashuvni ko'radi va bosh menyu O'ZI ochiladi.

@@ -38,6 +38,7 @@ from api.media import media_url
 from config import config, is_admin
 from database import queries as q
 from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
+from services import firebase_storage as fb_storage
 from services import orders, sync
 from utils.helpers import PERIODS, fmt_price, period_start, today_iso
 
@@ -619,7 +620,36 @@ async def section_media_upload(request: web.Request) -> web.Response:
         ) from error
 
     await q.admin_update(entity.table, row_id, f"{kind}_id", file_id)
-    await q.admin_update(entity.table, row_id, f"{kind}_url", None)
+
+    # ------------------------------------------------------------------
+    #  Faylni Firebase Storage'ga ham ko'chiramiz — DOIMIY URL olish uchun.
+    #
+    #  Ilgari bu yerda `{kind}_url` MAJBURAN None qilinardi, ya'ni yagona
+    #  manba Telegram `file_id` bo'lib qolardi. `file_id` ni esa faqat bot
+    #  tokeni bilan ochish mumkin — demak rasm ko'rinishi Render'dagi
+    #  `/api/media/...` proksisiga bog'liq edi. Render o'chsa, ilovada
+    #  BARCHA rasmlar yo'qolardi.
+    #
+    #  Storage URL'i brauzerda to'g'ridan-to'g'ri ochiladi, shuning uchun
+    #  Mini App'ning zaxira rejimi ham to'liq ko'rinadi. Storage sozlanmagan
+    #  bo'lsa — eski xatti-harakat saqlanadi (url = None).
+    # ------------------------------------------------------------------
+    storage_url = None
+    if fb_storage.is_storage_enabled():
+        ext = "mp4" if kind == "video" else "jpg"
+        candidate = await fb_storage.upload_telegram_file(
+            bot,
+            file_id,
+            f"{entity.table}/{row_id}/{kind}.{ext}",
+            content_type="video/mp4" if kind == "video" else "image/jpeg",
+            max_bytes=limit,
+        )
+        # Muvaffaqiyatsizlikda funksiya file_id ni qaytaradi — uni URL deb
+        # yozib qo'ymaymiz, aks holda rasm butunlay ochilmasdi.
+        if candidate and str(candidate).startswith("http"):
+            storage_url = candidate
+
+    await q.admin_update(entity.table, row_id, f"{kind}_url", storage_url)
     await sync.push_catalog(entity.table, row_id)
 
     row = await q.admin_get(entity.table, row_id)
