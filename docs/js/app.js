@@ -280,13 +280,19 @@
       btn.disabled = true;
       btn.textContent = "Saqlanmoqda...";
       try {
-        const res = await api("/api/register", {
-          method: "POST",
-          body: { full_name: fullName, phone: value },
-        });
+        // Zaxira rejimda profil Worker orqali Firebase'ga yoziladi.
+        // Bot ko'tarilganda `sync.restore_users()` uni SQLite ga tiklaydi —
+        // ya'ni Render o'chgan paytda ro'yxatdan o'tgan mijoz YO'QOLMAYDI.
+        const res = S.offline
+          ? await saveProfileOffline(fullName, value)
+          : await api("/api/register", {
+              method: "POST",
+              body: { full_name: fullName, phone: value },
+            });
         S.me.full_name = res.full_name;
         S.me.phone = res.phone;
         S.me.needs_phone = false;
+        if (S.offline) saveMe(S.me);
         haptic("ok");
         closeSheet();
         toast("Rahmat! Ma'lumotlar saqlandi ✅");
@@ -298,6 +304,24 @@
         btn.disabled = false;
         btn.textContent = "Saqlash va davom etish";
       }
+    };
+  }
+
+  /** Zaxira rejimda profilni Worker orqali saqlaydi.
+      `/api/register` javobining shakliga moslab qaytaradi. */
+  async function saveProfileOffline(fullName, phone) {
+    if (!window.ZimmerOffline || !ZimmerOffline.workerReady()) {
+      throw { code: "no_worker", message: "Server javob bermayapti — keyinroq urinib ko'ring" };
+    }
+    const res = await ZimmerOffline.saveProfile({
+      full_name: fullName,
+      phone: phone,
+      car_id: S.me && S.me.car ? S.me.car.id : null,
+      car_name: S.me && S.me.car ? S.me.car.name : null,
+    });
+    return {
+      full_name: (res.profile && res.profile.name) || fullName,
+      phone: (res.profile && res.profile.phone) || phone,
     };
   }
 
@@ -937,6 +961,28 @@
     } catch (_) {
       return null;
     }
+  }
+
+  /** Zaxira rejimda mijozni Worker orqali TANIB olamiz.
+   *
+   *  Bu `offlineMe()` dan kuchliroq: Worker `initData` imzosini tekshirib,
+   *  Firebase'dagi HAQIQIY profilni (ism, telefon, mashina) va buyurtma
+   *  tarixini qaytaradi. Ya'ni mijoz boshqa telefondan kirsa ham tanilaadi
+   *  — localStorage keshi esa faqat shu qurilmada ishlaydi.
+   */
+  async function offlineMeFromWorker() {
+    if (!window.ZimmerOffline || !ZimmerOffline.workerReady()) return null;
+    try {
+      const res = await ZimmerOffline.me();
+      if (res && res.me) {
+        S.offlineOrders = res.orders || [];
+        saveMe(res.me); // keyingi safar tarmoqsiz ham tanilsin
+        return res.me;
+      }
+    } catch (err) {
+      console.warn("[offline] /me olinmadi:", err && err.message);
+    }
+    return null;
   }
 
   function offlineMe() {
@@ -2337,12 +2383,19 @@
 
   /** Yakuniy qadam: buyurtmani serverga yuboradi. */
   function placeOrder(paymentLabel, openAdminChat) {
-    // Zaxira rejimda buyurtma qabul qilinmaydi: ombor kamaytirish va adminga
-    // xabar berish serverni talab qiladi. Serversiz "qabul qilindi" deb
-    // ko'rsatish — mijozni aldash bo'lardi (Avto_A1 dagi aynan shu muammo).
-    if (S.offline) return offlineBlocked("Buyurtma berish");
     if (!S.delivery) return toast("Yetkazib berish usulini tanlang");
     if (!S.cart.length) return toast("Savatcha bo'sh");
+
+    // ZAXIRA REJIM: Render o'chgan bo'lsa buyurtma Cloudflare Worker orqali
+    // qabul qilinadi. Worker uxlamaydi, summani KATALOGDAN o'zi hisoblaydi
+    // va adminga Telegram xabarini yuboradi. Ya'ni Avto_A1 dagi kabi —
+    // bot ishlamasa ham buyurtma keladi.
+    if (S.offline) {
+      if (!window.ZimmerOffline || !ZimmerOffline.workerReady()) {
+        return offlineBlocked("Buyurtma berish");
+      }
+      return placeOrderViaWorker(paymentLabel, openAdminChat);
+    }
 
     return withPhone(async () => {
       const btn = $("pay-done"); // naqdda bu tugma bo'lmaydi
@@ -2429,9 +2482,11 @@
     // "buyurtmalarim yo'qolgan" degan taassurot beradi — shuning uchun
     // aniq sabab yoziladi.
     if (S.offline) {
+      // Do'kon buyurtmalari Worker'dan keladi (Firebase'da saqlangan).
+      // Bi-LED va navbat esa faqat serverda — ular uchun izoh ko'rsatiladi.
       renderBiledOrders([]);
       renderBookings([]);
-      renderOrders([]);
+      renderOrders(offlineOrdersForView());
       const note = $("pf-offline-note");
       if (note) note.classList.remove("hidden");
       return;
@@ -2505,6 +2560,28 @@
       }
       box.append(card);
     });
+  }
+
+  /** Worker'dan kelgan buyurtmalarni `renderOrders` kutgan shaklga keltiradi.
+      Worker'da raqamli `id` yo'q (SQLite bermaydi) — o'rniga `ZM-XXXXXX` kod
+      ishlatiladi va bot buyurtmani bazaga ko'chirganda raqam beriladi. */
+  function offlineOrdersForView() {
+    const STATUS = {
+      new: "Yangi",
+      accepted: "Qabul qilindi",
+      shipped: "Yo'lda",
+      done: "Yetkazildi",
+      cancelled: "Bekor qilingan",
+    };
+    return (S.offlineOrders || []).map((o) => ({
+      id: o.code || "—",
+      total_label: o.total_label || fmt(o.total),
+      status: o.status || "new",
+      status_label: STATUS[o.status] || "Yangi",
+      items: (o.items || []).map((i) => ({ name: i.name, qty: i.qty })),
+      delivery_info: o.delivery_info || "",
+      payment_method: o.payment_method || "",
+    }));
   }
 
   function renderOrders(list) {
@@ -3038,7 +3115,9 @@
         S.offline = true;
         scheduleServerRecheck();
         cfg = offlineConfig();
-        me = offlineMe();
+        // Avval Worker'dan so'raymiz (haqiqiy profil + buyurtma tarixi),
+        // bo'lmasa mahalliy keshdan.
+        me = (await offlineMeFromWorker()) || offlineMe();
       }
 
       S.currency = cfg.currency || "so'm";
@@ -3888,6 +3967,107 @@
       closeProductModal();
       modalQuantity = 1;
     }, 800);
+  }
+
+  /** Zaxira rejimda buyurtma — Cloudflare Worker orqali.
+   *
+   *  Worker: imzoni tekshiradi -> katalogdan HAQIQIY narxni oladi ->
+   *  summani o'zi hisoblaydi -> qoldiqni tekshiradi -> Firebase'ga yozadi ->
+   *  qoldiqni atomik kamaytiradi -> adminga va mijozga xabar yuboradi.
+   *
+   *  Bizdan yuborilgan narx/summa Worker tomonida UMUMAN O'QILMAYDI, ya'ni
+   *  brauzerdan soxta summa yuborish imkonsiz.
+   */
+  function placeOrderViaWorker(paymentLabel, openAdminChat) {
+    return withPhone(async () => {
+      const btn = $("pay-done");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Yuborilmoqda...";
+      }
+
+      // Idempotent kalit: ikki marta bosilsa Worker BITTA buyurtma yaratadi.
+      // Savat tarkibiga bog'lab yasaymiz, shunda savat o'zgarsa kalit ham
+      // o'zgaradi va yangi buyurtma bo'ladi.
+      const key = orderKey();
+
+      try {
+        const res = await ZimmerOffline.createOrder({
+          items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
+          address: S.delivery.address,
+          phone: (S.me && S.me.phone) || "",
+          full_name: (S.me && S.me.full_name) || "",
+          delivery_method: S.delivery.method,
+          delivery_info: S.delivery.summary,
+          payment_method: paymentLabel,
+          client_key: key,
+        });
+
+        S.cart = [];
+        saveCart();
+        renderCart();
+        S.delivery = null;
+        S.dlvMethod = null;
+        haptic("ok");
+        closeSheet();
+        burst();
+
+        const code = (res.order && res.order.code) || "";
+        toast(`✅ Buyurtma ${code} qabul qilindi`, 3600);
+
+        // Yangi buyurtmani darhol tarixga qo'shamiz (Worker'ni qayta
+        // so'ramasdan) — mijoz uni profilda ko'radi.
+        S.offlineOrders = [
+          {
+            code,
+            total: res.order.total,
+            total_label: res.order.total_label,
+            status: "new",
+            address: (S.me && S.me.address) || "",
+            items: [],
+            createdAt: Date.now(),
+          },
+          ...(S.offlineOrders || []),
+        ];
+
+        if (!res.notified) {
+          // Adminga xabar ketmagan bo'lsa — mijozga ROSTINI aytamiz.
+          // Avto_A1 da bu holat jimgina yutilardi va buyurtma "yo'qolardi".
+          toast("⚠️ Buyurtma saqlandi, lekin adminga xabar ketmadi", 5000);
+        }
+
+        show("profile");
+        if (openAdminChat && S.pay && S.pay.admin) {
+          try {
+            tg.openTelegramLink("https://t.me/" + S.pay.admin);
+          } catch (_) {}
+        }
+      } catch (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "✓ To'ladim";
+        }
+        // Qoldiq yetmasa Worker `problems` qaytaradi — aniq aytamiz
+        if (err && err.problems && err.problems.length) {
+          const names = err.problems.map((p) => p.name || "#" + p.product_id).join(", ");
+          toast(`❌ Yetarli emas: ${names}`, 5000);
+          return;
+        }
+        toast(`❌ ${(err && err.message) || "Buyurtma yuborilmadi"}`, 5000);
+      }
+    });
+  }
+
+  /** Savat tarkibidan idempotent kalit — bir xil savat = bir xil kalit. */
+  function orderKey() {
+    const parts = S.cart
+      .map((i) => `${i.id}x${i.qty}`)
+      .sort()
+      .join("|");
+    let hash = 5381;
+    const text = parts + "|" + (S.delivery ? S.delivery.address : "");
+    for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+    return "k" + hash.toString(36);
   }
 
   /** Modaldagi yurak — ASOSIY `toggleFavorite` ga topshiriladi, ya'ni holat

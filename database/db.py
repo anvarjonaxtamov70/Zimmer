@@ -565,6 +565,10 @@ MEDIA_COLUMNS = [
 # mumkin bo'lsin.
 MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "users": [("car_id", "INTEGER")],
+    # Cloudflare Worker qabul qilgan buyurtmalar (Render o'chgan paytda
+    # berilgan) `external_code` bilan belgilanadi — masalan "ZM-K7AMHB".
+    # Bot ularni bazaga ko'chirganda shu kod yoziladi va IKKINCHI MARTA
+    # ko'chirilmasligi shu kod bo'yicha tekshiriladi.
     # DIQQAT: bu lug'atda har bir jadval FAQAT BIR MARTA bo'lishi kerak.
     # Kalit takrorlansa, Python oxirgisini oladi va oldingi migratsiyalar
     # jimgina yo'qoladi (masalan `sort` ustuni yaratilmay qoladi).
@@ -591,6 +595,11 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("delivery_method", "TEXT"),
         ("delivery_info", "TEXT"),
         ("payment_method", "TEXT"),
+        # Cloudflare Worker qabul qilgan buyurtmalar (Render o'chgan paytda
+        # berilgan) `ZM-XXXXXX` kodi bilan belgilanadi. Bot ularni bazaga
+        # ko'chirganda shu kod yoziladi — takroriy ko'chirish shu bo'yicha
+        # to'xtatiladi (`idx_orders_external_code` yagona indeksi bilan).
+        ("external_code", "TEXT"),
     ],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
@@ -699,6 +708,13 @@ async def _migrate() -> None:
     await db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_external"
         " ON products(external_id) WHERE external_id IS NOT NULL"
+    )
+    # Worker buyurtmasi IKKI MARTA ko'chirilmasligi uchun. Yagona indeks
+    # bo'lgani uchun takroriy INSERT bazaning o'zida to'xtatiladi — ya'ni
+    # bir vaqtda ikki import ishlasa ham dublikat paydo bo'lmaydi.
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_external_code"
+        " ON orders(external_code) WHERE external_code IS NOT NULL"
     )
     await db.commit()
 

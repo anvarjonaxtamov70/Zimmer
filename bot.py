@@ -131,8 +131,11 @@ async def main() -> None:
                 "fonda qayta urinib ko'riladi (SERVICE_ACCOUNT_JSON'ni tekshiring)."
             )
         background.append(asyncio.create_task(firebase.token_refresher()))
-        background.append(asyncio.create_task(sync.sync_when_ready()))
+        background.append(asyncio.create_task(sync.sync_when_ready(bot)))
         background.append(asyncio.create_task(sync.retry_worker()))
+        # Cloudflare Worker qabul qilgan buyurtmalarni bazaga ko'chirib turadi
+        # (Render o'chgan paytda Mini App shu yo'l bilan buyurtma oladi).
+        background.append(asyncio.create_task(sync.pending_orders_worker(bot)))
     else:
         logger.warning(
             "FIREBASE_DB_URL berilmagan — ma'lumotlar faqat mahalliy bazada. "

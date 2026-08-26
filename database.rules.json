@@ -41,9 +41,34 @@
         ".write": false
       },
 
-      // ---- Qat'iy yopiq (faqat bot ko'radi)
+      // ---- Qat'iy yopiq (faqat bot va Worker ko'radi)
+      //
+      // DIQQAT: Cloudflare Worker service-account tokeni bilan ishlaydi,
+      // ya'ni u ham bu qoidalarni CHETLAB O'TADI. Shuning uchun brauzerga
+      // hech qanday yozish huquqi berish KERAK EMAS — buyurtma va profil
+      // Worker orqali yoziladi. Avto_A1 da brauzer to'g'ridan yozgani
+      // uchun unda `users`/`orders` ga ruxsat berilgan va natijada mijoz
+      // `total: 0` yoki `status: "yetkazildi"` yozib qo'ya olardi.
       "users": { ".read": false, ".write": false },
+
+      // Botning buyurtma nusxasi (`sync._put_order`) — raqamli SQLite id bilan
       "orders": { ".read": false, ".write": false },
+
+      // Worker qabul qilgan buyurtmalar (Render o'chgan paytda berilgan).
+      // ALOHIDA tugun: yuqoridagi `orders` ni bot raqamli id bilan yozadi va
+      // `restore_orders` ham raqamli id kutadi — aralashtirsak bir-birini
+      // buzardi. Bot bu tugunni o'qib SQLite ga ko'chiradi va `imported: true`
+      // deb belgilaydi.
+      //
+      // `.indexOn`: Worker `/me` da `orderBy="uid"`, bot esa
+      // `orderBy="imported"` bilan izlaydi. Indeks bo'lmasa Firebase butun
+      // tugunni skanerlaydi va ogohlantirish beradi.
+      "pending_orders": {
+        ".read": false,
+        ".write": false,
+        ".indexOn": ["uid", "createdAt", "imported"]
+      },
+
       "biled_orders": { ".read": false, ".write": false },
       "bookings": { ".read": false, ".write": false },
       "favorites": { ".read": false, ".write": false },
