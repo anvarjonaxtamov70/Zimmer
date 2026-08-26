@@ -399,15 +399,20 @@
     }
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
-    // Boshqaruv paneli Render'dagi `/api/admin/*` ni talab qiladi. Zaxira
-    // rejimda uni ochsak har bir so'rov xato beradi — shuning uchun sababni
-    // ochiq aytamiz. Admin BARIBIR tanilgan bo'ladi (tugma ko'rinadi),
-    // faqat panel ishlamaydi.
-    if (page === "admin" && S.offline) {
-      offlineBlocked("Boshqaruv paneli");
-      return;
+    // Boshqaruv paneli: ONLINE bo'lsa to'liq panel (`admin.js`, Render),
+    // zaxira rejimda esa Worker orqali ishlaydigan ixcham panel.
+    //
+    // Ilgari bu yerda `offlineBlocked()` turardi — ya'ni Render uxlaganda
+    // admin umuman hech narsa qila olmasdi. Endi tovar qo'shish, narx va
+    // qoldiqni o'zgartirish hamda buyurtmalarni boshqarish ishlaydi.
+    if (page === "admin") {
+      if (S.offline && window.ZimmerAdminOffline) {
+        window.ZimmerAdminOffline.open();
+      } else if (window.ZimmerAdmin) {
+        if (window.ZimmerAdminOffline) window.ZimmerAdminOffline.close();
+        window.ZimmerAdmin.open();
+      }
     }
-    if (page === "admin" && window.ZimmerAdmin) window.ZimmerAdmin.open();
     if (page !== "flow") stopVideos();
     window.scrollTo({ top: 0 });
     syncBackButton();
@@ -422,8 +427,16 @@
   }
 
   function goBack() {
-    // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz
-    if (S.page === "admin" && window.ZimmerAdmin && window.ZimmerAdmin.back()) return;
+    // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz.
+    // Zaxira rejimda boshqa panel ishlayotgani uchun avval o'shani so'raymiz.
+    if (S.page === "admin") {
+      const offPanel = window.ZimmerAdminOffline;
+      if (offPanel && offPanel.isActive()) {
+        if (offPanel.back()) return;
+      } else if (window.ZimmerAdmin && window.ZimmerAdmin.back()) {
+        return;
+      }
+    }
     if (S.page === "flow" && S.step > 1) return setStep(S.step - 1);
     if (S.page !== "home") return show("home");
   }
