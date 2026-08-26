@@ -702,6 +702,13 @@ def product_json(product: aiosqlite.Row) -> dict[str, Any]:
         "photo_url_raw": product["photo_url"] if "photo_url" in keys else None,
         "has_video": bool(product["video_id"]) if "video_id" in keys else False,
         "video_url_raw": product["video_url"] if "video_url" in keys else None,
+        # 2- va 3-rasm: mahsulot modalidagi swipe galereya uchun. Ilgari bu
+        # maydonlar API'ga chiqmasdi, shuning uchun «galereya» har doim bitta
+        # rasmdan iborat bo'lib, surish (swipe) mantig'i behuda turardi.
+        "has_photo2": bool(product["photo2_id"]) if "photo2_id" in keys else False,
+        "photo2_url_raw": product["photo2_url"] if "photo2_url" in keys else None,
+        "has_photo3": bool(product["photo3_id"]) if "photo3_id" in keys else False,
+        "photo3_url_raw": product["photo3_url"] if "photo3_url" in keys else None,
     }
 
 

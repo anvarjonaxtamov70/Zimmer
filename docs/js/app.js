@@ -1541,17 +1541,22 @@
     $("sheet-content").append(add, save);
   }
 
-  function addToCart(product) {
+  /** Savatga qo'shish. `qty` — nechta (modaldagi «+/−» uchun; standart 1).
+      Ilgari bu funksiya faqat bitta argument olardi, modal esa
+      `addToCart(product, modalQuantity)` deb chaqirardi — ikkinchi argument
+      JIMGINA tashlab ketilardi va nechta tanlansa ham 1 dona qo'shilardi. */
+  function addToCart(product, qty) {
+    const want = Math.max(1, parseInt(qty, 10) || 1);
     const found = S.cart.find((i) => i.id === product.id);
     const have = found ? found.qty : 0;
-    if (have + 1 > product.stock) return toast(`Omborda ${product.stock} dona bor`);
-    if (found) found.qty += 1;
+    if (have + want > product.stock) return toast(`Omborda ${product.stock} dona bor`);
+    if (found) found.qty += want;
     else
       S.cart.push({
         id: product.id,
         name: product.name,
         price: product.price,
-        qty: 1,
+        qty: want,
         stock: product.stock,
         photo_url: product.photo_url || null, // savat qatorida rasm ko'rsatish uchun
       });
@@ -2745,8 +2750,11 @@
       })
       .catch(() => {});
     
-    // Mahsulotlar ham parallel yuklanadi (Avto_A1 mantiqi)
-    loadProducts().catch(() => {});
+    // DIQQAT: bu yerda ilgari `loadProducts()` chaqirilardi. U mavjud bo'lmagan
+    // `${API}/products` manziliga murojaat qilib 404 olardi va catch bloki
+    // $("products") ichiga «Mahsulotlarni yuklab bo'lmadi» yozib, `loadHome()`
+    // allaqachon chizgan katalogni O'CHIRIB tashlardi. Katalog `/api/home`
+    // orqali `loadHome()` → `renderCatalog()` da yuklanadi — yagona manba.
     } catch (err) {
       if (err && err.code === "invalid_init_data") return onError(err);
       gate(
@@ -3243,155 +3251,28 @@
   }
 
   /* ========================================================================
-     MAHSULOTLAR TIZIMI (Firebase + Render + Modal)
-     Avto_A1 mantiqida: Firebase'dan yuklab, grid'da ko'rsatish
+     MAHSULOTLAR TIZIMI — IZOH (PR #54–#58 dagi nosozlik va uning yechimi)
+
+     Bu yerda ilgari IKKINCHI, mustaqil mahsulot tizimi turardi:
+     `loadProducts()` / `renderProducts()` / `createProductCard()` /
+     `toggleFavorite(id)` / `quickAddToCart(id)`. U 5 xil sababdan ishlamasdi:
+
+       1) `fetch(`${API}/products`)` — serverda bunday manzil YO'Q
+          (haqiqiy manzillar: `/api/home` va `/api/catalog`) → har safar 404.
+       2) catch bloki `$("products")` ichiga xato matnini yozib,
+          `renderCatalog()` chizgan haqiqiy katalogni o'chirib tashlardi.
+       3) `allProducts.find(p => p.id === id)` — `dataset.id` MATN, mahsulot
+          `id` esa SON. `===` hech qachon rost bo'lmaydi → kartochka bosilmaydi.
+       4) `onclick="toggleFavorite(...)"` inline atributlar GLOBAL doiradan
+          funksiya izlaydi, bu fayl esa IIFE ichida → `ReferenceError`.
+       5) ENG MUHIMI: `function toggleFavorite(id)` yuqoridagi (1292-qator)
+          `async function toggleFavorite(product, button)` ni USTIDAN YOZARDI
+          (JS'da keyingi e'lon g'olib). Shu sababli kartochkadagi yurak
+          serverga yozmay qo'ydi va bosilganda butun grid o'chib ketardi.
+
+     Yechim: yagona manba — `/api/home` → `S.home.catalog` → `renderCatalog()`.
+     Mahsulot modali (pastda) shu bir xil obyekt shakli bilan ishlaydi.
      ======================================================================== */
-  
-  let allProducts = [];
-  let currentCategory = "all";
-  
-  async function loadProducts() {
-    try {
-      const url = `${API}/products`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Mahsulotlarni yuklab bo'lmadi");
-      
-      const data = await res.json();
-      allProducts = data.products || [];
-      
-      renderProductCategories();
-      renderProducts();
-    } catch (err) {
-      console.error("Products load error:", err);
-      $("products").innerHTML = '<p class="empty">Mahsulotlarni yuklab bo\'lmadi</p>';
-    }
-  }
-  
-  function renderProductCategories() {
-    const cats = new Set();
-    allProducts.forEach(p => {
-      if (p.category) cats.add(p.category);
-    });
-    
-    if (cats.size === 0) {
-      $("cats").classList.add("hidden");
-      return;
-    }
-    
-    $("cats").classList.remove("hidden");
-    $("cats").innerHTML = `
-      <button class="chip on" data-cat="all">🔥 Hammasi</button>
-      ${[...cats].map(c => `<button class="chip" data-cat="${c}">${c}</button>`).join("")}
-    `;
-    
-    $("cats").querySelectorAll(".chip").forEach(chip => {
-      chip.onclick = () => {
-        currentCategory = chip.dataset.cat;
-        $("cats").querySelectorAll(".chip").forEach(ch => ch.classList.remove("on"));
-        chip.classList.add("on");
-        renderProducts();
-        haptic("selection");
-      };
-    });
-  }
-  
-  function renderProducts() {
-    const container = $("products");
-    const empty = $("products-empty");
-    
-    let filtered = allProducts.filter(p => p.active !== false);
-    if (currentCategory !== "all") {
-      filtered = filtered.filter(p => p.category === currentCategory);
-    }
-    
-    if (filtered.length === 0) {
-      container.innerHTML = "";
-      empty.classList.remove("hidden");
-      return;
-    }
-    
-    empty.classList.add("hidden");
-    container.innerHTML = filtered.map(p => createProductCard(p)).join("");
-    
-    // Kartochkalarni bosganda modal ochish
-    container.querySelectorAll(".product-card").forEach(card => {
-      const id = card.dataset.id;
-      const product = allProducts.find(p => p.id === id);
-      if (product) {
-        card.onclick = () => {
-          openProductModal(product);
-          haptic("light");
-        };
-      }
-    });
-  }
-  
-  function createProductCard(p) {
-    const img = p.images && p.images.length > 0 ? p.images[0] : p.image || p.thumbnail;
-    const isFav = S.favorites && S.favorites.has(p.id);
-    const stock = p.stock || 0;
-    const isLow = stock > 0 && stock <= 5;
-    const isOut = stock < 1;
-    
-    let badges = "";
-    if (p.isNew) badges += '<span class="fomo fomo-trend">🔥 YANGI</span>';
-    if (isLow) badges += '<span class="fomo fomo-low">⚡ Kam qoldi</span>';
-    if (p.discount > 0) badges += `<span class="fomo fomo-sale">-${p.discount}%</span>`;
-    
-    const oldPrice = p.old_price || (p.discount > 0 ? Math.round(p.price / (1 - p.discount/100)) : 0);
-    
-    return `
-      <div class="product-card" data-id="${p.id}">
-        <div class="pc-imgwrap">
-          ${img ? `<img src="${img}" alt="${p.name}" class="pc-img" loading="lazy" onload="this.classList.add('loaded')">` : '<div class="pc-emoji">📦</div>'}
-          ${badges ? `<div class="pc-badges">${badges}</div>` : ''}
-          <button class="pc-heart ${isFav ? 'active' : ''}" data-id="${p.id}" onclick="event.stopPropagation(); toggleFavorite('${p.id}')">
-            ${isFav ? '❤️' : '🤍'}
-          </button>
-        </div>
-        <div class="pc-info">
-          <div class="pc-brand">ZIMMER</div>
-          <div class="pc-name">${p.name || 'Mahsulot'}</div>
-          ${p.car ? `<div class="pc-rating">${p.car}</div>` : ''}
-          <div class="pc-pricerow">
-            <div class="pc-price">
-              ${fmt(p.price)}
-              ${oldPrice > 0 ? `<span class="old">${fmt(oldPrice)}</span>` : ''}
-            </div>
-            <button class="pc-add ${isOut ? 'out' : ''}" onclick="event.stopPropagation(); ${isOut ? 'return' : `quickAddToCart('${p.id}')`}">
-              ${isOut ? '✕' : '+'}
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-  
-  function toggleFavorite(id) {
-    if (!S.favorites) S.favorites = new Set();
-    
-    if (S.favorites.has(id)) {
-      S.favorites.delete(id);
-      toast("❌ Saqlanganlardan o'chirildi");
-    } else {
-      S.favorites.add(id);
-      toast("❤️ Saqlanganlarga qo'shildi");
-    }
-    
-    saveFavorites();
-    updateSavedCount();
-    renderProducts();
-    haptic("light");
-  }
-  
-  function quickAddToCart(id) {
-    const product = allProducts.find(p => p.id === id);
-    if (!product || product.stock < 1) return;
-    
-    addToCart(product, 1);
-    toast(`✅ Savatga qo'shildi`);
-    haptic("success");
-  }
 
   /* ========================================================================
      MAHSULOT TAFSILOT MODALI (Avto_A1 dan Zimmerga ko'chirilgan)
@@ -3403,6 +3284,22 @@
   let touchStartX = 0;
   let touchEndX = 0;
 
+  /** Mahsulotning barcha rasmlari — mutlaq manzillar ro'yxati (bo'sh bo'lishi mumkin).
+      Server `images` massivini beradi; eski yozuvlar uchun `photo_url` ga tayanamiz. */
+  function productImages(p) {
+    const raw = Array.isArray(p.images) && p.images.length ? p.images : [p.photo_url];
+    const seen = new Set();
+    const out = [];
+    raw.forEach((u) => {
+      const src = abs(u);
+      if (src && !seen.has(src)) {
+        seen.add(src);
+        out.push(src);
+      }
+    });
+    return out;
+  }
+
   function openProductModal(product) {
     currentProduct = product;
     currentImageIndex = 0;
@@ -3412,23 +3309,33 @@
     const slider = $("pm-slider");
     const dots = $("pm-dots");
     
-    // Rasm galereyasini yaratish
+    // Rasm galereyasini yaratish.
+    // Katalog obyektida `images` (1–3 rasm) va `photo_url` bo'lishi mumkin.
+    // Ilgari bu yerda `product.images || [product.image || product.thumbnail]`
+    // yozilgan edi — katalogda bunday maydonlar yo'q, natijada massiv
+    // `[undefined]` bo'lib, `abs(undefined)` → null va buzuq rasm chiqardi.
     slider.innerHTML = "";
     dots.innerHTML = "";
-    
-    const images = product.images || [product.image || product.thumbnail];
-    images.forEach((img, i) => {
+
+    const images = productImages(product);
+    images.forEach((src, i) => {
       const imgEl = el("img", "", "");
-      imgEl.src = abs(img);
-      imgEl.alt = product.name;
+      imgEl.src = src;
+      imgEl.alt = product.name || "";
       imgEl.loading = i === 0 ? "eager" : "lazy";
       slider.appendChild(imgEl);
-      
-      const dot = el("i", i === 0 ? "on" : "");
-      dot.onclick = () => scrollToImage(i);
-      dots.appendChild(dot);
+
+      // Bitta rasm bo'lsa nuqtalar kerak emas
+      if (images.length > 1) {
+        const dot = el("i", i === 0 ? "on" : "");
+        dot.onclick = () => scrollToImage(i);
+        dots.appendChild(dot);
+      }
     });
-    
+    if (!images.length) {
+      slider.appendChild(el("div", "pm-noimg", "💡"));
+    }
+
     // Badges
     const badges = $("pm-badges");
     badges.innerHTML = "";
@@ -3478,9 +3385,9 @@
     
     // Yoqtirgan tugmasi
     const wishBtn = $("pm-wishlist");
-    wishBtn.classList.toggle("active", S.favorites.has(product.id));
+    wishBtn.classList.toggle("active", !!(S.favorites && S.favorites.has(product.id)));
     wishBtn.classList.remove("hidden");
-    
+
     // Quantity
     $("pm-qty-val").textContent = modalQuantity;
     
@@ -3541,9 +3448,9 @@
 
   function navigateImage(direction) {
     if (!currentProduct) return;
-    const images = currentProduct.images || [currentProduct.image || currentProduct.thumbnail];
+    const images = productImages(currentProduct);
     const newIndex = currentImageIndex + direction;
-    
+
     if (newIndex >= 0 && newIndex < images.length) {
       scrollToImage(newIndex);
       haptic("light");
@@ -3640,22 +3547,20 @@
     }, 800);
   }
 
-  function toggleModalWishlist() {
+  /** Modaldagi yurak — ASOSIY `toggleFavorite` ga topshiriladi, ya'ni holat
+      serverga (`POST /api/favorites`) yoziladi va boshqa qurilmada ham saqlanadi.
+      Ilgari bu funksiya faqat `localStorage` ga yozardi: ilova qayta ochilganda
+      «Saqlanganlar» bo'limi serverdan o'qib, belgilar yo'qolib ketardi. */
+  async function toggleModalWishlist() {
     if (!currentProduct) return;
-    
-    if (S.favorites.has(currentProduct.id)) {
-      S.favorites.delete(currentProduct.id);
-      $("pm-wishlist").classList.remove("active");
-      toast("❌ Saqlanganlardan o'chirildi");
-    } else {
-      S.favorites.add(currentProduct.id);
-      $("pm-wishlist").classList.add("active");
-      toast("❤️ Saqlanganlarga qo'shildi");
-    }
-    
+    const btn = $("pm-wishlist");
+    await toggleFavorite(currentProduct, null);
+    const saved = !!(S.favorites && S.favorites.has(currentProduct.id));
+    if (btn) btn.classList.toggle("active", saved);
     saveFavorites();
     updateSavedCount();
-    haptic("light");
+    // Grid'dagi yuraklar ham yangilanadi
+    if (S.shopProducts) renderCatalog();
   }
 
   // Event listenerlar

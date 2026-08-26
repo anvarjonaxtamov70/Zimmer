@@ -17,8 +17,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import is_admin
+from database import queries as q
+from handlers.admin_schema import ENTITIES, prepare_insert
 from services import firebase_products as fb_prod
 from services import firebase_storage as fb_storage
+from services import sync
 from utils import product_card
 
 logger = logging.getLogger(__name__)
@@ -62,9 +65,15 @@ async def callback_add_product(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "adm:products_list")
 async def callback_products_list(callback: CallbackQuery):
-    """Admin menu'dan 'Mahsulotlar' tugmasi bosilganda."""
+    """Admin menu'dan 'Mahsulotlar' tugmasi bosilganda.
+
+    DIQQAT: ilgari bu yerda `show_products_list(...)` chaqirilardi — bunday
+    funksiya loyihada HECH QACHON mavjud bo'lmagan. Natijada tugma bosilganda
+    `NameError: name 'show_products_list' is not defined` chiqib, admin panelda
+    «Mahsulotlar» tugmasi umuman ishlamasdi (PR #52 dagi nosozlik).
+    """
     await callback.answer()
-    await show_products_list(callback.message)
+    await list_products(callback.message)
 
 
 @router.callback_query(F.data == "adm:products_drafts")
@@ -290,78 +299,131 @@ async def finish_product_images(message: Message, state: FSMContext):
 
 @router.message(AddProductStates.confirm, Command("confirm"), F.from_user.id.func(is_admin))
 async def confirm_add_product(message: Message, state: FSMContext, bot: Bot):
-    """Mahsulotni tasdiqlaydi va Firebase'ga saqlaydi.
-    
-    Avto_A1 style: rasmlar Firebase Storage'ga yuklanadi (agar sozlangan bo'lsa).
+    """Mahsulotni tasdiqlaydi va saqlaydi.
+
+    MUHIM (PR #48–#58 dagi asosiy nosozlik shu yerda edi):
+
+    Ilgari bu handler mahsulotni FAQAT Firebase'ning `zimmer/products` tuguniga
+    yozardi. Lekin ilovaning katalogi (`/api/home`, `/api/catalog`), botning
+    «Do'kon» bo'limi (`handlers/shop.py`) va buyurtma yaratish
+    (`create_order_from_items` → `get_product(product_id)`) — HAMMASI SQLite
+    `products` jadvalidan o'qiydi. Natijada bot orqali qo'shilgan mahsulot
+    hech qayerda ko'rinmasdi va uni buyurtma qilish ham mumkin emasdi.
+
+    Endi tartib to'g'ri:
+      1) SQLite `products` — ASOSIY manba (ilova, do'kon, buyurtma shu yerdan);
+      2) `sync.push_catalog` — Firebase'ga zaxira nusxa (qayta deployda tiklanadi);
+      3) `fb_prod` — Excel import qoralamalari uchun qo'shimcha qatlam.
     """
     user_id = message.from_user.id
     data = await state.get_data()
     images = _temp_product_data.get(user_id, {}).get("images", [])
-    
+
     try:
-        # Mahsulotni qo'shish (rasmlar keyinroq yuklanadi)
-        product_id = await fb_prod.add_product(
-            name=data['name'],
-            price=data['price'],
-            stock=data.get('stock', 0),
-            description=data.get('description'),
-            images=[],  # Bo'sh — keyinroq to'ldiriladi
-            is_draft=False,
-        )
-        
-        if product_id > 0:
-            # Rasmlarni Firebase Storage'ga yuklash
-            uploaded_images = []
-            if images and fb_storage.is_storage_enabled():
-                progress_msg = await message.answer("📤 Rasmlar yuklanmoqda...")
-                for i, file_id in enumerate(images):
-                    image_url = await fb_storage.upload_telegram_photo(
-                        bot, file_id, product_id, i
-                    )
-                    if image_url:
-                        uploaded_images.append(image_url)
+        # ---- 1. Rasmlar: Firebase Storage sozlangan bo'lsa doimiy URL olamiz
+        uploaded_urls: list[str] = []
+        if images and fb_storage.is_storage_enabled():
+            progress_msg = await message.answer("📤 Rasmlar yuklanmoqda...")
+            for i, file_id in enumerate(images):
+                image_url = await fb_storage.upload_telegram_photo(bot, file_id, 0, i)
+                # Storage ishlamasa `upload_telegram_photo` file_id ni qaytaradi —
+                # uni URL deb hisoblamaymiz, quyida `photo*_id` ga yozamiz.
+                if image_url and str(image_url).startswith("http"):
+                    uploaded_urls.append(image_url)
+            try:
                 await progress_msg.delete()
-            else:
-                # Firebase Storage o'chiq — file_id'larni to'g'ridan-to'g'ri saqlash
-                uploaded_images = images
-            
-            # Rasmlarni mahsulotga qo'shish
-            if uploaded_images:
-                await fb_prod.update_product(product_id, images=uploaded_images)
-            
-            # Product card ko'rsatish
-            product = await fb_prod.get_product(product_id)
-            if product:
+            except Exception:  # xabar allaqachon o'chirilgan bo'lishi mumkin
+                logger.debug("Progress xabari o'chirilmadi", exc_info=True)
+
+        # ---- 2. SQLite'ga yozish (ASOSIY manba)
+        values: dict = {
+            "name": str(data["name"])[:160],
+            "price": int(data["price"]),
+            "stock": int(data.get("stock") or 0),
+            "unit": "dona",
+            "product_type": "oddiy",
+            "is_active": 1,
+        }
+        if data.get("description"):
+            values["description"] = str(data["description"])[:2000]
+
+        # Rasmlar: doimiy URL bo'lsa `photo*_url`, aks holda Telegram `photo*_id`.
+        # Ikkisini ham `/api/media/products/{id}/photo` proksisi to'g'ri beradi.
+        columns = (
+            ("photo_url", "photo_id"),
+            ("photo2_url", "photo2_id"),
+            ("photo3_url", "photo3_id"),
+        )
+        for i, (url_col, id_col) in enumerate(columns):
+            if i < len(uploaded_urls):
+                values[url_col] = uploaded_urls[i][:500]
+            elif i < len(images):
+                values[id_col] = images[i]
+
+        values = await prepare_insert(ENTITIES["prd"], values)  # category_id + sort
+        product_id = await q.admin_insert("products", values)
+
+        # ---- 3. Firebase'ga zaxira (nosozlik bo'lsa ham mahsulot saqlangan)
+        await sync.push_catalog("products", product_id)
+
+        # ---- 4. Qo'shimcha: Firebase products tuguniga ham yozamiz (multi-image)
+        try:
+            await fb_prod.add_product(
+                name=values["name"],
+                price=values["price"],
+                stock=values["stock"],
+                desc=data.get("description"),
+                images=uploaded_urls or images,
+                is_draft=False,
+            )
+        except Exception:
+            logger.warning("Firebase products tuguniga yozilmadi", exc_info=True)
+
+        # ---- 5. Adminga kartochka ko'rsatish
+        row = await q.admin_get("products", product_id)
+        if row is not None:
+            try:
                 await product_card.send_product_card(
                     bot=bot,
                     chat_id=message.chat.id,
-                    product=product,
+                    product={
+                        "id": product_id,
+                        "name": row["name"],
+                        "price": row["price"],
+                        "stock": row["stock"],
+                        "desc": row["description"],
+                        "images": uploaded_urls or images,
+                    },
                     admin_view=True,
                     show_purchase=False,
                 )
-            
-            await message.answer(
-                f"✅ <b>Mahsulot qo'shildi!</b>\n\n"
-                f"ID: <code>{product_id}</code>\n"
-                f"Nom: {data['name']}\n"
-                f"Rasmlar: {len(uploaded_images)} ta\n\n"
-                f"Mahsulot endi do'konda ko'rinadi.",
-                parse_mode="HTML"
-            )
-        else:
-            await message.answer(
-                "❌ Mahsulot saqlanmadi. Firebase xatosi.\n\n"
-                "Texnik tafsilotlar logda.",
-                parse_mode="HTML"
-            )
-    
+            except Exception:
+                logger.warning("Mahsulot kartochkasi yuborilmadi", exc_info=True)
+
+        photo_note = (
+            f"{len(uploaded_urls)} ta (doimiy URL)"
+            if uploaded_urls
+            else (f"{len(images)} ta (Telegram)" if images else "yo'q")
+        )
+        await message.answer(
+            f"✅ <b>Mahsulot qo'shildi!</b>\n\n"
+            f"ID: <code>{product_id}</code>\n"
+            f"Nom: {values['name']}\n"
+            f"Narx: {values['price']:,} so'm\n"
+            f"Ombor: {values['stock']} dona\n"
+            f"Rasmlar: {photo_note}\n\n"
+            f"Mahsulot endi <b>botning «Do'kon»</b> bo'limida ham, "
+            f"<b>Mini App katalogida</b> ham ko'rinadi va buyurtma qilinadi.",
+            parse_mode="HTML",
+        )
+
     except Exception as e:
         logger.error("Mahsulot qo'shilmadi: %s", e, exc_info=True)
         await message.answer(
             f"❌ Xato yuz berdi:\n\n<code>{e}</code>",
             parse_mode="HTML"
         )
-    
+
     finally:
         await state.clear()
         if user_id in _temp_product_data:
@@ -386,11 +448,30 @@ async def cancel_handler(message: Message, state: FSMContext):
     )
 
 
+async def _sqlite_products() -> list[dict]:
+    """SQLite `products` jadvalidan mahsulotlar (ASOSIY manba).
+
+    Ilgari bu ro'yxat Firebase'dan o'qilardi, shuning uchun ilovada ko'rinadigan
+    mahsulotlar bilan botdagi ro'yxat MOS KELMASDI. Endi ikkisi bir manbadan.
+    """
+    rows = await q.admin_list("products", limit=500)
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "price": int(row["price"] or 0),
+            "stock": int(row["stock"] or 0),
+            "is_active": bool(row["is_active"]),
+        }
+        for row in rows
+    ]
+
+
 @router.message(Command("products_list"), F.from_user.id.func(is_admin))
 async def list_products(message: Message):
     """Barcha mahsulotlar ro'yxatini ko'rsatadi."""
-    products = await fb_prod.get_all_products(active_only=False, include_drafts=False)
-    
+    products = await _sqlite_products()
+
     if not products:
         await message.answer(
             "📦 <b>Mahsulotlar yo'q</b>\n\n"
@@ -405,7 +486,7 @@ async def list_products(message: Message):
     active = [p for p in products if p.get("is_active", True)]
     inactive = [p for p in products if not p.get("is_active", True)]
     
-    text = f"📦 <b>Mahsulotlar</b>\n\n"
+    text = "📦 <b>Mahsulotlar</b>\n\n"
     text += f"Jami: {len(products)} ta\n"
     text += f"✅ Faol: {len(active)} ta\n"
     text += f"⏸ Nofaol: {len(inactive)} ta\n\n"
@@ -455,22 +536,20 @@ async def toggle_product_handler(message: Message):
         await message.answer("❌ Noto'g'ri ID")
         return
     
-    product = await fb_prod.get_product(product_id)
-    if not product:
+    row = await q.admin_get("products", product_id)
+    if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")
         return
-    
-    success = await fb_prod.toggle_product(product_id)
-    if success:
-        new_state = not product.get("is_active", True)
-        status = "faollashtirildi ✅" if new_state else "o'chirildi ⏸"
-        await message.answer(
-            f"✅ Mahsulot {status}\n\n"
-            f"<b>{product.get('name')}</b>",
-            parse_mode="HTML"
-        )
-    else:
-        await message.answer("❌ O'zgartirish amalga oshmadi")
+
+    new_state = 0 if row["is_active"] else 1
+    await q.admin_update("products", product_id, "is_active", new_state)
+    await sync.push_catalog("products", product_id)
+
+    status = "faollashtirildi ✅" if new_state else "o'chirildi ⏸"
+    await message.answer(
+        f"✅ Mahsulot {status}\n\n<b>{row['name']}</b>",
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("delete_product"), F.from_user.id.func(is_admin))
@@ -491,21 +570,25 @@ async def delete_product_handler(message: Message):
         await message.answer("❌ Noto'g'ri ID")
         return
     
-    product = await fb_prod.get_product(product_id)
-    if not product:
+    row = await q.admin_get("products", product_id)
+    if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")
         return
-    
-    success = await fb_prod.delete_product(product_id)
-    if success:
-        await message.answer(
-            f"🗑 <b>Mahsulot o'chirildi</b>\n\n"
-            f"{product.get('name')}\n"
-            f"ID: {product_id}",
-            parse_mode="HTML"
-        )
-    else:
-        await message.answer("❌ O'chirish amalga oshmadi")
+
+    name = row["name"]
+    key_value = row[q.CATALOG_KEY["products"]] if "products" in q.CATALOG_KEY else None
+    await q.admin_delete("products", product_id)
+    await sync.delete_catalog("products", product_id, key_value)
+    # Firebase products tugunidagi nusxasini ham olib tashlaymiz (bo'lsa)
+    try:
+        await fb_prod.delete_product(product_id)
+    except Exception:
+        logger.debug("Firebase products'dan o'chirilmadi", exc_info=True)
+
+    await message.answer(
+        f"🗑 <b>Mahsulot o'chirildi</b>\n\n{name}\nID: {product_id}",
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("update_stock"), F.from_user.id.func(is_admin))
@@ -532,29 +615,35 @@ async def update_stock_handler(message: Message, bot: Bot):
         await message.answer("❌ Miqdor manfiy bo'lishi mumkin emas")
         return
     
-    product = await fb_prod.get_product(product_id)
-    if not product:
+    row = await q.admin_get("products", product_id)
+    if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")
         return
-    
-    success = await fb_prod.update_stock(product_id, quantity)
-    if success:
-        # Yangilangan product card ko'rsatish
-        updated_product = await fb_prod.get_product(product_id)
-        if updated_product:
-            await product_card.send_product_card(
-                bot=bot,
-                chat_id=message.chat.id,
-                product=updated_product,
-                admin_view=True,
-                show_purchase=False,
-            )
-        
-        await message.answer(
-            f"✅ <b>Ombor yangilandi</b>\n\n"
-            f"{product.get('name')}\n"
-            f"Yangi miqdor: <b>{quantity} dona</b>",
-            parse_mode="HTML"
+
+    await q.admin_update("products", product_id, "stock", quantity)
+    await sync.push_catalog("products", product_id)
+
+    try:
+        await product_card.send_product_card(
+            bot=bot,
+            chat_id=message.chat.id,
+            product={
+                "id": product_id,
+                "name": row["name"],
+                "price": int(row["price"] or 0),
+                "stock": quantity,
+                "desc": row["description"],
+                "images": [],
+            },
+            admin_view=True,
+            show_purchase=False,
         )
-    else:
-        await message.answer("❌ Yangilash amalga oshmadi")
+    except Exception:
+        logger.debug("Kartochka yuborilmadi", exc_info=True)
+
+    await message.answer(
+        f"✅ <b>Ombor yangilandi</b>\n\n"
+        f"{row['name']}\n"
+        f"Yangi miqdor: <b>{quantity} dona</b>",
+        parse_mode="HTML",
+    )

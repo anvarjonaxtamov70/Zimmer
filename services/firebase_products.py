@@ -78,19 +78,25 @@ def product_offsets(raw):
 
 async def _slot_etag_and_value(session: aiohttp.ClientSession, idx: int):
     """products/<idx> slotining ETag va joriy qiymatini qaytaradi.
-    
+
     ETag - Firebase ning optimistic concurrency control mexanizmi.
     Bu orqali "agar qiymat o'zgarmagan bo'lsagina yoz" operatsiyasini bajaramiz.
     """
     url = fb.url(f"products/{idx}")
     async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
         etag = r.headers.get("ETag")
-        value = await r.json()
+        # DIQQAT: Firebase xato qaytarsa (401/403) tana JSON bo'lmasligi
+        # mumkin — `r.json()` ni majburlab chaqirsak ContentTypeError chiqadi
+        # va sabab loglarda ko'rinmay qolardi. Shuning uchun aniq tekshiramiz.
+        if r.status != 200:
+            body = (await r.text())[:200]
+            raise RuntimeError(f"Firebase GET products/{idx} -> {r.status}: {body}")
+        value = await r.json(content_type=None)
     return etag, value
 
 
 async def firebase_append_products(
-    session: aiohttp.ClientSession,
+    session: aiohttp.ClientSession | None,
     new_products: list[dict],
     start_index: int,
     max_probe: int = 64
@@ -115,7 +121,20 @@ async def firebase_append_products(
     """
     if not new_products:
         return True
-    
+
+    if not fb.is_enabled():
+        logger.error(
+            "Firebase ulanmagan — mahsulot bulutga yozilmadi. Sabab: %s",
+            fb.diagnose(),
+        )
+        return False
+
+    # Sessiya berilmasa — `services/firebase` ning umumiy (timeout sozlangan)
+    # sessiyasini olamiz. Ilgari har chaqiruvda yangi `ClientSession()` ochilardi:
+    # timeout yo'q edi va sessiyalar "leak" bo'lardi.
+    if session is None:
+        session = await fb.session()
+
     idx = start_index
     for p in new_products:
         placed = False
@@ -138,7 +157,9 @@ async def firebase_append_products(
             headers = {"if-match": etag} if etag else {}
             try:
                 url = fb.url(f"products/{idx}")
-                async with session.put(url, json=p, headers=headers, timeout=30) as pr:
+                async with session.put(
+                    url, json=p, headers=headers, timeout=aiohttp.ClientTimeout(total=30)
+                ) as pr:
                     if pr.status == 200:
                         placed = True
                         idx += 1
@@ -178,17 +199,29 @@ async def add_product(
     images: list[str] | None = None,
     is_draft: bool = False,
     batch_id: str | None = None,
+    description: str | None = None,
+    **_ignored: Any,
 ) -> int:
     """Yangi mahsulot qo'shadi (Avto_A1 style).
-    
+
     Lock ostida ID olinadi va atomik yoziladi.
+
+    `description` — `desc` ning eski nomi. Migratsiya paytida chaqiruvchilarning
+    bir qismi `description=` bilan chaqirar edi va `TypeError: add_product() got
+    an unexpected keyword argument 'description'` chiqardi. Endi ikkisi ham
+    ishlaydi. Notanish qolgan kalitlar (`**_ignored`) botni yiqitmaydi — faqat
+    ogohlantirish yoziladi.
     """
+    if description and not desc:
+        desc = description
+    if _ignored:
+        logger.warning("add_product: e'tiborsiz qoldirilgan maydonlar: %s", list(_ignored))
+
     async with _products_lock:
         # Keyingi ID va indeksni olish
-        async with aiohttp.ClientSession() as session:
-            raw_products = await fb.get("products")
-            next_id, next_index = product_offsets(raw_products)
-        
+        raw_products = await fb.get("products")
+        next_id, next_index = product_offsets(raw_products)
+
         # Mahsulot ma'lumotlari
         product_data = {
             "id": next_id,
@@ -213,15 +246,14 @@ async def add_product(
             "updated_at": _timestamp_ms(),
         }
         
-        # Atomik yozish
-        async with aiohttp.ClientSession() as session:
-            success = await firebase_append_products(session, [product_data], next_index)
-        
+        # Atomik yozish (umumiy sessiya — ichida o'zi oladi)
+        success = await firebase_append_products(None, [product_data], next_index)
+
         if success:
             logger.info("Mahsulot qo'shildi: %s (ID=%s)", name, next_id)
             return next_id
         
-        logger.error("Mahsulot qo'shilmadi: %s", name)
+        logger.error("Mahsulot qo'shilmadi: %s (Firebase: %s)", name, fb.diagnose())
         return 0
 
 
@@ -232,7 +264,7 @@ async def get_product(product_id: int) -> dict | None:
         return None
     
     # ID bo'yicha qidirish (indeks emas!)
-    for key, value in fb.items(all_data):
+    for _key, value in fb.items(all_data):
         if isinstance(value, dict) and value.get("id") == product_id:
             return value
     
@@ -251,7 +283,7 @@ async def get_all_products(
         return []
     
     products = []
-    for key, value in fb.items(all_data):
+    for _key, value in fb.items(all_data):
         if not isinstance(value, dict):
             continue
         
