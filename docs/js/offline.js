@@ -606,6 +606,224 @@
   }
 
   /* ==================================================================
+     NAVBAT VA BI-LED — bazaga to'g'ridan
+
+     Bo'sh vaqtlarni hisoblash mantig'i `utils/helpers.py` dan AYNAN
+     ko'chirilgan (`available_dates`, `free_slots`), shuning uchun brauzer
+     va server bir xil natija beradi:
+        ish vaqti 09:00–18:00, qadam 30 daqiqa, 7 kun oldinga,
+        bugungi kun uchun hozirdan kamida 30 daqiqa keyin.
+     ================================================================== */
+  var WORK_START_H = 9;
+  var WORK_END_H = 18;
+  var SLOT_MIN = 30;
+  var DAYS_AHEAD = 7;
+  var TZ_OFFSET_MIN = 5 * 60; // Asia/Tashkent (config.py: TIMEZONE)
+
+  var WEEKDAYS = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"];
+  var MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun",
+                "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+
+  /** Do'kon vaqti (mijoz telefonidagi mintaqaga BOG'LIQ EMAS). */
+  function shopNow() {
+    var d = new Date();
+    return new Date(d.getTime() + (TZ_OFFSET_MIN + d.getTimezoneOffset()) * 60000);
+  }
+
+  function isoOf(d) {
+    var m = String(d.getMonth() + 1);
+    var day = String(d.getDate());
+    return d.getFullYear() + "-" + (m.length < 2 ? "0" + m : m) + "-" + (day.length < 2 ? "0" + day : day);
+  }
+
+  /** `utils/helpers.py: date_label` bilan bir xil: "12-avgust, Chorshanba" */
+  function dateLabel(iso) {
+    var p = iso.split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.getDate() + "-" + MONTHS[d.getMonth()] + ", " + WEEKDAYS[(d.getDay() + 6) % 7];
+  }
+
+  /** `short_date_label`: "Bugun" / "Ertaga" / "12-avg (Chor)" */
+  function shortDateLabel(iso) {
+    var today = isoOf(shopNow());
+    if (iso === today) return "Bugun";
+    var t = shopNow();
+    t.setDate(t.getDate() + 1);
+    if (iso === isoOf(t)) return "Ertaga";
+    var p = iso.split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.getDate() + "-" + MONTHS[d.getMonth()].slice(0, 3) +
+           " (" + WEEKDAYS[(d.getDay() + 6) % 7].slice(0, 3) + ")";
+  }
+
+  function availableDates() {
+    var out = [];
+    var base = shopNow();
+    for (var i = 0; i < DAYS_AHEAD; i++) {
+      var d = new Date(base.getTime());
+      d.setDate(d.getDate() + i);
+      out.push(isoOf(d));
+    }
+    return out;
+  }
+
+  function toMinutes(t) {
+    var p = String(t).split(":");
+    return (+p[0] || 0) * 60 + (+p[1] || 0);
+  }
+  function toTime(m) {
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? "0" + h : h) + ":" + (mm < 10 ? "0" + mm : mm);
+  }
+
+  /** `utils/helpers.py: free_slots` ning aynan nusxasi. */
+  function freeSlots(iso, durationMin, taken) {
+    var workStart = WORK_START_H * 60;
+    var workEnd = WORK_END_H * 60;
+    var step = Math.max(SLOT_MIN, 5);
+    var duration = Math.max(durationMin || 0, step);
+
+    var busy = (taken || []).map(function (x) {
+      var s = toMinutes(x[0]);
+      return [s, s + Math.max(x[1] || 0, step)];
+    });
+
+    var minStart = workStart;
+    if (iso === isoOf(shopNow())) {
+      var n = shopNow();
+      var lead = n.getHours() * 60 + n.getMinutes() + 30;
+      minStart = Math.max(minStart, Math.ceil(lead / step) * step);
+    }
+
+    var out = [];
+    for (var start = workStart; start + duration <= workEnd; start += step) {
+      if (start < minStart) continue;
+      var clash = busy.some(function (b) {
+        return start < b[1] && b[0] < start + duration;
+      });
+      if (!clash) out.push(toTime(start));
+    }
+    return out;
+  }
+
+  /** Bazadagi band vaqtlar: [["09:30", 60], ...] */
+  async function takenSlots(iso) {
+    if (!window.ZimmerFB) return [];
+    try {
+      var node = await window.ZimmerFB.get("bookings");
+      if (!node || typeof node !== "object") return [];
+      var out = [];
+      Object.keys(node).forEach(function (k) {
+        var b = node[k];
+        if (!b || typeof b !== "object") return;
+        if (b.date !== iso) return;
+        if (b.status === "cancelled") return;
+        out.push([String(b.time || "00:00"), Number(b.duration_min) || SLOT_MIN]);
+      });
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** `/api/dates` zaxirasi. */
+  async function bookingDates(durationMin) {
+    var list = availableDates();
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var iso = list[i];
+      var slots = freeSlots(iso, durationMin, await takenSlots(iso));
+      out.push({
+        date: iso,
+        label: dateLabel(iso),
+        short_label: shortDateLabel(iso),
+        free_count: slots.length,
+      });
+    }
+    return out;
+  }
+
+  /** `/api/slots` zaxirasi. */
+  async function bookingSlots(iso, durationMin) {
+    return {
+      date: iso,
+      label: dateLabel(iso),
+      slots: freeSlots(iso, durationMin, await takenSlots(iso)),
+    };
+  }
+
+  /** Navbatni band qilish. Vaqt bandligini YOZISHDAN OLDIN qayta
+   *  tekshiramiz — oradа boshqa mijoz olib qo'ygan bo'lishi mumkin. */
+  async function createBooking(payload) {
+    var fb = window.ZimmerFB;
+    if (!fb) throw { code: "no_db", message: "Baza sozlanmagan" };
+
+    var iso = payload.date;
+    var free = freeSlots(iso, payload.duration_min, await takenSlots(iso));
+    if (free.indexOf(payload.time) === -1) {
+      throw { code: "slot_taken", message: "Bu vaqt band qilingan — boshqasini tanlang" };
+    }
+
+    var key = "b_" + payload.uid + "_" + iso.replace(/-/g, "") + "_" + payload.time.replace(":", "");
+    await fb.put("bookings/" + key, {
+      uid: payload.uid,
+      service_id: payload.service_id,
+      service_name: payload.service_name || "",
+      date: iso,
+      time: payload.time,
+      duration_min: payload.duration_min || SLOT_MIN,
+      price: payload.price || 0,
+      name: payload.name || "",
+      phone: payload.phone || "",
+      status: "new",
+      createdAt: Date.now(),
+      imported: false,
+      source: "miniapp",
+    });
+    return { booking: { id: key, date: iso, time: payload.time, label: dateLabel(iso) } };
+  }
+
+  /** Bi-LED buyurtmasi. */
+  async function createBiledOrder(payload) {
+    var fb = window.ZimmerFB;
+    if (!fb) throw { code: "no_db", message: "Baza sozlanmagan" };
+
+    var key = "bl_" + payload.uid + "_" + Date.now();
+    var total =
+      (Number(payload.biled_price) || 0) +
+      (Number(payload.shroud_price) || 0) +
+      (Number(payload.color_price) || 0);
+
+    await fb.put("biled_orders/" + key, {
+      uid: payload.uid,
+      car_id: payload.car_id || null,
+      car_name: payload.car_name || "",
+      biled_id: payload.biled_id || null,
+      biled_name: payload.biled_name || "",
+      shroud_id: payload.shroud_id || null,
+      shroud_name: payload.shroud_name || "",
+      color_id: payload.color_id || null,
+      color_name: payload.color_name || "",
+      comment: payload.comment || "",
+      total: total,
+      name: payload.name || "",
+      phone: payload.phone || "",
+      status: "new",
+      createdAt: Date.now(),
+      imported: false,
+      source: "miniapp",
+    });
+    return {
+      order: {
+        id: key,
+        code: "BL-" + String(Date.now()).slice(-6),
+        total: total,
+        total_label: priceLabel(total),
+      },
+    };
+  }
+
+  /* ==================================================================
      WORKER — Render o'chganda buyurtma va profil
 
      Cloudflare Worker uxlamaydi va bepul. U service-account tokeni
@@ -749,6 +967,15 @@
     cars: cars,
     tuning: tuning,
     services: services,
+    // Navbat va Bi-LED — bazaga to'g'ridan
+    bookingDates: bookingDates,
+    bookingSlots: bookingSlots,
+    createBooking: createBooking,
+    createBiledOrder: createBiledOrder,
+    freeSlots: freeSlots,
+    dateLabel: dateLabel,
+    shortDateLabel: shortDateLabel,
+    availableDates: availableDates,
     // Worker
     workerReady: workerReady,
     workerHealth: workerHealth,

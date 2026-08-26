@@ -868,12 +868,30 @@
   function submitConfig() {
     if (!S.car || !S.biled) return toast("Mashina va linzani tanlang");
     return withPhone(async () => {
-      if (S.offline) return offlineBlocked("Bi-LED buyurtmasi");
       const btn = $("flow-next");
       btn.disabled = true;
       btn.textContent = "Yuborilmoqda...";
       try {
-        const res = await api("/api/biled-orders", {
+        // Bazaga to'g'ridan yoziladi — Render kerak emas.
+        const res = S.offline
+          ? await ZimmerOffline.createBiledOrder({
+              uid: (S.me && (S.me.user_id || S.me.id)) || 0,
+              car_id: S.car.id,
+              car_name: S.car.name || "",
+              biled_id: S.biled.id,
+              biled_name: S.biled.name || "",
+              biled_price: S.biled.price || 0,
+              shroud_id: S.shroud ? S.shroud.id : null,
+              shroud_name: S.shroud ? S.shroud.name : "",
+              shroud_price: S.shroud ? S.shroud.price : 0,
+              color_id: S.color ? S.color.id : null,
+              color_name: S.color ? S.color.name : "",
+              color_price: S.color ? S.color.price : 0,
+              comment: $("order-comment").value.trim(),
+              name: (S.me && (S.me.full_name || S.me.first_name)) || "",
+              phone: (S.me && S.me.phone) || "",
+            })
+          : await api("/api/biled-orders", {
           method: "POST",
           body: {
             car_id: S.car.id,
@@ -1043,75 +1061,53 @@
     } catch (_) {}
   }
 
-  /** Zaxira rejimda serverni talab qiladigan amal bosilganda. */
+  /** Sozlama yetishmagani uchun amal bajarilmasa (masalan WORKER_URL
+   *  kiritilmagan). «Server uyg'onmoqda» degan matn OLIB TASHLANDI —
+   *  mijozga serverning holati emas, aloqa yo'li kerak. */
   function offlineBlocked(what) {
     const c = window.ZIMMER_CONFIG || {};
-    const lines = [
-      `${what} uchun server kerak, u hozir javob bermayapti.`,
-      "",
-      "Katalogni ko'rishda davom etishingiz mumkin — server tiklanganda",
-      "ilova o'zi to'liq rejimga o'tadi.",
-    ];
-    if (c.SHOP_TELEGRAM) lines.push("", `Telegram: @${c.SHOP_TELEGRAM}`);
+    const lines = [`${what} hozir bajarilmadi.`, "", "Iltimos, biz bilan bog'laning:"];
+    if (c.SHOP_TELEGRAM) lines.push(`Telegram: @${c.SHOP_TELEGRAM}`);
     if (c.SHOP_PHONE) lines.push(`Telefon: ${c.SHOP_PHONE}`);
-    openSheet("⏳ Server uyg'onmoqda", `<p class="step-sub">${esc(lines.join("\n"))}</p>`);
+    openSheet("Bog'lanish", `<p class="step-sub">${esc(lines.join("\n"))}</p>`);
     haptic("warning");
   }
 
-  /** Kabinetdagi «Server uyg'onmoqda» izohini yoqadi/o'chiradi. */
-  function setOfflineNote(on) {
+  /** Kabinetdagi «Server uyg'onmoqda» izohi ham OLIB TASHLANDI —
+   *  har doim yashirin turadi. */
+  function setOfflineNote() {
     const note = $("pf-offline-note");
-    if (note) note.classList.toggle("hidden", !on);
+    if (note) note.classList.add("hidden");
   }
 
-  /** Yuqorida turadigan ogohlantiruv chizig'i. */
+  /** Ilgari pastda sariq «Server uyg'onmoqda» chizig'i chiqardi.
+   *
+   *  OLIB TASHLANDI. Ilova endi bazadan to'g'ridan ishlaydi — Render bor
+   *  yoki yo'q, mijoz uchun FARQI YO'Q. Shu sababli ogohlantirishning
+   *  ma'nosi qolmadi: u faqat bezovta qilardi.
+   *
+   *  Funksiya saqlanib qoldi (bir necha joydan chaqiriladi) va endi
+   *  faqat eski chiziq qolgan bo'lsa uni tozalaydi. */
   function renderOfflineBar() {
-    let bar = $("offline-bar");
-    if (!S.offline) {
-      if (bar) bar.remove();
-      // Chiziq bilan birga kabinetdagi izoh ham ketishi kerak — aks holda
-      // server tiklangach ham eski ogohlantirish ko'rinib turadi.
-      setOfflineNote(false);
-      return;
-    }
-    if (bar) return;
-    // Kesh nusxasi eskirgan bo'lishi mumkin — mijozga rostini aytamiz.
-    const stale = S.home && S.home._cached;
-    bar = el(
-      "div",
-      "offline-bar",
-      stale
-        ? "⏳ Server uyg'onmoqda — saqlangan katalog ko'rsatilyapti, narxlar o'zgargan bo'lishi mumkin"
-        : "⏳ Server uyg'onmoqda — katalog ko'rish mumkin, buyurtma vaqtincha ishlamaydi"
-    );
-    bar.id = "offline-bar";
-    document.body.appendChild(bar);
+    const bar = $("offline-bar");
+    if (bar) bar.remove();
+    setOfflineNote(false);
   }
 
-  /** Fonda serverni tekshirib turadi; tiklansa to'liq rejimga o'tadi.
-      Render "sovuq start" 30–60 soniya oladi, shuning uchun har 20 soniyada. */
+  /** Ilgari har 20 soniyada Render'ni tekshirib turardi va tiklanganda
+   *  «✅ Server tiklandi» toast'i chiqarib butun ekranni qayta yuklardi.
+   *
+   *  OLIB TASHLANDI. Ilova bazadan ishlaydi, ya'ni Render'ning tiklanishini
+   *  kutish kerak emas. Tekshiruv faqat tarmoqni bezovta qilardi va rejim
+   *  o'rtada almashib ekranni sakratardi.
+   *
+   *  Funksiya bir necha joydan chaqiriladi — shuning uchun nomi qoldi. */
   function scheduleServerRecheck() {
-    if (S._recheck) return;
-    S._recheck = setInterval(async () => {
-      try {
-        const res = await fetch(API + "/health", { cache: "no-store" });
-        if (!res.ok) return;
-      } catch (_) {
-        return;
-      }
+    // Eski interval qolgan bo'lsa to'xtatamiz.
+    if (S._recheck) {
       clearInterval(S._recheck);
       S._recheck = null;
-      S.offline = false;
-      renderOfflineBar();
-      toast("✅ Server tiklandi — to'liq rejim");
-      try {
-        S.me = await api("/api/me");
-        S.home = null; // zaxira nusxa emas, serverdan yangisi olinsin
-        await loadHome();
-      } catch (_) {
-        // Tiklanish yarim qolsa — mijoz ilovani qayta ochsa to'liq yuklanadi
-      }
-    }, 20000);
+    }
   }
 
   /* ======================================================================
@@ -2770,9 +2766,9 @@
   }
 
   async function openBookingSheet() {
-    // Navbat bo'sh vaqtni serverdan hisoblashni talab qiladi (band slotlar
-    // bazada). Zaxira rejimda buni bajarish mumkin emas.
-    if (S.offline) return offlineBlocked("Navbat olish");
+    // Bo'sh vaqtlar endi brauzerda hisoblanadi: band slotlar bazadan
+    // o'qiladi, mantiq `utils/helpers.py: free_slots` dan aynan ko'chirilgan.
+    // Shuning uchun Render kerak emas.
     haptic();
     BK.step = 1;
     BK.service = null;
@@ -2872,7 +2868,9 @@
     if (recap) box.append(recap);
     box.append(el("div", "bk-load", "Kunlar yuklanmoqda..."));
     try {
-      BK.days = await api("/api/dates?service_id=" + BK.service.id);
+      BK.days = S.offline
+        ? await ZimmerOffline.bookingDates(BK.service.duration_min)
+        : await api("/api/dates?service_id=" + BK.service.id);
       paintBooking();
     } catch (err) {
       onError(err);
@@ -2929,9 +2927,11 @@
     if (recap) box.append(recap);
     box.append(el("div", "bk-load", "Bo'sh vaqtlar yuklanmoqda..."));
     try {
-      const data = await api(
-        `/api/slots?service_id=${BK.service.id}&date=${encodeURIComponent(BK.day.date)}`
-      );
+      const data = S.offline
+        ? await ZimmerOffline.bookingSlots(BK.day.date, BK.service.duration_min)
+        : await api(
+            `/api/slots?service_id=${BK.service.id}&date=${encodeURIComponent(BK.day.date)}`
+          );
       BK.slots = data.slots || [];
       paintBooking();
     } catch (err) {
@@ -3013,7 +3013,21 @@
       btn.disabled = true;
       btn.textContent = "Band qilinmoqda...";
       try {
-        const res = await api("/api/bookings", {
+        // Bazaga to'g'ridan yoziladi. Bandlik yozishdan OLDIN qayta
+        // tekshiriladi — oradа boshqa mijoz olib qo'ygan bo'lishi mumkin.
+        const res = S.offline
+          ? await ZimmerOffline.createBooking({
+              uid: (S.me && (S.me.user_id || S.me.id)) || 0,
+              service_id: BK.service.id,
+              service_name: BK.service.name || "",
+              duration_min: BK.service.duration_min,
+              price: BK.service.price || 0,
+              date: BK.day.date,
+              time: BK.time,
+              name: (S.me && (S.me.full_name || S.me.first_name)) || "",
+              phone: (S.me && S.me.phone) || "",
+            })
+          : await api("/api/bookings", {
           method: "POST",
           body: { service_id: BK.service.id, date: BK.day.date, time: BK.time },
         });
