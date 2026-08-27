@@ -43,6 +43,7 @@
     previewTab: "art",
     home: null,
     favorites: new Set(), // saqlangan tovar ID'lari
+    favLoaded: false, // saqlanganlar serverdan olindimi (Firebase manbasida)
     catIndex: 0,
     cart: loadCart(),
     rings: [], // halqalar (kategoriyalar)
@@ -1060,6 +1061,16 @@
   }
 
   /** Saqlanganlar — zaxira rejimda faqat mahalliy xotirada. */
+  /** Saqlangan tovar id'lari (onlayn). Server javob bermasa — mahalliy. */
+  async function favoriteIds() {
+    try {
+      const res = await api("/api/favorites");
+      return (res.items || []).map((x) => x.id);
+    } catch (_) {
+      return localFavorites();
+    }
+  }
+
   function localFavorites() {
     try {
       const raw = JSON.parse(localStorage.getItem(OFFLINE_KEY) || "[]");
@@ -1133,24 +1144,67 @@
       $("products").innerHTML = '<div class="skel"></div><div class="skel"></div>';
     }
     try {
-      if (S.offline) {
-        // Zaxira rejim: katalog Firebase'dan. Shakl `/api/home` bilan bir xil,
-        // shuning uchun pastdagi render kodi umuman o'zgarmaydi.
+      /* ================================================================
+         DO'KON MANBASI — FIREBASE BIRINCHI (Avto_A1 modeli)
+
+         ILGARI NIMA XATO EDI
+         Admin paneli tovarni FIREBASE'ga yozadi (`catalog/products` —
+         `admin-shop.js`), do'kon esa onlayn holatda `/api/home` dan,
+         ya'ni RENDER + SQLite dan o'qirdi. Ikki xil ombor:
+
+             admin yozadi  ->  Firebase
+             mijoz o'qiydi  ->  SQLite      ❌ mos kelmaydi
+
+         Natijada:
+           • admin o'chirgan tovar do'konda TURAVERARDI (SQLite bilmaydi);
+           • yangi qo'shilgan tovar KO'RINMASDI (bot restart bo'lguncha);
+           • narx o'zgarishi ham kechikardi.
+
+         SQLite'da `deleted` degan ustun UMUMAN yo'q — ya'ni mini app'ning
+         «o'chirish» belgisi u yerga hech qachon yetib bormaydi. Uni
+         qo'shish ham yechim emas: ikki ombor har doim bir-biridan
+         uzoqlashadi.
+
+         Endi Avto_A1 dagidek: YAGONA manba — Firebase. Admin qaysi joyga
+         yozsa, mijoz ham shu joydan o'qiydi, o'zgarish DARHOL ko'rinadi.
+         `/api/home` faqat ZAXIRA: Firebase sozlanmagan yoki o'qilmagan
+         holatda ishlatiladi.
+         ================================================================ */
+      let src = null;
+
+      if (window.ZimmerOffline && ZimmerOffline.available()) {
+        // `enterOfflineMode()` katalogni allaqachon o'qib qo'ygan bo'lishi
+        // mumkin — qayta so'ramaymiz.
         //
-        // `enterOfflineMode()` katalogni allaqachon o'qib qo'ygan (zaxira
-        // rejimga o'tish mumkinligini tekshirish uchun) — uni QAYTA
-        // SO'RAMAYMIZ, aks holda kirishda ikki marta tarmoqqa chiqilardi.
-        if (!S.home) S.home = await ZimmerOffline.home();
-        // Zanjirning hech biri ishlamasa ham YIQILMAYMIZ: bo'sh katalog
-        // bilan davom etamiz. Ilgari bu yerda xato ko'tarilib, mijoz
-        // to'siq ekraniga tushardi — ilovaning ochilishi ancha yaxshi.
-        if (!S.home) S.home = EMPTY_HOME;
-      } else {
-        S.home = await api("/api/home");
+        // Onlayn holatda `strict` rejim: Firebase o'qilmasa keshni EMAS,
+        // `/api/home` ni ishlatamiz (u yangiroq).
+        if (!S.home) S.home = await ZimmerOffline.home({ strict: !S.offline });
+        if (S.home) src = "firebase";
       }
-      S.favorites = new Set(
-        S.offline ? localFavorites() : S.home.favorite_ids || []
-      );
+      if (!S.home && !S.offline) {
+        S.home = await api("/api/home");
+        src = "api";
+      }
+      if (!S.home && S.offline) {
+        // Zaxira rejimda to'liq zanjir (kesh, statik nusxa)
+        S.home = await ZimmerOffline.home();
+        if (S.home) src = "cache";
+      }
+      // Zanjirning hech biri ishlamasa ham YIQILMAYMIZ: bo'sh katalog
+      // bilan davom etamiz — ilovaning ochilishi to'siq ekranidan yaxshi.
+      if (!S.home) S.home = EMPTY_HOME;
+
+      /* SAQLANGANLAR. `/api/home` javobida `favorite_ids` bo'ladi, Firebase
+         katalogida esa yo'q (saqlanganlar serverda turadi). Shu sababli
+         Firebase'dan o'qilgan bo'lsa ularni BIR MARTA alohida olamiz. */
+      if (S.offline) {
+        S.favorites = new Set(localFavorites());
+      } else if (src === "api") {
+        S.favorites = new Set(S.home.favorite_ids || []);
+      } else if (!S.favLoaded) {
+        S.favorites = new Set(await favoriteIds());
+        S.favLoaded = true;
+      }
       // Katalogni keshlaymiz — bu 3-QATLAM zaxira. Server ham, Firebase ham
       // javob bermasa, BIR MARTA kirgan mijoz baribir do'konni ko'radi va
       // to'siq ekraniga TUSHMAYDI.
@@ -1757,6 +1811,15 @@
     const all = [];
     ((S.home && S.home.catalog) || []).forEach((c) =>
       (c.products || []).forEach((p) => {
+        // OXIRGI TO'SIQ: o'chirilgan/yashirilgan tovar ekranga CHIQMAYDI.
+        //
+        // Katalog beshta manbadan kelishi mumkin (Render API, Firebase,
+        // localStorage keshi, statik `catalog.json`, Worker). Ularning
+        // hammasida filtr bo'lishi kerak, lekin bittasi qolib ketsa admin
+        // o'chirgan tovar do'konda ko'rinib turadi — aynan shu bo'lgan edi.
+        // Shu sababli chizishdan OLDIN yana bir marta tekshiramiz: bu
+        // yerdan o'tmagan tovar hech qaysi manbadan ham o'tolmaydi.
+        if (!p || p.deleted || p.is_active === 0 || p.is_active === false) return;
         if (!seen.has(p.id)) {
           seen.add(p.id);
           all.push(p);

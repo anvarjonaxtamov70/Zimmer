@@ -236,3 +236,133 @@ uchun kerak.
 ko'rinmasdi — tugma esa «endi do'konda ko'rinadi» deb yozardi. Shu sababli yangi
 `sync.publish_imported_products()` qo'shildi: Firebase `products` → SQLite →
 `catalog`. U «tasdiqlash» va `/approve_batch` dan keyin chaqiriladi.
+
+
+---
+
+# 6. Tovar paneli Avto_A1 kabi qilindi (2-to'lqin)
+
+## 6.1. «Hamma tovarni o'chirdim, lekin menyuda turibdi»
+
+Ikkita alohida sabab bor edi.
+
+### Sabab A — do'kon va admin panel BOSHQA-BOSHQA ombordan ishlardi
+
+```
+admin panel yozadi  ->  Firebase catalog/products
+mijoz o'qiydi        ->  Render + SQLite (/api/home)     ❌ mos kelmaydi
+```
+
+SQLite'da `deleted` degan ustun **umuman yo'q** — ya'ni mini app'ning
+«o'chirish» belgisi u yerga hech qachon yetib bormaydi. Shu sababli
+o'chirilgan tovar do'konda turaverardi, yangi qo'shilgani esa bot qayta ishga
+tushmagunicha ko'rinmasdi.
+
+**Yechim (Avto_A1 modeli):** do'kon ham **Firebase'dan** o'qiydi. Admin qaysi
+joyga yozsa, mijoz shu joydan o'qiydi — o'zgarish **darhol** ko'rinadi.
+`/api/home` faqat zaxira: Firebase sozlanmagan yoki o'qilmagan holatda.
+
+### Sabab B — hammasi o'chirilganda kod ESKI KESHGA qaytardi
+
+`docs/js/offline.js` da shunday qator bor edi:
+
+```js
+if (!products.length) return await cachedOrSnapshot();
+```
+
+Admin hammasini o'chiradi → filtr ularni tashlaydi → tirik tovar 0 →
+kod **30 kunlik localStorage keshini** yoki repodagi **demo (seed)
+`catalog.json`** ni ko'rsatadi. Ya'ni o'chirilgan tovarlar (yoki «LED lampa
+H4» kabi demo tovarlar) qaytib keladi.
+
+Endi uch holat ajratiladi:
+
+| Holat | Nima bo'ladi |
+|---|---|
+| o'qish yiqildi (401/internet) | kesh yoki statik nusxa (mijoz to'siq ekranini ko'rmasin) |
+| tugun umuman yo'q (birinchi o'rnatish) | kesh yoki statik nusxa |
+| tugun bor, tirik tovar 0 | **do'kon BO'SH** — bu haqiqat |
+
+Yana uch joyda himoya qo'shildi:
+
+- `app.js: buildShopProducts()` — chizishdan oldin oxirgi filtr. Katalog besh
+  manbadan kelishi mumkin; bittasida filtr qolib ketsa ham bu yerdan o'tmaydi.
+- `offline.js: cached()` va `snapshot()` — kesh va statik nusxa ham filtrlanadi.
+- `admin-shop.js: freshenShop()` — o'chirish/saqlashdan keyin **localStorage
+  keshi ham** tozalanadi. Ilgari faqat `state.home = null` qilinardi, ya'ni
+  ilova qayta ochilganda o'chirilgan tovar yana ko'rinardi.
+
+Bundan tashqari:
+
+- `services/sync.py: import_products()` — `deleted: true` tovarni SQLite'ga
+  qaytadan yozmaydi (ilgari bot har restartda uni tiriltirardi).
+- `scripts/build_catalog_snapshot.py` — Firebase o'qilgan, lekin tovar yo'q
+  bo'lsa **bo'sh nusxa** yoziladi. Ilgari seed'ga o'tib demo tovarlarni
+  yozardi va ular mijozga ko'rinardi.
+
+## 6.2. Narx maydonida raqamlar ajratilmasdi
+
+`admin-shop.js` da narx maydoniga formatlash **umuman bog'lanmagan** edi
+(`admin.js` da `formatMoneyInput` bor edi, lekin u panel ishlatilmaydi).
+
+Endi `150000` yozsangiz maydonda `150 000` ko'rinadi. Bu shunchaki
+chiroylilik emas: nollarni ko'z bilan sanash kerak bo'lmaydi, ya'ni
+`1 500 000` o'rniga `150 000` yozib qo'yish xatosi kamayadi. Ommaviy narx
+maydonida ham ishlaydi.
+
+## 6.3. Aksiya mantig'i ishlamasdi
+
+Forma «Flash chegirma» deb so'rardi va **ikki maydon majburiy** edi —
+chegirma narxi **va** necha soat:
+
+```js
+if (flash && flash < price && flashH > 0) { ... }
+```
+
+Soatni to'ldirmasangiz chegirma **umuman yozilmasdi**: admin narx kiritadi,
+«saqlandi» xabarini ko'radi, do'konda esa hech qanday chegirma yo'q. Buning
+ustiga maydonlar teskari edi — «narx» maydoniga asl narx, «chegirma»
+maydoniga sotuv narxi tushardi.
+
+Do'kon esa aslida **oddiy** mantiq bilan ishlaydi (`app.js: discountPercent`):
+
+```
+old_price > price  ->  chegirma = (old_price − price) / old_price
+```
+
+Shuning uchun forma ham shunday bo'ldi:
+
+| Maydon | Ma'nosi |
+|---|---|
+| **Narxi** | hozirgi sotuv narxi |
+| **Eski narx** | undan **KATTA** son → chegirma o'zi hisoblanadi |
+| **Necha soat** | **ixtiyoriy** — berilsa taymer, bo'sh bo'lsa muddatsiz |
+
+Chegirma foizi yozayotganingizda darhol ko'rinadi:
+`🔥 Chegirma −20% · 100 000 so'm → 80 000 so'm`. Eski narx kichik bo'lsa
+saqlash **to'xtaydi** (ilgari jimgina e'tiborsiz qolardi).
+
+## 6.4. Tavsif oynachasi qaytarildi
+
+Tavsif oddiy `admin-input` edi. Endi alohida chiroyli quti: fokusda oltin
+halqa, pastda belgi sanoqchi (`0 / 500`), tayyor matn chiplari
+(✅ Original · 🛡 Kafolat · 🚚 Yetkazish · 🔧 O'rnatish · 💡 5500K) va
+🎤 ovoz bilan kiritish.
+
+## 6.5. Rasm — Avto_A1 kabi yagona manba
+
+Ilgari ikki xil ro'yxat bor edi: yuklangan rasmlar (`S.photos`) va qo'lda
+yozilgan havolalar. Tartib aralashardi, «asosiy rasm» qaysi biri ekani
+tushunarsiz edi, chegara ikki joyda tekshirilardi.
+
+Endi Avto_A1 dagidek **yagona manba — uchta havola maydoni**:
+
+```
+galereyadan yuklash -> ImgBB -> havola MAYDONGA o'zi tushadi
+qo'lda havola yozish -> ayni o'sha maydon
+```
+
+Boshqarish tugmalari ham bir xil: **⭐** asosiy qilish · **◀ ▶** tartibni
+almashtirish · **✕** o'chirish. Yuklanish paytidagi foizli ko'rinish
+saqlandi. Kamida 1 rasm majburiy — rasmsiz tovar do'konda bo'sh kvadrat
+bo'lib turadi va uni hech kim bosmaydi.

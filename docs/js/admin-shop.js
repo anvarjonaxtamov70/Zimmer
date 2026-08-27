@@ -39,13 +39,38 @@ window.ZimmerShop = (function () {
   const P = "catalog/products";
   const MAX_PHOTOS = 3;
 
+  /* ==================================================================
+     DO'KON KO'RINISHINI ESKIRTIRISH
+
+     Ilgari har o'zgarishdan keyin faqat shu qator bajarilardi:
+
+         if (app().state) app().state.home = null;
+
+     U esa faqat XOTIRADAGI nusxani tozalaydi. Katalog bundan tashqari
+     `localStorage["zimmer_home_cache"]` da 30 KUN saqlanadi. Natijada
+     admin tovarni o'chiradi, ilovani yopib qayta ochadi — va o'chirilgan
+     tovar bosh menyuda YANA turadi (kesh o'qildi).
+
+     Endi ikkisi ham tozalanadi.
+     ================================================================== */
+  function freshenShop() {
+    if (app().state) app().state.home = null;
+    try {
+      if (window.ZimmerOffline && window.ZimmerOffline.clearCache) {
+        window.ZimmerOffline.clearCache();
+      }
+    } catch (_) {}
+  }
+
   const S = {
     view: null, // menu | add | edit | inventory
     cats: [], // [{name, icon}]
     cars: [], // [{id, name}]
     items: [], // ombor ro'yxati
     editing: null, // tahrirlanayotgan tovar id si
-    photos: [], // [{url, pct, phase, error}]
+    // Yuklanayotgan rasmlar (VAQTINCHA). Tayyor havolalar bu yerda EMAS —
+    // ular formadagi uchta `shop-imgN` maydonida turadi (yagona manba).
+    jobs: [], // [{file, localUrl, pct, phase, error, node}]
     catSel: null, // tanlangan kategoriya nomi
     carSel: null, // tanlangan mashina id si (ixtiyoriy)
     query: "",
@@ -317,49 +342,102 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
-     RASMLAR — galereyadan yuklash (ImgBB) + JONLI progress
+     RASMLAR — AVTO_A1 MODELI: uchta havola maydoni = YAGONA MANBA
 
-     ================== NIMA UCHUN ISHLAMAY QOLGAN EDI ==================
-     Admin galereyadan rasm tanlaydi — va HECH NARSA bo'lmaydi. Eskiz
-     chiqmaydi, foiz chiqmaydi, xato ham chiqmaydi. Sababi bitta qatorda:
+     NEGA QAYTA YOZILDI
+     Ilgari bu yerda IKKI xil ro'yxat bor edi: yuklangan rasmlar (`S.photos`)
+     va qo'lda yozilgan havolalar (uchta matn maydoni). Ular alohida
+     hisoblanardi:
+        • tartib aralashardi (yuklangani avval, qo'lda yozilgani keyin);
+        • «asosiy rasm» qaysi biri ekani tushunarsiz edi;
+        • 3 ta chegara ikki joyda tekshirilardi;
+        • bittasini o'chirsangiz ikkinchi ro'yxat siljib ketardi.
 
-         inp.onchange = async (ev) => {
-           const files = ev.target.files;   // havola olindi
-           ev.target.value = "";            // <-- input tozalandi
-           await handleFiles(files);        // files ALLAQACHON BO'SH
-         };
+     Avto_A1 da bunday chalkashlik YO'Q. Rasmlarning yagona manbasi —
+     formadagi uchta havola maydoni:
 
-     `input.files` — TIRIK (live) `FileList`. Brauzer har chaqiruvda AYNI
-     o'sha obyektni qaytaradi, `input.value = ""` esa o'sha obyektni
-     JOYIDA bo'shatadi. Ya'ni `files` o'zgaruvchisi ham bo'sh bo'lib
-     qoladi va `handleFiles` ning birinchi qatori jimgina chiqib ketardi:
+         galereyadan yuklash -> ImgBB -> havola MAYDONGA yoziladi
+         qo'lda havola yozish -> ayni o'sha maydon
 
-         if (!up() || !files || !files.length) return;   // <- shu yer
+     Shundan keyin hammasi bitta joydan o'qiladi (`readImgUrls`): eskizlar
+     ham, jonli kartochka ham, saqlash ham. Maydon soni 3 — ya'ni chegara
+     o'z-o'zidan hosil bo'ladi, alohida hisoblash kerak emas.
 
-     Input `value` ni tozalash O'ZI KERAK — aks holda admin ayni o'sha
-     faylni ikkinchi marta tanlasa `onchange` umuman ishlamaydi. Yechim:
-     ro'yxatni AVVAL haqiqiy massivga ko'chirib olish, KEYIN tozalash.
-     Avto_A1 aynan shunday qiladi (`Array.from(event.target.files)`) —
-     shuning uchun u yerda rasm yuklash bexato ishlaydi.
+     Boshqarish tugmalari ham Avto_A1 dagidek:
+         ⭐   — shu rasmni ASOSIY qilish (birinchi o'ringa suradi)
+         ◀ ▶ — tartibni almashtirish
+         ✕   — o'chirish
 
-     ================== JONLI KO'RINISH (yangi) ==================
-     Ilgari yuklanish paytida faqat bo'sh kvadratcha ichida «siqilmoqda»
-     yozuvi turardi — admin o'zi tanlagan rasmni ko'rmasdi va nima
-     bo'layotganini tushunmasdi. Endi Avto_A1 dan bir qadam oldinga:
+     Yuklash paytidagi foizli ko'rinish (Zimmer'ning qulayligi) saqlanadi:
+     yuklanayotgan rasm eskizlar ORASIDA vaqtincha «ish» sifatida turadi va
+     havola kelgach oddiy eskizga aylanadi.
 
-       • rasm DARHOL ko'rinadi (`URL.createObjectURL` — internet kutilmaydi)
-       • ustida qorong'i qatlam + halqa + foiz: «siqilmoqda…» -> «37%»
-       • tugagach ✅ chaqnaydi va qatlam so'nadi, «Asosiy» belgisi chiqadi
-       • xato bo'lsa qizil ❌ + «↻ Qayta» tugmasi (fayl saqlanib turadi)
-
-     Yana bir farq: progress har tick'da butun ro'yxatni QAYTA YASAMAYDI.
-     Ilgari `renderThumbs()` `innerHTML` ni to'liq almashtirardi va `<img>`
-     har foizda qaytadan yuklanib miltillardi. Endi faqat foiz matni va
-     chiziq kengligi o'zgaradi.
+     ESLATMA — `onchange` dagi tuzoq saqlanadi: `ev.target.files` TIRIK
+     `FileList`, `input.value = ""` uni JOYIDA bo'shatadi. Shu sababli avval
+     massivga nusxa olinadi, keyin input tozalanadi.
      ================================================================== */
 
-  /** Slot fazalari. `up().uploadFile` "siqish"/"yuklash" deb xabar beradi. */
-  const PH = { COMPRESS: "compress", UPLOAD: "upload", DONE: "done", ERROR: "error" };
+  const IMG_IDS = ["shop-img1", "shop-img2", "shop-img3"];
+
+  /* ---------------------------------------------- havola maydonlari */
+
+  function imgInputs() {
+    return IMG_IDS.map((id) => $(id));
+  }
+
+  /** Havolalar ro'yxati. Bo'sh maydonlar TASHLANADI (ro'yxat siqiladi). */
+  function readImgUrls() {
+    return imgInputs()
+      .map((el) => (el ? String(el.value || "").trim() : ""))
+      .filter(Boolean);
+  }
+
+  /** Ro'yxatni maydonlarga yozadi (ortiqcha maydonlar tozalanadi). */
+  function setImgUrls(list) {
+    imgInputs().forEach((el, i) => {
+      if (el) el.value = (list && list[i]) || "";
+    });
+  }
+
+  function removeImg(i) {
+    const a = readImgUrls();
+    a.splice(i, 1);
+    setImgUrls(a);
+    renderThumbs();
+  }
+
+  function moveImg(i, dir) {
+    const a = readImgUrls();
+    const j = i + dir;
+    if (j < 0 || j >= a.length) return;
+    const t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+    setImgUrls(a);
+    renderThumbs();
+  }
+
+  /** Tanlangan rasmni birinchi o'ringa suradi — u ASOSIY bo'ladi. */
+  function setMainImg(i) {
+    const a = readImgUrls();
+    if (i <= 0 || i >= a.length) return;
+    a.unshift(a.splice(i, 1)[0]);
+    setImgUrls(a);
+    renderThumbs();
+  }
+
+  /** SAQLANADIGAN havolalar (max 3, takrorlanmaydi). */
+  function photoUrls() {
+    const out = readImgUrls();
+    return out.filter((u, i) => out.indexOf(u) === i).slice(0, MAX_PHOTOS);
+  }
+
+  /** Nechta yuklash hali ketmoqda. */
+  function busyPhotos() {
+    return (S.jobs || []).filter((j) => !j.error).length;
+  }
+
+  /* ------------------------------------------------------ forma bloki */
 
   function photoBlock() {
     const ready = up() && up().available();
@@ -371,29 +449,28 @@ window.ZimmerShop = (function () {
       " ta</span></div></div>";
 
     if (ready) {
-      // DIQQAT: fayl input'i yuklash zonasini TO'LIQ qoplaydi (shaffof).
-      // Ilgari `<label for>` + `hidden` input ishlatilgan edi — ko'p
-      // brauzerda ishlaydi, lekin ba'zi Telegram WebView'larida `hidden`
-      // input `label` bosilganda ochilmaydi. Qoplama input — eng ishonchli
-      // usul: bosish to'g'ridan input'ning o'ziga tushadi.
+      // Fayl input'i yuklash zonasini TO'LIQ qoplaydi (shaffof). `hidden`
+      // input + `label for` ba'zi Telegram WebView'larida ochilmaydi.
       html +=
         '<div class="apx-upload" id="shop-drop">' +
         '<div class="apx-up-ic">⬆️</div>' +
         '<div class="apx-up-t">Galereyadan rasm yuklash</div>' +
-        '<div class="apx-up-s">Rasm tanlang — yuklanishi shu yerda ko\'rinadi</div>' +
+        '<div class="apx-up-s">Havola pastdagi maydonga o\'zi tushadi</div>' +
         '<input type="file" id="shop-file" accept="image/*" multiple>' +
         "</div>";
     } else {
       html +=
         '<div class="adm-hint-block">Galereyadan yuklash uchun ImgBB kaliti kerak ' +
-        "(config.js -> IMGBB_KEY). Hozircha havola qo'ying.</div>";
+        "(config.js -> IMGBB_KEY). Hozircha havolani qo'lda qo'ying.</div>";
     }
+
     html +=
       '<div class="shop-thumbs" id="shop-thumbs"></div>' +
       '<div class="up-status" id="shop-up-status"></div>' +
-      '<input type="text" class="admin-input" id="shop-img1" placeholder="Yoki rasm linki (ixtiyoriy)">' +
-      '<input type="text" class="admin-input" id="shop-img2" placeholder="2-rasm linki (ixtiyoriy)">' +
-      '<input type="text" class="admin-input" id="shop-img3" placeholder="3-rasm linki (ixtiyoriy)">' +
+      '<div class="apx-sub">Rasm havolalari — 1-si ASOSIY</div>' +
+      '<input type="text" class="admin-input" id="shop-img1" placeholder="1-rasm havolasi (asosiy)">' +
+      '<input type="text" class="admin-input" id="shop-img2" placeholder="2-rasm havolasi (ixtiyoriy)">' +
+      '<input type="text" class="admin-input" id="shop-img3" placeholder="3-rasm havolasi (ixtiyoriy)">' +
       "</div>";
     return html;
   }
@@ -402,17 +479,12 @@ window.ZimmerShop = (function () {
     const inp = $("shop-file");
     if (inp)
       inp.onchange = (ev) => {
-        // 1) NUSXA OLAMIZ — `ev.target.files` tirik obyekt, tozalashdan
-        //    keyin bo'shab qoladi. `slice` haqiqiy massiv yasaydi.
         const picked = Array.prototype.slice.call(ev.target.files || []);
-        // 2) endi tozalash xavfsiz (ayni fayl qayta tanlansa ham ishlaydi)
         ev.target.value = "";
-        // 3) `onchange` ni bloklamaymiz — yuklash fonda ketadi
         handleFiles(picked);
       };
 
-    // Zaxira: agar biror WebView'da qoplama input bosilmasa, zonaning
-    // o'zi input'ni majburan ochadi.
+    // Zaxira: qoplama input bosilmasa, zonaning o'zi ochadi.
     const zone = $("shop-drop");
     if (zone && inp)
       zone.onclick = (ev) => {
@@ -422,11 +494,10 @@ window.ZimmerShop = (function () {
         }
       };
 
-    // Qo'lda kiritilgan havola: jonli kartochka DARHOL yangilanadi, eskiz
-    // esa yozib bo'lgandan keyin. Aks holda har harfda chala havola bilan
-    // `<img>` yaratilib, buzuq rasm belgisi miltillab turadi.
+    // Havola maydonlari: jonli kartochka DARHOL, eskiz esa yozib bo'lgach
+    // (aks holda har harfda chala havola bilan buzuq rasm miltillaydi).
     let linkTimer = null;
-    ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
+    IMG_IDS.forEach((id) => {
       const el = $(id);
       if (!el) return;
       el.oninput = () => {
@@ -441,7 +512,7 @@ window.ZimmerShop = (function () {
     });
   }
 
-  /* -------------------------------------------------------- slot hayoti */
+  /* ------------------------------------------------------ yuklash ishi */
 
   function objectUrl(file) {
     try {
@@ -451,176 +522,119 @@ window.ZimmerShop = (function () {
     }
   }
 
-  function makeSlot(file) {
+  function makeJob(file) {
     return {
       file: file,
       localUrl: objectUrl(file), // internet kutmasdan ko'rsatish uchun
-      url: null, // ImgBB havolasi (saqlanadigan qiymat)
       pct: 0,
-      phase: PH.COMPRESS,
+      phase: "compress", // compress | upload
       error: null,
-      node: null, // DOM tugun (joyida yangilash uchun)
-      settled: false, // ✅ chaqnashi ko'rsatilganmi
+      node: null,
     };
   }
 
-  /** Object URL'ni bo'shatamiz — aks holda har rasm xotirada qolib ketadi. */
-  function releaseSlot(slot) {
-    if (slot && slot.localUrl) {
+  function releaseJob(job) {
+    if (job && job.localUrl) {
       try {
-        URL.revokeObjectURL(slot.localUrl);
+        URL.revokeObjectURL(job.localUrl);
       } catch (_) {}
-      slot.localUrl = null;
+      job.localUrl = null;
     }
   }
 
   function clearPhotos() {
-    S.photos.forEach(releaseSlot);
-    S.photos = [];
+    (S.jobs || []).forEach(releaseJob);
+    S.jobs = [];
   }
-
-  /* -------------------------------------------------------- havolalar */
-
-  /** Faqat qo'lda kiritilgan havolalar. */
-  function manualUrls() {
-    const out = [];
-    ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
-      const v = $(id) && $(id).value.trim();
-      if (v) out.push(v);
-    });
-    return out;
-  }
-
-  /** SAQLANADIGAN havolalar: yuklab bo'lingan + qo'lda kiritilgan (max 3). */
-  function photoUrls() {
-    const out = S.photos.filter((p) => p.url).map((p) => p.url).concat(manualUrls());
-    return out.filter((u, i) => out.indexOf(u) === i).slice(0, MAX_PHOTOS);
-  }
-
-  /** KO'RSATISH uchun: yuklanmagan slotlar ham mahalliy rasmni beradi. */
-  function previewUrls() {
-    const out = S.photos
-      .map((p) => p.url || p.localUrl)
-      .filter(Boolean)
-      .concat(manualUrls());
-    return out.filter((u, i) => out.indexOf(u) === i).slice(0, MAX_PHOTOS);
-  }
-
-  /** Nechta o'rin band (slot + qo'lda kiritilgan havola). */
-  function usedCount() {
-    return S.photos.length + manualUrls().length;
-  }
-
-  function busyPhotos() {
-    return S.photos.filter((p) => p.phase === PH.COMPRESS || p.phase === PH.UPLOAD).length;
-  }
-
-  /* -------------------------------------------------------- yuklash */
 
   async function handleFiles(picked) {
     if (!up() || !up().available()) return;
     const files = (picked || []).filter(Boolean);
     if (!files.length) return;
 
-    const room = MAX_PHOTOS - usedCount();
-    if (room <= 0) return toast("Maksimum " + MAX_PHOTOS + " ta rasm");
-
+    const room = MAX_PHOTOS - readImgUrls().length - (S.jobs || []).length;
+    if (room <= 0) {
+      return toast("Maksimum " + MAX_PHOTOS + " ta rasm. Avval birortasini o'chiring.");
+    }
     const list = files.slice(0, room);
     if (files.length > room) {
       toast("Faqat " + room + " ta qo'shildi (chegara " + MAX_PHOTOS + " ta)");
     }
 
-    const slots = list.map(makeSlot);
-    slots.forEach((s) => S.photos.push(s));
-    // Eskizlar DARHOL chiqadi — admin tanlagan rasmini ko'radi.
-    renderThumbs();
+    const jobs = list.map(makeJob);
+    S.jobs = (S.jobs || []).concat(jobs);
+    renderThumbs(); // eskiz DARHOL chiqadi
     haptic();
 
     let ok = 0;
-    for (const slot of slots) {
-      if (await runSlot(slot)) ok++;
+    for (const job of jobs) {
+      const url = await runJob(job);
+      if (url) {
+        dropJob(job);
+        // Havola MAYDONGA tushadi — bundan keyin u oddiy havola, xolos.
+        setImgUrls(readImgUrls().concat([url]).slice(0, MAX_PHOTOS));
+        ok++;
+      }
+      renderThumbs();
     }
 
     if (ok) {
-      haptic("success");
+      haptic("ok");
       toast("✅ " + ok + " ta rasm yuklandi");
     }
-    paintStatus();
   }
 
-  /** Bitta slotni siqib yuklaydi. «↻ Qayta» tugmasi ham shu funksiyani
-   *  chaqiradi — shuning uchun holat har chaqiruvda noldan tiklanadi.
+  function dropJob(job) {
+    const i = (S.jobs || []).indexOf(job);
+    if (i >= 0) S.jobs.splice(i, 1);
+    releaseJob(job);
+  }
+
+  /** Bitta faylni siqib yuklaydi va HAVOLA qaytaradi (xato bo'lsa null).
    *
-   *  DIQQAT: `try` faqat YUKLASHNI o'raydi. Ilgari muvaffaqiyat kodi ham
-   *  `try` ichida edi va u yerdagi har qanday nosozlik (masalan DOM
-   *  yangilashdagi kutilmagan xato) `catch` ga tushib, ALLAQACHON yuklab
-   *  bo'lingan rasmni «yuklanmadi» deb ko'rsatardi. */
-  async function runSlot(slot) {
-    slot.error = null;
-    slot.pct = 0;
-    slot.phase = PH.COMPRESS;
-    paintSlot(slot);
+   *  `try` faqat yuklashni o'raydi: ilgari muvaffaqiyat kodi ham ichida edi
+   *  va bezashdagi har qanday nosozlik allaqachon yuklangan rasmni
+   *  «yuklanmadi» deb ko'rsatardi. */
+  async function runJob(job) {
+    job.error = null;
+    job.pct = 0;
+    job.phase = "compress";
+    paintJob(job);
     paintStatus();
 
     let res = null;
     try {
-      res = await up().uploadFile(slot.file, (pct, phase) => {
-        slot.pct = pct;
-        slot.phase = phase === "siqish" ? PH.COMPRESS : PH.UPLOAD;
-        paintSlot(slot);
+      res = await up().uploadFile(job.file, (pct, phase) => {
+        job.pct = pct;
+        job.phase = phase === "siqish" ? "compress" : "upload";
+        paintJob(job);
       });
     } catch (err) {
-      slot.phase = PH.ERROR;
-      slot.error = (err && err.message) || "Yuklanmadi";
-      if (err && err.code === "bad_key") slot.error = "ImgBB kaliti xato (config.js)";
-      if (err && err.code === "no_key") slot.error = "ImgBB kaliti yo'q (config.js)";
-      paintSlot(slot);
+      job.error = (err && err.message) || "Yuklanmadi";
+      if (err && err.code === "bad_key") job.error = "ImgBB kaliti xato (config.js)";
+      if (err && err.code === "no_key") job.error = "ImgBB kaliti yo'q (config.js)";
+      paintJob(job);
       paintStatus();
-      haptic("error");
-      toast("❌ " + slot.error);
-      return false;
+      haptic("err");
+      toast("❌ " + job.error);
+      return null;
     }
-
-    slot.url = res.url;
-    slot.pct = 100;
-    slot.phase = PH.DONE;
-    // Eskiz mahalliy `blob:` dan ImgBB havolasiga o'tadi, mahalliy nusxa
-    // esa bo'shatiladi (xotira).
-    paintSlot(slot);
-    releaseSlot(slot);
-    livePreview();
-    paintStatus();
-    return true;
+    return res.url;
   }
 
-  /* -------------------------------------------------------- ko'rinish */
+  /* --------------------------------------------------------- eskizlar */
 
-  /** Slot uchun DOM tugun yasaydi (bir marta) va `slot.node` ga saqlaydi. */
-  function slotNode(slot) {
+  /** Tayyor havola uchun eskiz: ⭐ asosiy · ◀ ▶ tartib · ✕ o'chirish. */
+  function thumbNode(url, i, total) {
     const wrap = document.createElement("div");
-    wrap.className = "img-thumb-wrap up-slot";
+    wrap.className = "img-thumb-wrap up-slot is-ready" + (i === 0 ? " is-main" : "");
 
     const img = document.createElement("img");
     img.alt = "";
-    // Havola buzuq bo'lsa BO'SH kvadrat qolmasin — belgi ko'rsatamiz.
     img.onerror = () => wrap.classList.add("up-broken");
     img.onload = () => wrap.classList.remove("up-broken");
-    const src = slot.url || slot.localUrl;
-    // `img.src = ""` brauzerda SAHIFANING o'zini yuklashga urinadi —
-    // shuning uchun bo'sh bo'lsa umuman qo'ymaymiz.
-    if (src) {
-      img.src = src;
-      slot.shownUrl = src;
-    } else {
-      wrap.classList.add("up-broken");
-    }
+    img.src = url;
     wrap.appendChild(img);
-
-    const ov = document.createElement("div");
-    ov.className = "up-ov";
-    ov.innerHTML =
-      '<span class="up-spin"></span><span class="up-pct"></span><span class="up-bar"></span>';
-    wrap.appendChild(ov);
 
     const badge = document.createElement("span");
     badge.className = "img-main-badge";
@@ -631,14 +645,85 @@ window.ZimmerShop = (function () {
     del.className = "img-del";
     del.type = "button";
     del.textContent = "✕";
+    del.title = "O'chirish";
     del.onclick = (ev) => {
       ev.stopPropagation();
       haptic();
-      // Indeks bilan emas, OBYEKT bilan izlaymiz: bir nechta rasm bir
-      // vaqtda yuklanayotganda indekslar siljib ketadi.
-      const k = S.photos.indexOf(slot);
-      if (k >= 0) S.photos.splice(k, 1);
-      releaseSlot(slot);
+      removeImg(i);
+    };
+    wrap.appendChild(del);
+
+    // ⭐ — asosiy qilish (birinchisida shunchaki belgi)
+    const star = document.createElement("button");
+    star.className = "img-star" + (i === 0 ? " on" : "");
+    star.type = "button";
+    star.textContent = "⭐";
+    star.title = i === 0 ? "Asosiy rasm" : "Asosiy qilish";
+    star.onclick = (ev) => {
+      ev.stopPropagation();
+      haptic();
+      setMainImg(i);
+    };
+    wrap.appendChild(star);
+
+    // ◀ ▶ — tartibni almashtirish
+    const row = document.createElement("div");
+    row.className = "img-move-row";
+    if (i > 0) {
+      const left = document.createElement("button");
+      left.type = "button";
+      left.className = "img-move";
+      left.textContent = "◀";
+      left.onclick = (ev) => {
+        ev.stopPropagation();
+        haptic();
+        moveImg(i, -1);
+      };
+      row.appendChild(left);
+    }
+    if (i < total - 1) {
+      const right = document.createElement("button");
+      right.type = "button";
+      right.className = "img-move";
+      right.textContent = "▶";
+      right.onclick = (ev) => {
+        ev.stopPropagation();
+        haptic();
+        moveImg(i, 1);
+      };
+      row.appendChild(right);
+    }
+    if (row.children.length) wrap.appendChild(row);
+
+    return wrap;
+  }
+
+  /** Yuklanayotgan rasm uchun eskiz (mahalliy rasm + foiz qatlami). */
+  function jobNode(job) {
+    const wrap = document.createElement("div");
+    wrap.className = "img-thumb-wrap up-slot";
+
+    const img = document.createElement("img");
+    img.alt = "";
+    img.onerror = () => wrap.classList.add("up-broken");
+    if (job.localUrl) img.src = job.localUrl;
+    else wrap.classList.add("up-broken");
+    wrap.appendChild(img);
+
+    const ov = document.createElement("div");
+    ov.className = "up-ov";
+    ov.innerHTML =
+      '<span class="up-spin"></span><span class="up-pct"></span><span class="up-bar"></span>';
+    wrap.appendChild(ov);
+
+    const del = document.createElement("button");
+    del.className = "img-del";
+    del.type = "button";
+    del.textContent = "✕";
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      haptic();
+      dropJob(job);
       renderThumbs();
     };
     wrap.appendChild(del);
@@ -648,134 +733,84 @@ window.ZimmerShop = (function () {
     retry.type = "button";
     retry.textContent = "↻";
     retry.title = "Qayta urinish";
-    retry.onclick = (ev) => {
+    retry.onclick = async (ev) => {
       ev.stopPropagation();
       haptic();
-      runSlot(slot);
+      const url = await runJob(job);
+      if (url) {
+        dropJob(job);
+        setImgUrls(readImgUrls().concat([url]).slice(0, MAX_PHOTOS));
+        haptic("ok");
+        toast("✅ Rasm yuklandi");
+      }
+      renderThumbs();
     };
     wrap.appendChild(retry);
 
-    slot.node = wrap;
-    paintSlot(slot);
+    job.node = wrap;
+    paintJob(job);
     return wrap;
   }
 
-  /** Slotning HOLATINI joyida yangilaydi (rasmni qayta yuklamasdan).
-   *  Bezash NIKAKDA yuklashni buzmasligi kerak — shu sababli butun tanasi
-   *  himoyalangan. */
-  function paintSlot(slot) {
+  /** Yuklash holatini JOYIDA yangilaydi (rasmni qayta yuklamasdan).
+   *  Bezash HECH QACHON yuklashni buzmasligi kerak — himoyalangan. */
+  function paintJob(job) {
     try {
-      paintSlotUnsafe(slot);
+      paintJobUnsafe(job);
     } catch (_) {}
   }
 
-  function paintSlotUnsafe(slot) {
-    const wrap = slot && slot.node;
+  function paintJobUnsafe(job) {
+    const wrap = job && job.node;
     if (!wrap) return;
-
     const pctEl = wrap.querySelector(".up-pct");
     const barEl = wrap.querySelector(".up-bar");
-    const imgEl = wrap.querySelector("img");
 
-    wrap.classList.remove("is-compress", "is-upload", "is-done", "is-error");
+    wrap.classList.remove("is-compress", "is-upload", "is-error");
 
-    if (slot.phase === PH.ERROR) {
+    if (job.error) {
       wrap.classList.add("is-error");
       if (pctEl) pctEl.textContent = "❌";
       if (barEl) barEl.style.width = "100%";
-      wrap.title = slot.error || "Yuklanmadi";
+      wrap.title = job.error;
       return;
     }
-
-    if (slot.phase === PH.DONE) {
-      wrap.classList.add("is-done");
-      if (pctEl) pctEl.textContent = "✅";
-      if (barEl) barEl.style.width = "100%";
-      wrap.title = "";
-      // Bulut havolasiga o'tamiz (mahalliy `blob:` bo'shatilgach yo'qoladi).
-      // `slot.shownUrl` ni o'zimiz yuritamiz: `imgEl.src` brauzerda MUTLAQ
-      // manzil bo'lib qaytadi, ya'ni to'g'ridan solishtirish ishonchsiz —
-      // rasm har bo'yashda qaytadan yuklanib miltillashi mumkin.
-      if (imgEl && slot.url && slot.shownUrl !== slot.url) {
-        slot.shownUrl = slot.url;
-        imgEl.src = slot.url;
-      }
-      // ✅ bir lahza chaqnaydi, keyin qatlam so'nadi. `settled` — bu
-      // chaqnash BIR MARTA bo'lishi uchun: ro'yxat qayta yasalganda
-      // (masalan yangi rasm qo'shilganda) eski eskiz yana chaqnamasin.
-      if (slot.settled) {
-        wrap.classList.add("is-clean");
-      } else {
-        setTimeout(() => {
-          slot.settled = true;
-          if (slot.phase === PH.DONE && slot.node) slot.node.classList.add("is-clean");
-        }, 450);
-      }
-      return;
-    }
-
-    wrap.classList.remove("is-clean");
-    if (slot.phase === PH.COMPRESS) {
+    wrap.title = "";
+    if (job.phase === "compress") {
       wrap.classList.add("is-compress");
       if (pctEl) pctEl.textContent = "siqilmoqda";
       if (barEl) barEl.style.width = "8%";
     } else {
       wrap.classList.add("is-upload");
-      if (pctEl) pctEl.textContent = slot.pct + "%";
-      if (barEl) barEl.style.width = Math.max(3, slot.pct) + "%";
+      if (pctEl) pctEl.textContent = job.pct + "%";
+      if (barEl) barEl.style.width = Math.max(3, job.pct) + "%";
     }
   }
 
-  /** Qo'lda kiritilgan havola uchun oddiy eskiz. */
-  function linkNode(url) {
-    const wrap = document.createElement("div");
-    wrap.className = "img-thumb-wrap up-slot is-done is-clean up-link";
-
-    const img = document.createElement("img");
-    img.alt = "";
-    img.src = url;
-    img.onerror = () => wrap.classList.add("up-broken");
-    wrap.appendChild(img);
-
-    const badge = document.createElement("span");
-    badge.className = "img-main-badge";
-    badge.textContent = "Asosiy";
-    wrap.appendChild(badge);
-    return wrap;
-  }
-
-  /** Butun ro'yxatni qayta yasaydi (slot qo'shilganda/o'chirilganda). */
+  /** Eskizlarni qayta yasaydi: tayyor havolalar + yuklanayotganlar. */
   function renderThumbs() {
     const box = $("shop-thumbs");
     if (!box) return;
-
     box.innerHTML = "";
-    S.photos.forEach((slot) => {
-      slot.node = null;
-      box.appendChild(slotNode(slot));
-    });
-    // Qo'lda kiritilgan havolalar ham ko'rinadi. Ilgari `photoUrls()`
-    // hisoblanardi-yu, natijasi ishlatilmasdi — link qo'ygan admin
-    // eskizni ko'rmasdi va rasm tushgan-tushmaganini bilmasdi.
-    manualUrls().forEach((u) => box.appendChild(linkNode(u)));
 
-    // «Asosiy» belgisi faqat BIRINCHI eskizda turadi.
-    const first = box.querySelector(".up-slot");
-    Array.prototype.forEach.call(box.querySelectorAll(".up-slot"), (n) => {
-      n.classList.toggle("is-main", n === first);
+    const urls = readImgUrls();
+    urls.forEach((url, i) => box.appendChild(thumbNode(url, i, urls.length)));
+    (S.jobs || []).forEach((job) => {
+      job.node = null;
+      box.appendChild(jobNode(job));
     });
 
     paintStatus();
     livePreview();
   }
 
-  /** Eskizlar ostidagi holat qatori: nechta tayyor, nechta ketmoqda. */
+  /** Eskizlar ostidagi holat qatori. */
   function paintStatus() {
     const el = $("shop-up-status");
     if (!el) return;
     const busy = busyPhotos();
-    const bad = S.photos.filter((p) => p.phase === PH.ERROR).length;
-    const ready = photoUrls().length;
+    const bad = (S.jobs || []).filter((j) => j.error).length;
+    const ready = readImgUrls().length;
 
     if (busy) {
       el.className = "up-status is-busy";
@@ -785,10 +820,154 @@ window.ZimmerShop = (function () {
       el.textContent = "❌ " + bad + " ta rasm yuklanmadi — ↻ bosib qayta urinib ko'ring";
     } else if (ready) {
       el.className = "up-status is-ok";
-      el.textContent = "✅ " + ready + " ta rasm tayyor";
+      el.textContent = "✅ " + ready + " ta rasm tayyor · 1-si asosiy";
     } else {
       el.className = "up-status";
       el.textContent = "";
+    }
+  }
+
+  /* ==================================================================
+     NARX MAYDONI — raqamlar ajratib yoziladi (Avto_A1 formatPriceInput)
+
+     Admin «150000» deb yozganda maydonda «150 000» ko'rinadi. Bu shunchaki
+     chiroylilik emas: nollarni ko'z bilan sanash kerak bo'lmaydi, ya'ni
+     «1 500 000» o'rniga «150 000» yozib qo'yish xatosi kamayadi.
+     ================================================================== */
+  function moneyInput(el) {
+    if (!el) return;
+    const digits = String(el.value || "").replace(/\D/g, "");
+    el.value = digits ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ") : "";
+  }
+
+  /** Narx maydonlarini bog'laydi: raqam ajratish + berilgan ish. */
+  function bindMoney(ids, after) {
+    ids.forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      el.oninput = () => {
+        moneyInput(el);
+        if (after) after();
+      };
+    });
+  }
+
+  /* ==================================================================
+     AKSIYA — Avto_A1 modeli: ESKI NARX yoziladi, chegirma O'ZI hisoblanadi
+
+     ILGARI NIMA BUZILGAN EDI
+     Forma «Flash chegirma» deb so'rardi va IKKI maydon MAJBURIY edi:
+     chegirma narxi VA necha soat. Saqlash sharti quyidagicha edi:
+
+         if (flash && flash < price && flashH > 0) { ... }
+
+     Ya'ni soatni to'ldirmasangiz chegirma UMUMAN yozilmasdi — admin narx
+     kiritadi, «saqlandi» xabarini ko'radi, lekin do'konda chegirma yo'q.
+     Buning ustiga maydonlar TESKARI edi: «narx» maydoniga ASL narx,
+     «chegirma» maydoniga sotuv narxi yozilardi.
+
+     Do'kon esa ODDIY mantiq bilan ishlaydi (`app.js: discountPercent`):
+
+         old_price > price  ->  chegirma = (old_price − price) / old_price
+
+     Shu sababli forma ham shunday bo'ldi: «Narxi» — hozirgi sotuv narxi,
+     «Eski narx» — undan KATTA son. Chegirma foizi darhol ko'rinadi.
+     Soat — IXTIYORIY: to'ldirilsa `flashUntil` yoziladi (taymer), bo'sh
+     qoldirilsa chegirma muddatsiz turadi.
+     ================================================================== */
+  function saleNote() {
+    const el = $("shop-sale-note");
+    if (!el) return;
+    const price = parseNum($("shop-price") && $("shop-price").value);
+    const oldp = parseNum($("shop-old") && $("shop-old").value);
+
+    if (!oldp) {
+      el.className = "apx-sale-note";
+      el.textContent = "Bo'sh qoldirilsa — aksiya yo'q.";
+      return;
+    }
+    if (!price) {
+      el.className = "apx-sale-note is-warn";
+      el.textContent = "Avval hozirgi narxni kiriting.";
+      return;
+    }
+    if (oldp <= price) {
+      el.className = "apx-sale-note is-warn";
+      el.textContent = "⚠️ Eski narx hozirgi narxdan KATTA bo'lishi kerak.";
+      return;
+    }
+    const off = Math.round(((oldp - price) / oldp) * 100);
+    el.className = "apx-sale-note is-ok";
+    el.textContent = "🔥 Chegirma −" + off + "% · " + money(oldp) + " → " + money(price);
+  }
+
+  /* ==================================================================
+     TAVSIF — tayyor shablonlar (Avto_A1 addDescTemplate)
+     ================================================================== */
+  const DESC_TPL = [
+    ["✅ Original", "✅ Original mahsulot, sifat kafolatlanadi."],
+    ["🛡 Kafolat", "🛡 1 yil kafolat beriladi."],
+    ["🚚 Yetkazish", "🚚 Toshkent bo'ylab yetkazib berish mavjud."],
+    ["🔧 O'rnatish", "🔧 O'rnatish xizmati mavjud."],
+    ["💡 5500K", "💡 Yorug'lik harorati 5500K — kunduzgi oq nur."],
+  ];
+
+  function descTplChips() {
+    return DESC_TPL.map(
+      (t, i) => '<button type="button" class="apx-tpl-chip" data-tpl="' + i + '">' + esc(t[0]) + "</button>"
+    ).join("");
+  }
+
+  function bindDesc() {
+    const area = $("shop-desc");
+    const count = $("shop-desc-count");
+    const paint = () => {
+      if (count && area) count.textContent = String((area.value || "").length);
+    };
+    if (area) area.oninput = paint;
+    paint();
+
+    document.querySelectorAll("#shop-tpl .apx-tpl-chip").forEach((btn) => {
+      btn.onclick = () => {
+        haptic();
+        const t = DESC_TPL[Number(btn.dataset.tpl)];
+        if (!t || !area) return;
+        // Ikki marta bosilsa takrorlanmasin
+        if (area.value.indexOf(t[1]) !== -1) return toast("Bu matn allaqachon bor");
+        area.value = area.value.trim() ? area.value.trim() + "\n" + t[1] : t[1];
+        paint();
+      };
+    });
+
+    const mic = $("shop-mic");
+    if (mic) mic.onclick = () => startVoice("shop-desc");
+  }
+
+  /** Ovozdan yozish (qurilma qo'llasa). */
+  function startVoice(targetId) {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return toast("Bu telefonda ovozli kiritish yo'q");
+    const el = $(targetId);
+    if (!el) return;
+    try {
+      const rec = new Rec();
+      rec.lang = "uz-UZ";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      toast("🎤 Gapiring...");
+      haptic("medium");
+      rec.onresult = (e) => {
+        const text = ((e.results[0] && e.results[0][0] && e.results[0][0].transcript) || "").trim();
+        if (!text) return;
+        el.value = el.value.trim() ? el.value.trim() + " " + text : text;
+        if ($("shop-desc-count")) $("shop-desc-count").textContent = String(el.value.length);
+        haptic("ok");
+        toast("✅ Yozildi");
+      };
+      rec.onerror = () => toast("Ovoz tushunilmadi, qaytaring");
+      rec.start();
+    } catch (_) {
+      toast("Ovozli kiritish ishlamadi");
     }
   }
 
@@ -800,11 +979,14 @@ window.ZimmerShop = (function () {
     if (!box) return;
     const name = ($("shop-name") && $("shop-name").value.trim()) || "";
     const price = parseNum($("shop-price") && $("shop-price").value);
-    const oldp = parseNum($("shop-flash") && $("shop-flash").value);
+    const oldp = parseNum($("shop-old") && $("shop-old").value);
     const code = ($("shop-code") && $("shop-code").value.trim()) || "";
-    // KO'RSATISH uchun mahalliy rasm ham yaraydi — kartochka ImgBB javobini
-    // kutib turmasin. Saqlashda esa faqat `photoUrls()` (haqiqiy havolalar).
-    const img = previewUrls()[0] || "";
+    const badge = ($("shop-badge") && $("shop-badge").value.trim()) || "";
+    // Yuklanayotgan rasm ham ko'rinadi — kartochka ImgBB javobini kutmaydi.
+    const firstJob = (S.jobs || []).filter((j) => j.localUrl && !j.error)[0];
+    const img = readImgUrls()[0] || (firstJob && firstJob.localUrl) || "";
+
+    saleNote();
 
     if (!name && !price && !img) {
       box.innerHTML =
@@ -812,23 +994,24 @@ window.ZimmerShop = (function () {
       return;
     }
     const main = String(name || "Tovar nomi").split("·")[0].trim();
-    // flash: oldp asl narxdan kichik bo'lsa chegirma sifatida ko'rsatamiz
-    const hasFlash = oldp && price && oldp < price;
-    const off = hasFlash ? Math.round(((price - oldp) / price) * 100) : 0;
+    const hasSale = oldp && price && oldp > price;
+    const off = hasSale ? Math.round(((oldp - price) / oldp) * 100) : 0;
+
     box.innerHTML =
       '<div class="lp-card">' +
-      (img
-        ? '<img src="' + esc(img) + '" alt="">'
-        : '<div class="lp-noimg">💡</div>') +
+      (img ? '<img src="' + esc(img) + '" alt="">' : '<div class="lp-noimg">💡</div>') +
       '<div style="flex:1;min-width:0;">' +
       '<div class="lp-name">' +
       esc(main) +
       "</div>" +
       (code ? '<div class="lp-code">🔖 ' + esc(code) + "</div>" : "") +
       '<div class="lp-price">' +
-      esc(money(hasFlash ? oldp : price || 0)) +
+      esc(money(price || 0)) +
+      (hasSale ? ' <s class="lp-was">' + esc(money(oldp)) + "</s>" : "") +
       (off ? ' <span class="lp-off">-' + off + "%</span>" : "") +
-      "</div></div></div>";
+      "</div></div>" +
+      (badge ? '<span class="lp-badge">' + esc(badge) + "</span>" : "") +
+      "</div>";
   }
 
   /* ==================================================================
@@ -904,20 +1087,53 @@ window.ZimmerShop = (function () {
      ================================================================== */
   function mainBlock() {
     return (
+      /* ---- asosiy ma'lumotlar ---- */
       '<div class="admin-form-group"><div class="apx-head">' +
       '<div class="apx-ic">🏷</div>' +
-      "<div class=\"apx-tx\"><b>Asosiy ma'lumotlar</b><span>Nomi · narxi · artikul</span></div></div>" +
+      "<div class=\"apx-tx\"><b>Asosiy ma'lumotlar</b><span>Nomi · narxi · qoldiq</span></div></div>" +
       '<input type="text" class="admin-input" id="shop-name" placeholder="Tovar nomi (mas: Bi-LED linza)">' +
-      '<input type="text" inputmode="numeric" class="admin-input" id="shop-price" placeholder="Narxi (so\'mda, mas: 150 000)">' +
-      '<input type="text" class="admin-input" id="shop-code" placeholder="Artikul / kod (ixtiyoriy)">' +
-      '<div class="apx-flash"><div class="apx-sub" style="color:#ff6b61;margin-top:0;">Flash chegirma (ixtiyoriy)</div>' +
-      '<input type="text" inputmode="numeric" class="admin-input" id="shop-flash" placeholder="Chegirma narxi (asl narxdan kam)">' +
-      '<input type="number" class="admin-input" id="shop-flash-h" placeholder="Necha soat davom etadi (mas: 24)" step="0.5" min="0">' +
-      "<div class=\"adm-hint\">Bo'sh qoldirilsa — chegirma yo'q.</div></div>" +
+      '<input type="text" inputmode="numeric" class="admin-input" id="shop-price" placeholder="Narxi — hozirgi sotuv narxi (so\'m)">' +
+      '<input type="text" class="admin-input" id="shop-code" placeholder="Artikul / OEM kod (ixtiyoriy)">' +
+      '<input type="text" class="admin-input" id="shop-badge" placeholder="Belgi — mas: Yangi, TOP (ixtiyoriy)">' +
       '<input type="number" inputmode="numeric" class="admin-input" id="shop-stock" placeholder="Qoldiq (dona)" value="10">' +
-      '<textarea class="admin-input" id="shop-desc" style="height:90px;resize:none;" placeholder="Tavsif (ixtiyoriy)"></textarea>' +
+      "</div>" +
+      /* ---- aksiya ---- */
+      '<div class="admin-form-group apx-sale"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-red">🔥</div>' +
+      "<div class=\"apx-tx\"><b>Aksiya (ixtiyoriy)</b><span>Eski narxni yozing — chegirma o'zi hisoblanadi</span></div></div>" +
+      '<input type="text" inputmode="numeric" class="admin-input" id="shop-old" placeholder="Eski narx — hozirgi narxdan KATTA">' +
+      '<div class="apx-sale-note" id="shop-sale-note">Bo\'sh qoldirilsa — aksiya yo\'q.</div>' +
+      '<input type="number" class="admin-input" id="shop-flash-h" placeholder="Necha soat (bo\'sh = muddatsiz)" step="0.5" min="0">' +
+      "</div>" +
+      /* ---- tavsif ---- */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-blue">💬</div>' +
+      '<div class="apx-tx"><b>Tavsif</b><span>Mijoz uchun qisqa izoh</span></div></div>' +
+      '<div class="apx-desc-box">' +
+      '<textarea class="apx-desc" id="shop-desc" rows="5" maxlength="500" ' +
+      'placeholder="Masalan: original linza, 5500K, 1 yil kafolat..."></textarea>' +
+      '<div class="apx-desc-foot"><span id="shop-desc-count">0</span> / 500</div>' +
+      "</div>" +
+      '<div class="apx-tpl" id="shop-tpl">' +
+      descTplChips() +
+      "</div>" +
+      '<button type="button" class="apx-voice" id="shop-mic">🎤 Ovoz bilan ayting</button>' +
       "</div>"
     );
+  }
+
+  /** Add va Edit formalari uchun UMUMIY bog'lashlar. */
+  function bindForm() {
+    bindPhotos();
+    bindChips();
+    bindDesc();
+    // Narx maydonlari: raqamlar ajratiladi + jonli kartochka yangilanadi
+    bindMoney(["shop-price", "shop-old"], livePreview);
+    ["shop-name", "shop-code", "shop-badge"].forEach((id) => {
+      if ($(id)) $(id).oninput = livePreview;
+    });
+    if ($("shop-flash-h")) $("shop-flash-h").oninput = saleNote;
+    renderThumbs(); // ichida livePreview() ham bor
   }
 
   /* ==================================================================
@@ -941,12 +1157,7 @@ window.ZimmerShop = (function () {
       "</div>" +
       '<div class="shop-footer"><button class="btn btn-primary" id="shop-save">💾 Saqlash</button></div>';
 
-    bindPhotos();
-    bindChips();
-    ["shop-name", "shop-price", "shop-code", "shop-flash"].forEach((id) => {
-      if ($(id)) $(id).oninput = livePreview;
-    });
-    renderThumbs();
+    bindForm();
     $("shop-save").onclick = () => saveProduct(null);
   }
 
@@ -956,18 +1167,29 @@ window.ZimmerShop = (function () {
     const price = parseNum($("shop-price").value);
     const stock = parseNum($("shop-stock").value);
     const code = ($("shop-code").value || "").trim();
+    const badge = ($("shop-badge") && $("shop-badge").value.trim()) || "";
     const desc = ($("shop-desc") && $("shop-desc").value.trim()) || "";
     const photos = photoUrls();
-    const flash = parseNum($("shop-flash") && $("shop-flash").value);
-    const flashH = parseFloat(String(($("shop-flash-h") && $("shop-flash-h").value) || "").replace(",", ".")) || 0;
+    const oldp = parseNum($("shop-old") && $("shop-old").value);
+    const flashH =
+      parseFloat(String(($("shop-flash-h") && $("shop-flash-h").value) || "").replace(",", ".")) || 0;
 
     if (name.length < 2) return { err: "Tovar nomini kiriting" };
     if (name.length > 160) return { err: "Nom juda uzun (160 belgigacha)" };
     if (!price) return { err: "Narxni kiriting" };
     if (stock === null) return { err: "Qoldiqni kiriting (0 bo'lishi mumkin)" };
     if (!S.catSel) return { err: "Kategoriyani tanlang" };
+    // Avto_A1 da kamida 1 rasm MAJBURIY — rasmsiz tovar do'konda bo'sh
+    // kvadrat bo'lib turadi va hech kim bosmaydi.
+    if (!photos.length) return { err: "Kamida 1 ta rasm kerak" };
     for (const u of photos) {
       if (!/^https?:\/\/[^\s]+$/i.test(u)) return { err: "Rasm havolasi http(s) bo'lishi kerak" };
+    }
+    // Aksiya: eski narx berilgan bo'lsa u hozirgidan KATTA bo'lishi shart.
+    // Ilgari bu jimgina e'tiborsiz qoldirilardi — admin chegirma qo'ydim
+    // deb o'ylardi, do'konda esa hech narsa o'zgarmasdi.
+    if (oldp && oldp <= price) {
+      return { err: "Eski narx hozirgi narxdan KATTA bo'lishi kerak" };
     }
     // Yuklanish tugamagan bo'lsa saqlamaymiz — aks holda tovar RASMSIZ
     // qolib ketadi (havola hali kelmagan).
@@ -986,7 +1208,7 @@ window.ZimmerShop = (function () {
       old_price: null,
       stock: stock,
       code: code || null,
-      badge: null,
+      badge: badge || null,
       photo_url: photos[0] || null,
       photo_id: null,
       photo2_url: photos[1] || null,
@@ -1001,12 +1223,16 @@ window.ZimmerShop = (function () {
       source: "miniapp",
     };
 
-    // Flash chegirma: chegirma narx asl narxdan kichik + soat > 0.
-    // price = ASL narx maydoni; flash < price bo'lsa: price=flash, old_price=asl.
-    if (flash && flash < price && flashH > 0) {
-      rec.old_price = price;
-      rec.price = flash;
-      rec.flashUntil = Date.now() + Math.round(flashH * 3600000);
+    /* AKSIYA — Avto_A1 modeli. `price` = hozirgi sotuv narxi (o'zgarmaydi),
+       `old_price` = undan katta eski narx. Do'kon chegirmani shu ikkisidan
+       o'zi hisoblaydi (`app.js: discountPercent`). Soat IXTIYORIY: berilsa
+       taymer (`flashUntil`), berilmasa chegirma muddatsiz turadi. */
+    if (oldp && oldp > price) {
+      rec.old_price = oldp;
+      rec.flashUntil = flashH > 0 ? Date.now() + Math.round(flashH * 3600000) : null;
+    } else {
+      rec.old_price = null;
+      rec.flashUntil = null;
     }
     return { rec: rec };
   }
@@ -1034,8 +1260,8 @@ window.ZimmerShop = (function () {
         // Tahrir: PATCH — createdAt va boshqa server maydonlariga tegmaymiz.
         await fb().patch(P + "/" + id, out.rec);
       }
-      haptic("success");
-      if (app().state) app().state.home = null; // bosh sahifa keshi eskirdi
+      haptic("ok");
+      freshenShop(); // bosh sahifa VA localStorage keshi eskirdi
 
       const seen = await ask(
         existingId == null ? "✅ Tovar qo'shildi.\n\nDo'konda ko'rasizmi?" : "✅ Saqlandi.\n\nDo'konda ko'rasizmi?"
@@ -1251,7 +1477,7 @@ window.ZimmerShop = (function () {
       await fb().patch(P + "/" + id, { stock: val, updatedAt: Date.now() });
       haptic("success");
       toast("✅ Qoldiq yangilandi");
-      if (app().state) app().state.home = null;
+      freshenShop();
       const it = S.items.find((x) => String(x.id) === String(id));
       if (it) it.stock = val;
     } catch (err) {
@@ -1261,6 +1487,8 @@ window.ZimmerShop = (function () {
 
   /* ---- ommaviy amallar ---- */
   function bindBulk() {
+    // Ommaviy narx maydonida ham raqamlar ajratiladi
+    bindMoney(["shop-bulk-price"]);
     if ($("shop-bulk-clear"))
       $("shop-bulk-clear").onclick = () => {
         S.selected = {};
@@ -1313,7 +1541,7 @@ window.ZimmerShop = (function () {
       }
       haptic("success");
       toast(del ? ids.length + " ta o'chirildi" : ids.length + " ta yangilandi");
-      if (app().state) app().state.home = null;
+      freshenShop();
       S.selected = {};
       openInventory();
     } catch (err) {
@@ -1356,35 +1584,31 @@ window.ZimmerShop = (function () {
       '<button class="btn btn-ghost shop-del-btn" id="shop-del">🗑 O\'chirish</button>' +
       "</div>";
 
-    bindPhotos();
-
-    // Mavjud qiymatlarni to'ldiramiz
+    /* MAVJUD QIYMATLAR — bog'lashdan OLDIN to'ldiriladi, shunda `bindForm()`
+       ichidagi `renderThumbs()` va `livePreview()` darhol to'g'ri chiqadi.
+       Mavjud rasmlar to'g'ridan havola maydonlariga tushadi — bundan keyin
+       ular yuklangan rasmdan hech qanday farq qilmaydi (yagona manba). */
     const imgs = [r.photo_url, r.photo2_url, r.photo3_url].filter(Boolean);
-    ["shop-img1", "shop-img2", "shop-img3"].forEach((id, i) => {
-      if ($(id)) $(id).value = imgs[i] || "";
-    });
+    setImgUrls(imgs);
+
     $("shop-name").value = r.name || "";
-    // flash aktiv bo'lsa narx maydonida ASL narx
-    const now = Date.now();
-    if (r.flashUntil && r.flashUntil > now && r.old_price && Number(r.old_price) > Number(r.price)) {
-      $("shop-price").value = money(r.old_price).replace(" so'm", "");
-      $("shop-flash").value = money(r.price).replace(" so'm", "");
-      $("shop-flash-h").value = Math.max(0, Math.round(((r.flashUntil - now) / 3600000) * 10) / 10);
-    } else {
-      $("shop-price").value = money(r.price).replace(" so'm", "");
+    // Narx maydoni — HOZIRGI narx (aksiya bo'lsa ham o'zgarmaydi).
+    // Ilgari flash aktiv bo'lsa bu maydonga ASL narx yozilardi va admin
+    // «nega narx boshqa?» deb hayron bo'lardi.
+    $("shop-price").value = money(r.price).replace(" so'm", "");
+    if ($("shop-old")) {
+      $("shop-old").value = r.old_price ? money(r.old_price).replace(" so'm", "") : "";
+    }
+    if ($("shop-flash-h")) {
+      const left = r.flashUntil ? (Number(r.flashUntil) - Date.now()) / 3600000 : 0;
+      $("shop-flash-h").value = left > 0 ? Math.round(left * 10) / 10 : "";
     }
     $("shop-code").value = r.code || "";
+    if ($("shop-badge")) $("shop-badge").value = r.badge || "";
     $("shop-stock").value = Number(r.stock) || 0;
     if ($("shop-desc")) $("shop-desc").value = r.description || "";
 
-    bindChips();
-    ["shop-name", "shop-price", "shop-code", "shop-flash"].forEach((id) => {
-      if ($(id)) $(id).oninput = livePreview;
-    });
-    // Mavjud rasmlar ham eskiz sifatida chiqadi. Ilgari `renderThumbs()`
-    // tahrir formasida umuman chaqirilmasdi — admin tovarning rasmi bor
-    // yoki yo'qligini faqat pastdagi «jonli ko'rinish»dan taxmin qilardi.
-    renderThumbs();
+    bindForm();
 
     $("shop-save").onclick = () => saveProduct(p.id);
     $("shop-hide").onclick = async () => {
@@ -1393,7 +1617,7 @@ window.ZimmerShop = (function () {
         await fb().patch(P + "/" + p.id, { is_active: next ? 0 : 1, updatedAt: Date.now() });
         haptic("success");
         toast(next ? "✅ Yashirildi" : "✅ Ko'rsatiladi");
-        if (app().state) app().state.home = null;
+        freshenShop();
         openInventory();
       } catch (err) {
         toast((err && err.message) || "Saqlanmadi");
@@ -1407,7 +1631,7 @@ window.ZimmerShop = (function () {
         await fb().patch(P + "/" + p.id, { deleted: true, updatedAt: Date.now() });
         haptic("success");
         toast("🗑 O'chirildi");
-        if (app().state) app().state.home = null;
+        freshenShop();
         openInventory();
       } catch (err) {
         toast((err && err.message) || "Saqlanmadi");

@@ -357,6 +357,13 @@ async def import_products() -> int:
         if not isinstance(item, dict):
             continue
 
+        # O'CHIRILGAN tovarni import QILMAYMIZ. Mini app «o'chirish» ni
+        # `deleted: true` belgisi bilan bajaradi. Bu tekshiruv bo'lmasa,
+        # bot har qayta ishga tushganda o'chirilgan tovarni SQLite'ga
+        # qaytadan yozardi va u do'konda yana paydo bo'lardi.
+        if item.get("deleted"):
+            continue
+
         name = (item.get("name") or "").strip()
         if not name:
             # Nomsiz yozuv do'konga chiqmaydi. Bu odatda eski sxemadan

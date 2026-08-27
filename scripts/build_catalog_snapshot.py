@@ -72,7 +72,16 @@ def external(url) -> str | None:
 #  1-MANBA: Firebase (jonli)
 # =====================================================================
 def fetch_firebase(db_url: str, root: str) -> dict | None:
-    """`{root}/catalog` ni o'qiydi. Ruxsat yo'q yoki bo'sh bo'lsa None."""
+    """`{root}/catalog` ni o'qiydi.
+
+    None qaytaradi FAQAT o'qish yiqilganda (ruxsat yo'q, internet, 4xx/5xx).
+
+    DIQQAT: ilgari «tugun bo'sh» holatida ham None qaytarilardi va chaqiruvchi
+    SQLite seed'ga o'tardi. Natijada admin do'kondagi hamma tovarni o'chirsa,
+    bu skript nusxaga DEMO tovarlarni («LED lampa H4» va h.k.) yozib qo'yardi
+    va ular mijozga ko'rinardi. Endi bo'sh katalog ham HAQIQAT sifatida
+    qaytariladi — seed faqat o'qish IMKONSIZ bo'lganda ishlatiladi.
+    """
     url = f"{db_url.rstrip('/')}/{root.strip('/')}/catalog.json"
     try:
         with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
@@ -84,9 +93,12 @@ def fetch_firebase(db_url: str, root: str) -> dict | None:
         print(f"  Firebase o'qilmadi: {error}")
         return None
 
-    if not isinstance(data, dict) or not data.get("products"):
-        print("  Firebase'da katalog bo'sh")
+    if not isinstance(data, dict):
+        # Tugun umuman yo'q (null) — baza hali to'ldirilmagan, seed o'rinli.
+        print("  Firebase'da `catalog` tuguni yo'q")
         return None
+    if not data.get("products"):
+        print("  Firebase o'qildi, lekin tovar yo'q — BO'SH nusxa yasaladi")
     return data
 
 
@@ -287,7 +299,9 @@ async def main() -> int:
     if not args.seed_only and args.db_url:
         print(f"Firebase o'qilmoqda: {args.db_url}")
         tables = fetch_firebase(args.db_url, args.root)
-        if tables:
+        # `is not None` — bo'sh katalog ham HAQIQIY javob (admin hammasini
+        # o'chirgan bo'lishi mumkin). Faqat o'qish yiqilganda seed'ga o'tamiz.
+        if tables is not None:
             source = "firebase"
 
     if tables is None:
@@ -299,9 +313,16 @@ async def main() -> int:
     snapshot["_snapshot"] = True
 
     total = sum(len(group["products"]) for group in snapshot["catalog"])
-    if total == 0:
+    if total == 0 and source != "firebase":
+        # Seed'dan ham hech narsa chiqmadi — bu haqiqiy nosozlik.
         print("XATO: katalog bo'sh — fayl yozilmadi.")
         return 1
+    if total == 0:
+        print(
+            "DIQQAT: Firebase'da tovar yo'q — BO'SH nusxa yoziladi.\n"
+            "        Bu ATAYLAB: aks holda o'chirilgan tovarlar o'rniga\n"
+            "        demo (seed) tovarlar mijozga ko'rinib qolardi."
+        )
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(
