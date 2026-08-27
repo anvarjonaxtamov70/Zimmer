@@ -77,10 +77,14 @@ FLOWS: dict[str, Flow] = {
         title="Do'kon buyurtmalari",
         icon="📦",
         labels=ORDER_STATUS,
-        stages=("new", "accepted", "delivered"),
+        # `delivering` («yo'lda») Mini App panelida allaqachon ishlatilardi,
+        # lekin bu ro'yxatda yo'q edi — natijada bot paneli o'sha holatni
+        # tanimay buyurtmani «yopilgan» deb hisoblardi.
+        stages=("new", "accepted", "delivering", "delivered"),
         buttons={
             "accepted": "✅ Qabul qilish",
-            "delivered": "🚚 Yetkazildi",
+            "delivering": "🚚 Yo'lga chiqdi",
+            "delivered": "🎉 Yetkazildi",
             CANCELLED: "❌ Bekor qilish",
         },
     ),
