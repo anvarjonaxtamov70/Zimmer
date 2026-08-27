@@ -317,8 +317,18 @@ async def product_approve_callback(callback: CallbackQuery, bot: Bot):
         return
     
     success = await fb_prod.set_draft_status(product_id, is_draft=False)
-    
+
     if success:
+        # Tasdiqlash Firebase'da `is_draft: false` qiladi — lekin do'kon
+        # (Mini App) `catalog` dan o'qiydi. Shu sababli DARHOL ko'chiramiz:
+        # Firebase `products` -> SQLite -> `catalog`. Aks holda tovar
+        # keyingi qayta ishga tushirishgacha do'konda ko'rinmaydi, tugma
+        # esa «do'konda ko'rinadi» deb yozardi.
+        try:
+            await sync.publish_imported_products()
+        except Exception as error:
+            logger.warning("Tasdiqlangan tovar do'konga chiqarilmadi: %s", error)
+
         # Yangilangan product card ko'rsatish
         updated_product = await fb_prod.get_product(product_id)
         if updated_product:

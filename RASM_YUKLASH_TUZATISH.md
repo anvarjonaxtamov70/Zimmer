@@ -166,7 +166,73 @@ ko'rsatilmaydigan yozuv — undan foyda yo'q:
 galereyadan rasm. Endi rasm ImgBB'ga chiqadi va bazaga **oddiy `https://` havola**
 tushadi — Render, Worker va Firebase Storage'ga bog'liq bo'lmaydi.
 
-**4-qadam (ixtiyoriy, keyinroq).** Botdan qo'shilgan tovar ham do'konga tushishi
-uchun `services/sync.py:import_products()` da `images[0]` ni ham o'qish va
-`file_id` ni Worker `/media` havolasiga o'girish kerak. Bu alohida ish —
-aytsangiz qilib beraman.
+**4-qadam — BAJARILDI.** Botdan (Excel importi yoki bot admin paneli) qo'shilgan
+tovarning rasmi ham do'konga tushadigan bo'ldi. Batafsil: pastdagi 5-bo'lim.
+
+## 5. Botdan qo'shilgan tovarning rasmi do'konga tushmasligi — tuzatildi
+
+`services/sync.py:import_products()` Firebase'ning `products` tugunini SQLite'ga
+ko'chiradi, keyin `push_all_catalog()` uni `catalog` ga yozadi va Mini App shu
+yerdan o'qiydi. Ya'ni bu funksiya — **botdan do'konga yagona ko'prik**. U yerda
+uchta muammo bor edi.
+
+### A. `images` ro'yxati umuman o'qilmasdi
+
+```python
+photo_url=item.get("img") or item.get("photo") or None
+```
+
+Bot esa rasmni `images: ["<file_id>"]` ko'rinishida yozadi. Endi `images`,
+`img`, `photo`, `photo_url`, `photo2_url`, `photo3_url`, `photo_id` — hammasi
+o'qiladi, eng ko'p 3 ta rasm olinadi.
+
+Muhim tafsilot: RTDB **siyrak massivni lug'at qilib** saqlaydi
+(`images: {"0": …, "2": …}`) — skrinshotda ham aynan shunday. Ikkala ko'rinish
+ham qo'llab-quvvatlanadi, kalitlar raqam bo'yicha tartiblanadi.
+
+### B. Telegram `file_id` havola emas
+
+`file_id` `photo_url` ga yozilsa brauzer `<img src="AgACAgIAAxk…">` deb urinib
+buzuq rasm ko'rsatadi. Uning **o'z ustuni** bor — `photo_id`. Qiymat endi
+tekshiriladi va to'g'ri ustunga tushadi:
+
+| Qiymat | Qayerga |
+|---|---|
+| `https://…` / `http://…` / `//…` | `photo_url` |
+| `AgACAgIAAxk…` (base64url, 20+ belgi) | `photo_id` |
+| `/api/media/…` yoki tanib bo'lmagan matn | tashlanadi |
+
+`photo_id` ga tushgach mavjud media quvuri o'zi ishlaydi:
+
+- Render onlayn: `api/media.py` → `/api/media/products/<id>/photo`
+- Render o'chgan: `cloudflare-worker.js` → `<WORKER_URL>/media?id=<file_id>`
+
+Shu sababli `file_id` bazada Worker havolasiga **o'girilmaydi**: o'girilsa
+manzil `WORKER_URL` o'zgarganda bazada qotib qolardi va Render onlayn bo'lganda
+ham keraksiz Worker'dan o'tardi. Havolani har safar ko'rsatuvchi tomon tanlaydi.
+
+### C. Tasdiqlanmagan qoralama va yashirin tovar do'konga chiqib ketardi
+
+- **`is_draft` tekshirilmasdi.** Excel importi tovarlarni qoralama qilib yozadi
+  va admin ularni ko'zdan kechirib «tasdiqlash» bosishi kerak. Amalda esa ular
+  **darhol do'konda** paydo bo'lardi — tasdiqlashning ma'nosi yo'q edi.
+- **`is_active` tekshirilmasdi** — faqat eski `active` nomi qaralardi. Bot
+  «yashirish» qilgan tovar (`is_active: false`) do'konda ko'rinib turardi.
+- `old_price` ham faqat eski `oldPrice` nomi bilan o'qilardi.
+
+### D. Rasm endi bo'sh qiymat bilan o'chib ketmaydi
+
+`upsert_external_product()` har restartda chaqiriladi. Ilgari `photo_url`
+shartsiz yozilardi, ya'ni: Excel'dan import qilingan tovarga admin bot panelida
+rasm qo'ysa → keyingi restartda `photo_url = NULL` bo'lib **rasm yo'qolardi**.
+Endi rasm va artikul ustunlari faqat yangi qiymat kelganda yangilanadi. Nom,
+narx va qoldiq esa har doim Firebase'dagidek bo'ladi — import aynan shular
+uchun kerak.
+
+### E. Tasdiqlash endi darhol ta'sir qiladi
+
+`is_draft` tekshiruvi qo'shilgach, «tasdiqlash» tugmasi Firebase'da
+`is_draft: false` qilardi-yu, tovar keyingi qayta ishga tushirishgacha do'konda
+ko'rinmasdi — tugma esa «endi do'konda ko'rinadi» deb yozardi. Shu sababli yangi
+`sync.publish_imported_products()` qo'shildi: Firebase `products` → SQLite →
+`catalog`. U «tasdiqlash» va `/approve_batch` dan keyin chaqiriladi.

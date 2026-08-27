@@ -15,6 +15,7 @@ Firebase sozlanmagan bo'lsa — hamma funksiya jimgina o'tib ketadi.
 
 import asyncio
 import logging
+import re
 import time
 from datetime import UTC, datetime
 
@@ -318,12 +319,25 @@ async def restore_admins() -> int:
 
 
 async def import_products() -> int:
-    """Firebase'dagi tovarlarni mahalliy bazaga ko'chiradi (rasm URL bilan).
+    """Firebase'dagi `{root}/products` tugunini mahalliy bazaga ko'chiradi.
 
-    Kutilgan ko'rinish (Avto_A1 bilan mos):
-        products/<key> = {
-            name, desc, price, stock, img, category, car, badge, oldPrice, active
-        }
+    Bu tugunga bot yozadi: Excel/CSV importi va admin panelidagi qoralamalar
+    (`services/firebase_products.py`). Mini App esa `{root}/catalog/products`
+    dan o'qiydi. Ikkisi orasidagi KO'PRIK — mana shu funksiya:
+
+        {root}/products  ->  SQLite  ->  push_all_catalog()  ->  {root}/catalog
+
+    Ya'ni bot orqali qo'shilgan tovar do'konga faqat shu funksiya orqali
+    tushadi. Shu sababli u yerdagi har bir e'tiborsizlik tovarni (yoki uning
+    rasmini) do'kondan YO'Q qiladi.
+
+    Qo'llab-quvvatlanadigan ko'rinishlar (loyiha tarixida uchtasi bo'lgan):
+        eski Avto_A1:  {name, desc, price, stock, img, category, car,
+                        badge, oldPrice, active}
+        hozirgi bot:   {name, desc, price, stock, img, images[], code,
+                        category, brand, model, is_active, is_draft}
+        katalog usuli: {name, description, price, photo_url, photo_id,
+                        photo2_url, ...}
     """
     if not firebase.is_enabled():
         return 0
@@ -336,10 +350,28 @@ async def import_products() -> int:
     cars = {car["slug"]: car["id"] for car in await q.get_cars(active_only=False)}
     categories = {c["name"].lower(): c["id"] for c in await q.get_categories(active_only=False)}
     imported = 0
+    skipped_no_name = 0
+    skipped_drafts = 0
 
     for key, item in rows:
+        if not isinstance(item, dict):
+            continue
+
         name = (item.get("name") or "").strip()
         if not name:
+            # Nomsiz yozuv do'konga chiqmaydi. Bu odatda eski sxemadan
+            # qolgan yoki chala yozilgan qoldiq bo'ladi — loglaymiz,
+            # aks holda «tovarim qayerda?» degan savolga javob yo'q.
+            skipped_no_name += 1
+            continue
+
+        # QORALAMA do'konga CHIQMASLIGI kerak. Excel importi tovarlarni
+        # `is_draft: true` bilan yozadi va admin ularni ko'zdan kechirib
+        # «tasdiqlash» tugmasini bosishi kerak. Ilgari bu maydon umuman
+        # tekshirilmasdi — ya'ni TASDIQLANMAGAN import darhol do'konga
+        # chiqib ketardi.
+        if item.get("is_draft") is True:
+            skipped_drafts += 1
             continue
 
         category_name = (item.get("category") or "Boshqa").strip()
@@ -351,6 +383,21 @@ async def import_products() -> int:
         car_slug = (item.get("car") or "").strip().lower() or None
         car_id = cars.get(car_slug) if car_slug else None
 
+        # Rasmlar: `images[]`, `img`, `photo_url`, `photo_id` — hammasi
+        # qaraladi va har biri havolami yoki Telegram `file_id` mi degan
+        # savolga ko'ra to'g'ri ustunga tushadi.
+        media = _media_pairs(item)
+        while len(media) < 3:
+            media.append((None, None))
+
+        # `is_active` — hozirgi nom, `active` — eski nom. Ilgari faqat
+        # `active` qaralardi, ya'ni bot «yashirin» qilib qo'ygan tovar
+        # (`is_active: false`) do'konda KO'RINIB turardi.
+        flag = item.get("is_active")
+        if flag is None:
+            flag = item.get("active")
+        is_active = 0 if flag is False or flag == 0 else 1
+
         await q.upsert_external_product(
             external_id=str(key),
             category_id=category_id,
@@ -358,16 +405,142 @@ async def import_products() -> int:
             name=name,
             description=item.get("desc") or item.get("description"),
             price=_int(item.get("price")),
-            old_price=_int(item.get("oldPrice")) or None,
+            # `oldPrice` — eski nom, `old_price` — hozirgi.
+            old_price=_int(item.get("oldPrice") or item.get("old_price")) or None,
             stock=_int(item.get("stock"), default=0),
-            photo_url=item.get("img") or item.get("photo") or None,
+            code=(str(item.get("code")).strip() or None) if item.get("code") else None,
+            photo_url=media[0][0],
+            photo_id=media[0][1],
+            photo2_url=media[1][0],
+            photo2_id=media[1][1],
+            photo3_url=media[2][0],
+            photo3_id=media[2][1],
             badge=item.get("badge") or None,
-            is_active=0 if item.get("active") is False else 1,
+            is_active=is_active,
         )
         imported += 1
 
     logger.info("Firebase'dan %s tovar import qilindi", imported)
+    if skipped_no_name:
+        logger.warning(
+            "%s tovar NOMSIZ bo'lgani uchun o'tkazib yuborildi — "
+            "Firebase'dagi `products` tugunidagi chala yozuvlar",
+            skipped_no_name,
+        )
+    if skipped_drafts:
+        logger.info("%s qoralama o'tkazib yuborildi (tasdiqlanmagan import)", skipped_drafts)
     return imported
+
+
+# --------------------------------------------------------- rasm maydonlari
+#
+# NEGA BU KERAK
+# Bot tovarni Firebase'ga `images: ["<file_id>"]` ko'rinishida yozadi
+# (`services/firebase_products.py`). Ilgari `import_products()` faqat
+# `img` va `photo` maydonlarini o'qirdi:
+#
+#     photo_url=item.get("img") or item.get("photo") or None
+#
+# Ya'ni `images` ro'yxati UMUMAN qaralmasdi va bot orqali qo'shilgan
+# tovarning rasmi do'konga yetib bormasdi.
+#
+# Ikkinchi muammo: Telegram `file_id` — bu HAVOLA EMAS. U `photo_url` ga
+# yozilsa brauzer `<img src="AgACAgIAAxk…">` deb urinib buzuq rasm
+# ko'rsatadi. `file_id` ning o'z ustuni bor — `photo_id`. U yerga tushsa
+# mavjud media quvuri o'zi ishlaydi:
+#
+#     Render onlayn : api/media.py    -> /api/media/products/<id>/photo
+#     Render o'chgan: cloudflare-worker.js -> <WORKER>/media?id=<file_id>
+#
+# Shu sababli bu yerda `file_id` ni Worker havolasiga O'GIRMAYMIZ —
+# o'girsak manzil `WORKER_URL` o'zgarganda bazada qotib qolardi va
+# Render onlayn bo'lganda ham keraksiz Worker'dan o'tardi. `photo_id` ga
+# yozamiz, havolani esa har safar ko'rsatuvchi tomon o'zi tanlaydi.
+
+# Telegram `file_id`: base64url alifbosi, amalda 40-100 belgi.
+# Chegara 20 — havola bo'lmagan qisqa qoldiqlarni rasm deb o'ylamaslik uchun.
+_FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,}$")
+
+# Bitta tovarda ko'rib chiqiladigan maydonlar chegarasi (buzuq ma'lumotdan
+# himoya — 3 ta rasm kerak, qolganini qaramaymiz).
+_MEDIA_SCAN_LIMIT = 12
+
+
+def _image_key_order(key) -> tuple[int, object]:
+    """`images` lug'atining kalitlarini RAQAM bo'yicha tartiblaydi.
+
+    RTDB siyrak massivni LUG'AT qilib saqlaydi: `{"0": …, "2": …}`. Oddiy
+    matn tartibida "10" "2" dan oldin kelib qolardi.
+    """
+    try:
+        return (0, int(key))
+    except (TypeError, ValueError):
+        return (1, str(key))
+
+
+def _media_values(item: dict) -> list[str]:
+    """Tovar yozuvidan rasm qiymatlarini tartib bilan yig'adi (takrorsiz).
+
+    Tartib muhim: BIRINCHI qiymat asosiy rasm bo'ladi. Shuning uchun avval
+    «asosiy rasm» maydonlari, keyin `images` ro'yxati, keyin 2- va 3-rasm.
+    """
+    out: list[str] = []
+
+    def add(value) -> None:
+        if value is None or isinstance(value, (dict, list, tuple, bool)):
+            return
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+
+    for field in ("img", "photo", "photo_url", "photo_id"):
+        add(item.get(field))
+
+    images = item.get("images")
+    if isinstance(images, dict):
+        for key in sorted(images.keys(), key=_image_key_order):
+            add(images[key])
+    elif isinstance(images, (list, tuple)):
+        for value in images:
+            add(value)
+
+    for field in ("photo2_url", "photo2_id", "photo3_url", "photo3_id"):
+        add(item.get(field))
+
+    return out[:_MEDIA_SCAN_LIMIT]
+
+
+def _split_media(value: str) -> tuple[str | None, str | None]:
+    """Qiymatni (havola, file_id) juftligiga ajratadi.
+
+    Tanib bo'lmasa (None, None) — masalan `/api/media/...` kabi nisbiy
+    manzil yoki bo'sh satr. Bunday qiymat bazaga YOZILMAYDI: `photo_url` ga
+    tushsa do'konda buzuq rasm ko'rinardi.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None, None
+    low = text.lower()
+    if low.startswith("https://") or low.startswith("http://"):
+        return text, None
+    # `//i.ibb.co/...` — protokolsiz havola
+    if text.startswith("//"):
+        return "https:" + text, None
+    if _FILE_ID_RE.match(text):
+        return None, text
+    return None, None
+
+
+def _media_pairs(item: dict) -> list[tuple[str | None, str | None]]:
+    """Tovarning eng ko'p 3 ta rasmi: [(havola, file_id), …]."""
+    pairs: list[tuple[str | None, str | None]] = []
+    for value in _media_values(item):
+        url, file_id = _split_media(value)
+        if url or file_id:
+            pairs.append((url, file_id))
+        if len(pairs) == 3:
+            break
+    return pairs
 
 
 def _int(value, default: int = 0) -> int:
@@ -506,6 +679,26 @@ async def push_catalog(table: str, row_id: int) -> None:
         )
     except Exception as error:
         logger.warning("«%s» #%s bulutga yozilmadi: %s", table, row_id, error)
+
+
+async def publish_imported_products() -> int:
+    """Firebase `products` -> SQLite -> `catalog` (do'konga chiqarish).
+
+    Qoralama tasdiqlangandan keyin chaqiriladi. IKKI qadam kerak, chunki
+    ular ikki xil ish qiladi:
+
+      • `import_products()` — Firebase `products` dan SQLite'ga ko'chiradi
+        (bot va Render API shu yerdan o'qiydi);
+      • `push_all_catalog()` — SQLite'ni `catalog` ga yozadi (Mini App
+        do'koni va zaxira rejim shu yerdan o'qiydi).
+
+    Ikkinchi qadam bo'lmasa admin «tasdiqladim, lekin do'konda yo'q»
+    holatiga tushadi — mini app `products` tugunini o'qimaydi.
+    """
+    imported = await import_products()
+    if imported:
+        await push_all_catalog()
+    return imported
 
 
 async def push_all_catalog() -> dict[str, int]:

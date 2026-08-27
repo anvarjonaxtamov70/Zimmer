@@ -42,6 +42,7 @@ from aiogram.filters import Command
 
 from config import config, is_admin
 from services import firebase_products as fb_prod
+from services import sync
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -393,7 +394,17 @@ async def approve_batch(message: Message):
         success = await fb_prod.set_draft_status(product["id"], is_draft=False)
         if success:
             approved += 1
-    
+
+    # Tasdiqlangan tovarlar DARHOL do'konga chiqadi: Firebase `products` ->
+    # SQLite -> `catalog`. Mini App `products` tugunini o'qimaydi, shuning
+    # uchun bu qadam bo'lmasa pastdagi «endi do'konda ko'rinadi» yozuvi
+    # yolg'on bo'lardi (tovar keyingi restart'gacha ko'rinmasdi).
+    if approved:
+        try:
+            await sync.publish_imported_products()
+        except Exception as error:
+            logger.warning("Tasdiqlangan batch do'konga chiqarilmadi: %s", error)
+
     await message.answer(
         f"✅ <b>Batch tasdiqlandi</b>\n\n"
         f"Batch ID: <code>{batch_id}</code>\n"

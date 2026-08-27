@@ -1177,6 +1177,18 @@ async def add_story(
 # --------------------------------------------------- Firebase'dan import qilish
 
 
+# Rasm ustunlari FAQAT qiymat kelganda yoziladi (pastdagi izohga qarang).
+_EXTERNAL_KEEP_IF_EMPTY = (
+    "code",
+    "photo_id",
+    "photo_url",
+    "photo2_id",
+    "photo2_url",
+    "photo3_id",
+    "photo3_url",
+)
+
+
 async def upsert_external_product(
     external_id: str,
     category_id: int,
@@ -1189,8 +1201,54 @@ async def upsert_external_product(
     photo_url: str | None,
     badge: str | None,
     is_active: int = 1,
+    *,
+    photo_id: str | None = None,
+    photo2_url: str | None = None,
+    photo2_id: str | None = None,
+    photo3_url: str | None = None,
+    photo3_id: str | None = None,
+    code: str | None = None,
 ) -> int:
-    """Firebase'dagi tovarni mahalliy bazaga yozadi (bor bo'lsa yangilaydi)."""
+    """Firebase'dagi tovarni mahalliy bazaga yozadi (bor bo'lsa yangilaydi).
+
+    RASM IKKI XIL BO'LADI va har biri O'Z ustuniga tushishi kerak:
+      • `*_url` — tashqi havola (`https://i.ibb.co/…`), brauzer to'g'ridan oladi;
+      • `*_id`  — Telegram `file_id`, media proksisi orqali ko'rsatiladi
+                  (`api/media.py` yoki Cloudflare Worker `/media`).
+
+    `file_id` ni `photo_url` ga yozib qo'yish — do'kondagi buzuq rasmning
+    eng keng tarqalgan sababi: `<img src="AgACAgIAAxk…">` hech qachon
+    yuklanmaydi.
+
+    NEGA BO'SH QIYMAT USTIDAN YOZILMAYDI
+    Bu funksiya bot ishga tushganda HAR SAFAR chaqiriladi. Rasm ustunlari
+    shartsiz yozilsa, quyidagi holat ma'lumotni yo'qotadi:
+      1. tovar Excel'dan import qilingan — Firebase'da rasm yo'q;
+      2. admin bot panelida rasm qo'ygan — rasm faqat SQLite'da;
+      3. bot qayta ishga tushdi -> `photo_id = NULL` -> rasm YO'Q bo'ldi.
+    Shu sababli rasm va artikul ustunlari faqat yangi qiymat kelganda
+    yangilanadi. Nom, narx, qoldiq esa har doim Firebase'dagidek bo'ladi —
+    import aynan shular uchun kerak.
+    """
+    fields: dict[str, object] = {
+        "category_id": category_id,
+        "car_id": car_id,
+        "name": name,
+        "description": description,
+        "price": price,
+        "old_price": old_price,
+        "stock": stock,
+        "badge": badge,
+        "is_active": is_active,
+        "code": code,
+        "photo_id": photo_id,
+        "photo_url": photo_url,
+        "photo2_id": photo2_id,
+        "photo2_url": photo2_url,
+        "photo3_id": photo3_id,
+        "photo3_url": photo3_url,
+    }
+
     db = get_db()
     async with db.execute(
         "SELECT id FROM products WHERE external_id = ?", (external_id,)
@@ -1198,44 +1256,25 @@ async def upsert_external_product(
         row = await cur.fetchone()
 
     if row:
+        updates = {
+            column: value
+            for column, value in fields.items()
+            if value is not None or column not in _EXTERNAL_KEEP_IF_EMPTY
+        }
+        assignments = ", ".join(f"{column} = ?" for column in updates)
         await db.execute(
-            "UPDATE products SET category_id = ?, car_id = ?, name = ?, description = ?,"
-            " price = ?, old_price = ?, stock = ?, photo_url = ?, badge = ?, is_active = ?"
-            " WHERE id = ?",
-            (
-                category_id,
-                car_id,
-                name,
-                description,
-                price,
-                old_price,
-                stock,
-                photo_url,
-                badge,
-                is_active,
-                row["id"],
-            ),
+            f"UPDATE products SET {assignments} WHERE id = ?",
+            (*updates.values(), row["id"]),
         )
         await db.commit()
         return int(row["id"])
 
+    fields["external_id"] = external_id
+    columns = ", ".join(fields)
+    holders = ", ".join("?" for _ in fields)
     cur = await db.execute(
-        "INSERT INTO products (category_id, car_id, name, description, price, old_price,"
-        " stock, photo_url, badge, is_active, external_id)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            category_id,
-            car_id,
-            name,
-            description,
-            price,
-            old_price,
-            stock,
-            photo_url,
-            badge,
-            is_active,
-            external_id,
-        ),
+        f"INSERT INTO products ({columns}) VALUES ({holders})",
+        tuple(fields.values()),
     )
     await db.commit()
     return int(cur.lastrowid)
