@@ -139,7 +139,7 @@ window.ZimmerShop = (function () {
 
   async function open() {
     S.view = "menu";
-    S.photos = [];
+    clearPhotos();
     S.selected = {};
     // Qidiruv va filtr har ochilishda tozalanadi — aks holda oldingi
     // sessiyaning qidiruvi qolib, ombor bo'sh ko'rinardi.
@@ -158,6 +158,8 @@ window.ZimmerShop = (function () {
 
   function renderMenu() {
     S.view = "menu";
+    // Forma yopildi — mahalliy rasm URL'larini bo'shatamiz (xotira).
+    clearPhotos();
     setHead("Boshqaruv", "Tovarlar — bitta manba");
     body().innerHTML =
       '<div class="shop-hero">' +
@@ -315,8 +317,50 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
-     RASMLAR (ImgBB + foizli progress — Avto_A1 dizayni)
+     RASMLAR — galereyadan yuklash (ImgBB) + JONLI progress
+
+     ================== NIMA UCHUN ISHLAMAY QOLGAN EDI ==================
+     Admin galereyadan rasm tanlaydi — va HECH NARSA bo'lmaydi. Eskiz
+     chiqmaydi, foiz chiqmaydi, xato ham chiqmaydi. Sababi bitta qatorda:
+
+         inp.onchange = async (ev) => {
+           const files = ev.target.files;   // havola olindi
+           ev.target.value = "";            // <-- input tozalandi
+           await handleFiles(files);        // files ALLAQACHON BO'SH
+         };
+
+     `input.files` — TIRIK (live) `FileList`. Brauzer har chaqiruvda AYNI
+     o'sha obyektni qaytaradi, `input.value = ""` esa o'sha obyektni
+     JOYIDA bo'shatadi. Ya'ni `files` o'zgaruvchisi ham bo'sh bo'lib
+     qoladi va `handleFiles` ning birinchi qatori jimgina chiqib ketardi:
+
+         if (!up() || !files || !files.length) return;   // <- shu yer
+
+     Input `value` ni tozalash O'ZI KERAK — aks holda admin ayni o'sha
+     faylni ikkinchi marta tanlasa `onchange` umuman ishlamaydi. Yechim:
+     ro'yxatni AVVAL haqiqiy massivga ko'chirib olish, KEYIN tozalash.
+     Avto_A1 aynan shunday qiladi (`Array.from(event.target.files)`) —
+     shuning uchun u yerda rasm yuklash bexato ishlaydi.
+
+     ================== JONLI KO'RINISH (yangi) ==================
+     Ilgari yuklanish paytida faqat bo'sh kvadratcha ichida «siqilmoqda»
+     yozuvi turardi — admin o'zi tanlagan rasmni ko'rmasdi va nima
+     bo'layotganini tushunmasdi. Endi Avto_A1 dan bir qadam oldinga:
+
+       • rasm DARHOL ko'rinadi (`URL.createObjectURL` — internet kutilmaydi)
+       • ustida qorong'i qatlam + halqa + foiz: «siqilmoqda…» -> «37%»
+       • tugagach ✅ chaqnaydi va qatlam so'nadi, «Asosiy» belgisi chiqadi
+       • xato bo'lsa qizil ❌ + «↻ Qayta» tugmasi (fayl saqlanib turadi)
+
+     Yana bir farq: progress har tick'da butun ro'yxatni QAYTA YASAMAYDI.
+     Ilgari `renderThumbs()` `innerHTML` ni to'liq almashtirardi va `<img>`
+     har foizda qaytadan yuklanib miltillardi. Endi faqat foiz matni va
+     chiziq kengligi o'zgaradi.
      ================================================================== */
+
+  /** Slot fazalari. `up().uploadFile` "siqish"/"yuklash" deb xabar beradi. */
+  const PH = { COMPRESS: "compress", UPLOAD: "upload", DONE: "done", ERROR: "error" };
+
   function photoBlock() {
     const ready = up() && up().available();
     let html =
@@ -327,12 +371,18 @@ window.ZimmerShop = (function () {
       " ta</span></div></div>";
 
     if (ready) {
+      // DIQQAT: fayl input'i yuklash zonasini TO'LIQ qoplaydi (shaffof).
+      // Ilgari `<label for>` + `hidden` input ishlatilgan edi — ko'p
+      // brauzerda ishlaydi, lekin ba'zi Telegram WebView'larida `hidden`
+      // input `label` bosilganda ochilmaydi. Qoplama input — eng ishonchli
+      // usul: bosish to'g'ridan input'ning o'ziga tushadi.
       html +=
-        '<label class="apx-upload" for="shop-file">' +
+        '<div class="apx-upload" id="shop-drop">' +
         '<div class="apx-up-ic">⬆️</div>' +
         '<div class="apx-up-t">Galereyadan rasm yuklash</div>' +
-        '<div class="apx-up-s">Rasm tanlang — avtomatik link olinadi</div>' +
-        '<input type="file" id="shop-file" accept="image/*" multiple hidden></label>';
+        '<div class="apx-up-s">Rasm tanlang — yuklanishi shu yerda ko\'rinadi</div>' +
+        '<input type="file" id="shop-file" accept="image/*" multiple>' +
+        "</div>";
     } else {
       html +=
         '<div class="adm-hint-block">Galereyadan yuklash uchun ImgBB kaliti kerak ' +
@@ -340,6 +390,7 @@ window.ZimmerShop = (function () {
     }
     html +=
       '<div class="shop-thumbs" id="shop-thumbs"></div>' +
+      '<div class="up-status" id="shop-up-status"></div>' +
       '<input type="text" class="admin-input" id="shop-img1" placeholder="Yoki rasm linki (ixtiyoriy)">' +
       '<input type="text" class="admin-input" id="shop-img2" placeholder="2-rasm linki (ixtiyoriy)">' +
       '<input type="text" class="admin-input" id="shop-img3" placeholder="3-rasm linki (ixtiyoriy)">' +
@@ -350,103 +401,395 @@ window.ZimmerShop = (function () {
   function bindPhotos() {
     const inp = $("shop-file");
     if (inp)
-      inp.onchange = async (ev) => {
-        const files = ev.target.files;
+      inp.onchange = (ev) => {
+        // 1) NUSXA OLAMIZ — `ev.target.files` tirik obyekt, tozalashdan
+        //    keyin bo'shab qoladi. `slice` haqiqiy massiv yasaydi.
+        const picked = Array.prototype.slice.call(ev.target.files || []);
+        // 2) endi tozalash xavfsiz (ayni fayl qayta tanlansa ham ishlaydi)
         ev.target.value = "";
-        await handleFiles(files);
+        // 3) `onchange` ni bloklamaymiz — yuklash fonda ketadi
+        handleFiles(picked);
       };
+
+    // Zaxira: agar biror WebView'da qoplama input bosilmasa, zonaning
+    // o'zi input'ni majburan ochadi.
+    const zone = $("shop-drop");
+    if (zone && inp)
+      zone.onclick = (ev) => {
+        if (ev.target !== inp) {
+          haptic();
+          inp.click();
+        }
+      };
+
+    // Qo'lda kiritilgan havola: jonli kartochka DARHOL yangilanadi, eskiz
+    // esa yozib bo'lgandan keyin. Aks holda har harfda chala havola bilan
+    // `<img>` yaratilib, buzuq rasm belgisi miltillab turadi.
+    let linkTimer = null;
     ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
       const el = $(id);
-      if (el) el.oninput = () => renderThumbs();
+      if (!el) return;
+      el.oninput = () => {
+        livePreview();
+        clearTimeout(linkTimer);
+        linkTimer = setTimeout(renderThumbs, 700);
+      };
+      el.onchange = () => {
+        clearTimeout(linkTimer);
+        renderThumbs();
+      };
     });
   }
 
-  async function handleFiles(files) {
-    if (!up() || !files || !files.length) return;
-    const room = MAX_PHOTOS - S.photos.length;
-    if (room <= 0) return toast("Maksimum " + MAX_PHOTOS + " ta rasm");
-    const list = Array.prototype.slice.call(files, 0, room);
-    if (files.length > room) toast("Faqat " + room + " ta qo'shildi (chegara " + MAX_PHOTOS + ")");
+  /* -------------------------------------------------------- slot hayoti */
 
-    for (let i = 0; i < list.length; i++) {
-      const slot = { url: null, pct: 0, phase: "siqish", error: null };
-      S.photos.push(slot);
-      renderThumbs();
-      try {
-        const res = await up().uploadFile(list[i], (pct, phase) => {
-          slot.pct = pct;
-          slot.phase = phase;
-          renderThumbs();
-        });
-        slot.url = res.url;
-      } catch (err) {
-        slot.error = (err && err.message) || "Yuklanmadi";
-        if (err && err.code === "bad_key") slot.error = "ImgBB kaliti xato (config.js)";
-        toast(slot.error);
-      }
-      renderThumbs();
+  function objectUrl(file) {
+    try {
+      return URL.createObjectURL(file);
+    } catch (_) {
+      return null;
     }
   }
 
-  /** Yuklanган + qo'lda kiritilgan havolalar (max 3). */
-  function photoUrls() {
-    const out = S.photos.filter((p) => p.url).map((p) => p.url);
+  function makeSlot(file) {
+    return {
+      file: file,
+      localUrl: objectUrl(file), // internet kutmasdan ko'rsatish uchun
+      url: null, // ImgBB havolasi (saqlanadigan qiymat)
+      pct: 0,
+      phase: PH.COMPRESS,
+      error: null,
+      node: null, // DOM tugun (joyida yangilash uchun)
+      settled: false, // ✅ chaqnashi ko'rsatilganmi
+    };
+  }
+
+  /** Object URL'ni bo'shatamiz — aks holda har rasm xotirada qolib ketadi. */
+  function releaseSlot(slot) {
+    if (slot && slot.localUrl) {
+      try {
+        URL.revokeObjectURL(slot.localUrl);
+      } catch (_) {}
+      slot.localUrl = null;
+    }
+  }
+
+  function clearPhotos() {
+    S.photos.forEach(releaseSlot);
+    S.photos = [];
+  }
+
+  /* -------------------------------------------------------- havolalar */
+
+  /** Faqat qo'lda kiritilgan havolalar. */
+  function manualUrls() {
+    const out = [];
     ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
       const v = $(id) && $(id).value.trim();
       if (v) out.push(v);
     });
-    // takrorlanmasin
+    return out;
+  }
+
+  /** SAQLANADIGAN havolalar: yuklab bo'lingan + qo'lda kiritilgan (max 3). */
+  function photoUrls() {
+    const out = S.photos.filter((p) => p.url).map((p) => p.url).concat(manualUrls());
     return out.filter((u, i) => out.indexOf(u) === i).slice(0, MAX_PHOTOS);
   }
 
+  /** KO'RSATISH uchun: yuklanmagan slotlar ham mahalliy rasmni beradi. */
+  function previewUrls() {
+    const out = S.photos
+      .map((p) => p.url || p.localUrl)
+      .filter(Boolean)
+      .concat(manualUrls());
+    return out.filter((u, i) => out.indexOf(u) === i).slice(0, MAX_PHOTOS);
+  }
+
+  /** Nechta o'rin band (slot + qo'lda kiritilgan havola). */
+  function usedCount() {
+    return S.photos.length + manualUrls().length;
+  }
+
+  function busyPhotos() {
+    return S.photos.filter((p) => p.phase === PH.COMPRESS || p.phase === PH.UPLOAD).length;
+  }
+
+  /* -------------------------------------------------------- yuklash */
+
+  async function handleFiles(picked) {
+    if (!up() || !up().available()) return;
+    const files = (picked || []).filter(Boolean);
+    if (!files.length) return;
+
+    const room = MAX_PHOTOS - usedCount();
+    if (room <= 0) return toast("Maksimum " + MAX_PHOTOS + " ta rasm");
+
+    const list = files.slice(0, room);
+    if (files.length > room) {
+      toast("Faqat " + room + " ta qo'shildi (chegara " + MAX_PHOTOS + " ta)");
+    }
+
+    const slots = list.map(makeSlot);
+    slots.forEach((s) => S.photos.push(s));
+    // Eskizlar DARHOL chiqadi — admin tanlagan rasmini ko'radi.
+    renderThumbs();
+    haptic();
+
+    let ok = 0;
+    for (const slot of slots) {
+      if (await runSlot(slot)) ok++;
+    }
+
+    if (ok) {
+      haptic("success");
+      toast("✅ " + ok + " ta rasm yuklandi");
+    }
+    paintStatus();
+  }
+
+  /** Bitta slotni siqib yuklaydi. «↻ Qayta» tugmasi ham shu funksiyani
+   *  chaqiradi — shuning uchun holat har chaqiruvda noldan tiklanadi.
+   *
+   *  DIQQAT: `try` faqat YUKLASHNI o'raydi. Ilgari muvaffaqiyat kodi ham
+   *  `try` ichida edi va u yerdagi har qanday nosozlik (masalan DOM
+   *  yangilashdagi kutilmagan xato) `catch` ga tushib, ALLAQACHON yuklab
+   *  bo'lingan rasmni «yuklanmadi» deb ko'rsatardi. */
+  async function runSlot(slot) {
+    slot.error = null;
+    slot.pct = 0;
+    slot.phase = PH.COMPRESS;
+    paintSlot(slot);
+    paintStatus();
+
+    let res = null;
+    try {
+      res = await up().uploadFile(slot.file, (pct, phase) => {
+        slot.pct = pct;
+        slot.phase = phase === "siqish" ? PH.COMPRESS : PH.UPLOAD;
+        paintSlot(slot);
+      });
+    } catch (err) {
+      slot.phase = PH.ERROR;
+      slot.error = (err && err.message) || "Yuklanmadi";
+      if (err && err.code === "bad_key") slot.error = "ImgBB kaliti xato (config.js)";
+      if (err && err.code === "no_key") slot.error = "ImgBB kaliti yo'q (config.js)";
+      paintSlot(slot);
+      paintStatus();
+      haptic("error");
+      toast("❌ " + slot.error);
+      return false;
+    }
+
+    slot.url = res.url;
+    slot.pct = 100;
+    slot.phase = PH.DONE;
+    // Eskiz mahalliy `blob:` dan ImgBB havolasiga o'tadi, mahalliy nusxa
+    // esa bo'shatiladi (xotira).
+    paintSlot(slot);
+    releaseSlot(slot);
+    livePreview();
+    paintStatus();
+    return true;
+  }
+
+  /* -------------------------------------------------------- ko'rinish */
+
+  /** Slot uchun DOM tugun yasaydi (bir marta) va `slot.node` ga saqlaydi. */
+  function slotNode(slot) {
+    const wrap = document.createElement("div");
+    wrap.className = "img-thumb-wrap up-slot";
+
+    const img = document.createElement("img");
+    img.alt = "";
+    // Havola buzuq bo'lsa BO'SH kvadrat qolmasin — belgi ko'rsatamiz.
+    img.onerror = () => wrap.classList.add("up-broken");
+    img.onload = () => wrap.classList.remove("up-broken");
+    const src = slot.url || slot.localUrl;
+    // `img.src = ""` brauzerda SAHIFANING o'zini yuklashga urinadi —
+    // shuning uchun bo'sh bo'lsa umuman qo'ymaymiz.
+    if (src) {
+      img.src = src;
+      slot.shownUrl = src;
+    } else {
+      wrap.classList.add("up-broken");
+    }
+    wrap.appendChild(img);
+
+    const ov = document.createElement("div");
+    ov.className = "up-ov";
+    ov.innerHTML =
+      '<span class="up-spin"></span><span class="up-pct"></span><span class="up-bar"></span>';
+    wrap.appendChild(ov);
+
+    const badge = document.createElement("span");
+    badge.className = "img-main-badge";
+    badge.textContent = "Asosiy";
+    wrap.appendChild(badge);
+
+    const del = document.createElement("button");
+    del.className = "img-del";
+    del.type = "button";
+    del.textContent = "✕";
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      haptic();
+      // Indeks bilan emas, OBYEKT bilan izlaymiz: bir nechta rasm bir
+      // vaqtda yuklanayotganda indekslar siljib ketadi.
+      const k = S.photos.indexOf(slot);
+      if (k >= 0) S.photos.splice(k, 1);
+      releaseSlot(slot);
+      renderThumbs();
+    };
+    wrap.appendChild(del);
+
+    const retry = document.createElement("button");
+    retry.className = "up-retry";
+    retry.type = "button";
+    retry.textContent = "↻";
+    retry.title = "Qayta urinish";
+    retry.onclick = (ev) => {
+      ev.stopPropagation();
+      haptic();
+      runSlot(slot);
+    };
+    wrap.appendChild(retry);
+
+    slot.node = wrap;
+    paintSlot(slot);
+    return wrap;
+  }
+
+  /** Slotning HOLATINI joyida yangilaydi (rasmni qayta yuklamasdan).
+   *  Bezash NIKAKDA yuklashni buzmasligi kerak — shu sababli butun tanasi
+   *  himoyalangan. */
+  function paintSlot(slot) {
+    try {
+      paintSlotUnsafe(slot);
+    } catch (_) {}
+  }
+
+  function paintSlotUnsafe(slot) {
+    const wrap = slot && slot.node;
+    if (!wrap) return;
+
+    const pctEl = wrap.querySelector(".up-pct");
+    const barEl = wrap.querySelector(".up-bar");
+    const imgEl = wrap.querySelector("img");
+
+    wrap.classList.remove("is-compress", "is-upload", "is-done", "is-error");
+
+    if (slot.phase === PH.ERROR) {
+      wrap.classList.add("is-error");
+      if (pctEl) pctEl.textContent = "❌";
+      if (barEl) barEl.style.width = "100%";
+      wrap.title = slot.error || "Yuklanmadi";
+      return;
+    }
+
+    if (slot.phase === PH.DONE) {
+      wrap.classList.add("is-done");
+      if (pctEl) pctEl.textContent = "✅";
+      if (barEl) barEl.style.width = "100%";
+      wrap.title = "";
+      // Bulut havolasiga o'tamiz (mahalliy `blob:` bo'shatilgach yo'qoladi).
+      // `slot.shownUrl` ni o'zimiz yuritamiz: `imgEl.src` brauzerda MUTLAQ
+      // manzil bo'lib qaytadi, ya'ni to'g'ridan solishtirish ishonchsiz —
+      // rasm har bo'yashda qaytadan yuklanib miltillashi mumkin.
+      if (imgEl && slot.url && slot.shownUrl !== slot.url) {
+        slot.shownUrl = slot.url;
+        imgEl.src = slot.url;
+      }
+      // ✅ bir lahza chaqnaydi, keyin qatlam so'nadi. `settled` — bu
+      // chaqnash BIR MARTA bo'lishi uchun: ro'yxat qayta yasalganda
+      // (masalan yangi rasm qo'shilganda) eski eskiz yana chaqnamasin.
+      if (slot.settled) {
+        wrap.classList.add("is-clean");
+      } else {
+        setTimeout(() => {
+          slot.settled = true;
+          if (slot.phase === PH.DONE && slot.node) slot.node.classList.add("is-clean");
+        }, 450);
+      }
+      return;
+    }
+
+    wrap.classList.remove("is-clean");
+    if (slot.phase === PH.COMPRESS) {
+      wrap.classList.add("is-compress");
+      if (pctEl) pctEl.textContent = "siqilmoqda";
+      if (barEl) barEl.style.width = "8%";
+    } else {
+      wrap.classList.add("is-upload");
+      if (pctEl) pctEl.textContent = slot.pct + "%";
+      if (barEl) barEl.style.width = Math.max(3, slot.pct) + "%";
+    }
+  }
+
+  /** Qo'lda kiritilgan havola uchun oddiy eskiz. */
+  function linkNode(url) {
+    const wrap = document.createElement("div");
+    wrap.className = "img-thumb-wrap up-slot is-done is-clean up-link";
+
+    const img = document.createElement("img");
+    img.alt = "";
+    img.src = url;
+    img.onerror = () => wrap.classList.add("up-broken");
+    wrap.appendChild(img);
+
+    const badge = document.createElement("span");
+    badge.className = "img-main-badge";
+    badge.textContent = "Asosiy";
+    wrap.appendChild(badge);
+    return wrap;
+  }
+
+  /** Butun ro'yxatni qayta yasaydi (slot qo'shilganda/o'chirilganda). */
   function renderThumbs() {
     const box = $("shop-thumbs");
     if (!box) return;
-    const urls = photoUrls();
-    // Yuklanayotgan slotlar (foiz bilan) + tayyor havolalar
-    let html = S.photos
-      .map((p, i) => {
-        if (p.error)
-          return (
-            '<div class="up-prog"><span class="up-pct">❌</span>' +
-            '<button class="img-del" id="shop-rm-' +
-            i +
-            '">✕</button></div>'
-          );
-        if (!p.url) {
-          const label = p.phase === "siqish" ? "siqilmoqda" : p.pct + "%";
-          return (
-            '<div class="up-prog"><span class="up-pct">' +
-            esc(label) +
-            '</span><div class="up-bar" style="width:' +
-            (p.phase === "siqish" ? 10 : p.pct) +
-            '%"></div></div>'
-          );
-        }
-        return (
-          '<div class="img-thumb-wrap"><img src="' +
-          esc(p.url) +
-          '" alt="">' +
-          (i === 0 ? '<span class="img-main-badge">Asosiy</span>' : "") +
-          '<button class="img-del" id="shop-rm-' +
-          i +
-          '">✕</button></div>'
-        );
-      })
-      .join("");
-    box.innerHTML = html;
 
-    S.photos.forEach((_, i) => {
-      const b = $("shop-rm-" + i);
-      if (b)
-        b.onclick = () => {
-          haptic();
-          S.photos.splice(i, 1);
-          renderThumbs();
-          livePreview();
-        };
+    box.innerHTML = "";
+    S.photos.forEach((slot) => {
+      slot.node = null;
+      box.appendChild(slotNode(slot));
     });
+    // Qo'lda kiritilgan havolalar ham ko'rinadi. Ilgari `photoUrls()`
+    // hisoblanardi-yu, natijasi ishlatilmasdi — link qo'ygan admin
+    // eskizni ko'rmasdi va rasm tushgan-tushmaganini bilmasdi.
+    manualUrls().forEach((u) => box.appendChild(linkNode(u)));
+
+    // «Asosiy» belgisi faqat BIRINCHI eskizda turadi.
+    const first = box.querySelector(".up-slot");
+    Array.prototype.forEach.call(box.querySelectorAll(".up-slot"), (n) => {
+      n.classList.toggle("is-main", n === first);
+    });
+
+    paintStatus();
     livePreview();
+  }
+
+  /** Eskizlar ostidagi holat qatori: nechta tayyor, nechta ketmoqda. */
+  function paintStatus() {
+    const el = $("shop-up-status");
+    if (!el) return;
+    const busy = busyPhotos();
+    const bad = S.photos.filter((p) => p.phase === PH.ERROR).length;
+    const ready = photoUrls().length;
+
+    if (busy) {
+      el.className = "up-status is-busy";
+      el.textContent = "⏳ " + busy + " ta rasm yuklanmoqda — sahifadan chiqmang";
+    } else if (bad) {
+      el.className = "up-status is-bad";
+      el.textContent = "❌ " + bad + " ta rasm yuklanmadi — ↻ bosib qayta urinib ko'ring";
+    } else if (ready) {
+      el.className = "up-status is-ok";
+      el.textContent = "✅ " + ready + " ta rasm tayyor";
+    } else {
+      el.className = "up-status";
+      el.textContent = "";
+    }
   }
 
   /* ==================================================================
@@ -459,7 +802,9 @@ window.ZimmerShop = (function () {
     const price = parseNum($("shop-price") && $("shop-price").value);
     const oldp = parseNum($("shop-flash") && $("shop-flash").value);
     const code = ($("shop-code") && $("shop-code").value.trim()) || "";
-    const img = photoUrls()[0] || "";
+    // KO'RSATISH uchun mahalliy rasm ham yaraydi — kartochka ImgBB javobini
+    // kutib turmasin. Saqlashda esa faqat `photoUrls()` (haqiqiy havolalar).
+    const img = previewUrls()[0] || "";
 
     if (!name && !price && !img) {
       box.innerHTML =
@@ -581,7 +926,7 @@ window.ZimmerShop = (function () {
   function openAdd() {
     S.view = "add";
     S.editing = null;
-    S.photos = [];
+    clearPhotos();
     S.catSel = null;
     S.carSel = null;
     setHead("Yangi tovar", "Rasm · nom · narx · kategoriya");
@@ -601,10 +946,7 @@ window.ZimmerShop = (function () {
     ["shop-name", "shop-price", "shop-code", "shop-flash"].forEach((id) => {
       if ($(id)) $(id).oninput = livePreview;
     });
-    ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
-      if ($(id)) $(id).oninput = () => renderThumbs();
-    });
-    livePreview();
+    renderThumbs();
     $("shop-save").onclick = () => saveProduct(null);
   }
 
@@ -627,7 +969,9 @@ window.ZimmerShop = (function () {
     for (const u of photos) {
       if (!/^https?:\/\/[^\s]+$/i.test(u)) return { err: "Rasm havolasi http(s) bo'lishi kerak" };
     }
-    if (S.photos.some((p) => !p.url && !p.error)) return { err: "Rasm yuklanmoqda — kuting" };
+    // Yuklanish tugamagan bo'lsa saqlamaymiz — aks holda tovar RASMSIZ
+    // qolib ketadi (havola hali kelmagan).
+    if (busyPhotos()) return { err: "⏳ Rasm yuklanmoqda — bir lahza kuting" };
 
     const carName = S.carSel
       ? (S.cars.find((c) => String(c.id) === String(S.carSel)) || {}).name || null
@@ -986,7 +1330,7 @@ window.ZimmerShop = (function () {
     const r = p._raw || p;
     S.view = "edit";
     S.editing = p.id;
-    S.photos = [];
+    clearPhotos();
     S.catSel = r.categoryName || null;
     S.carSel = null;
     if (r.carName) {
@@ -1037,10 +1381,10 @@ window.ZimmerShop = (function () {
     ["shop-name", "shop-price", "shop-code", "shop-flash"].forEach((id) => {
       if ($(id)) $(id).oninput = livePreview;
     });
-    ["shop-img1", "shop-img2", "shop-img3"].forEach((id) => {
-      if ($(id)) $(id).oninput = () => renderThumbs();
-    });
-    livePreview();
+    // Mavjud rasmlar ham eskiz sifatida chiqadi. Ilgari `renderThumbs()`
+    // tahrir formasida umuman chaqirilmasdi — admin tovarning rasmi bor
+    // yoki yo'qligini faqat pastdagi «jonli ko'rinish»dan taxmin qilardi.
+    renderThumbs();
 
     $("shop-save").onclick = () => saveProduct(p.id);
     $("shop-hide").onclick = async () => {

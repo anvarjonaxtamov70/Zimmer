@@ -1151,9 +1151,14 @@ window.ZimmerAdmin = (function () {
 
     // ---- hodisalar
     $("ap-files").onchange = async (ev) => {
-      const files = ev.target.files;
-      // Bir xil faylni qayta tanlash mumkin bo'lsin (aks holda `onchange`
-      // ikkinchi marta ishlamaydi).
+      // DIQQAT: `ev.target.files` — TIRIK `FileList`. `input.value = ""`
+      // o'sha obyektni JOYIDA bo'shatadi, ya'ni oldin olingan havola ham
+      // bo'sh bo'lib qoladi. Shu sababli AVVAL haqiqiy massivga nusxa
+      // olamiz, KEYIN input'ni tozalaymiz.
+      //
+      // Tozalash o'zi kerak: aks holda admin ayni o'sha faylni ikkinchi
+      // marta tanlasa `onchange` umuman ishlamaydi.
+      const files = Array.prototype.slice.call(ev.target.files || []);
       ev.target.value = "";
       await pickProductImages(files);
     };
