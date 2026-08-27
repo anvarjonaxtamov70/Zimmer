@@ -37,6 +37,9 @@ window.ZimmerAdminOffline = (function () {
   const haptic = (k) => (app().haptic ? app().haptic(k) : void 0);
   const ask = (m) => (app().ask ? app().ask(m) : Promise.resolve(window.confirm(m)));
 
+  /** SQLite'da 3 ustun juftligi bor (photo/photo2/photo3). */
+  const MAX_PHOTOS = 3;
+
   const S = {
     view: null, // null | menu | add | inventory | orders
     items: [],
@@ -44,6 +47,7 @@ window.ZimmerAdminOffline = (function () {
     orders: [],
     query: "",
     busy: false,
+    photos: [], // [{url, pct, phase, error}]
   };
 
   const body = () => $("admin-body");
@@ -188,19 +192,150 @@ window.ZimmerAdminOffline = (function () {
   function openAdd() {
     S.view = "add";
     setHead("Yangi tovar", "Zaxira rejim");
+    S.photos = [];
     body().innerHTML =
       '<div class="adm-form">' +
       field("admo-name", "Tovar nomi", "text", "Masalan: Ochki L200", true) +
       field("admo-price", "Narxi (so'm)", "text", "320 000", true) +
       field("admo-stock", "Qoldiq (dona)", "text", "6", true) +
-      field("admo-photo", "Rasm havolasi", "text", "https://...") +
-      '<div class="adm-hint">Rasmni galereyadan yuklash server uyg\'onganda ishlaydi. ' +
-      "Hozircha tayyor havola qo'ying yoki bo'sh qoldiring.</div>" +
+      photoBlock() +
       areaField("admo-desc", "Tavsif") +
       '<button class="btn btn-primary" id="admo-save">Saqlash</button>' +
       "</div>";
 
+    bindPhotos();
     $("admo-save").onclick = saveProduct;
+  }
+
+  /* ------------------------------------------------------------ rasmlar */
+
+  /** Telefon galereyasidan yuklash bloki. Kalit sozlanmagan bo'lsa —
+   *  havola qo'yish maydoni va nima qilish kerakligi. */
+  function photoBlock() {
+    const up = window.ZimmerUpload;
+    const ready = up && up.available();
+
+    let html = '<div class="adm-group"><span>Rasmlar (' + MAX_PHOTOS + " tagacha)</span>";
+
+    if (ready) {
+      html +=
+        '<label class="btn btn-ghost" for="admo-file" id="admo-pick">' +
+        "📷 Telefondan rasm tanlash</label>" +
+        '<input type="file" id="admo-file" accept="image/*" multiple hidden>' +
+        '<div class="adm-figures" id="admo-thumbs"></div>' +
+        '<div class="adm-hint">Rasm telefonda kichraytirilib yuboriladi — ' +
+        "mobil internet tejaladi va do'kon tez ochiladi.</div>";
+    } else {
+      html +=
+        '<div class="adm-hint-block">Galereyadan yuklash uchun bir marta ' +
+        "ImgBB kaliti kerak (bepul, karta talab qilinmaydi):<br><br>" +
+        '<span class="adm-mini">api.imgbb.com → Get API key</span><br><br>' +
+        "keyin uni <b>docs/config.js</b> dagi <b>IMGBB_KEY</b> ga qo'ying." +
+        "</div>";
+    }
+
+    // Havola qo'yish har doim mumkin — zaxira yo'l.
+    html +=
+      '<label class="adm-field"><span>Yoki rasm havolasi</span>' +
+      '<input class="field" id="admo-photo" type="text" placeholder="https://..."></label>' +
+      "</div>";
+    return html;
+  }
+
+  function bindPhotos() {
+    const input = $("admo-file");
+    if (!input) return;
+    input.onchange = () => handleFiles(input.files);
+  }
+
+  async function handleFiles(files) {
+    const up = window.ZimmerUpload;
+    if (!up || !files || !files.length) return;
+
+    const room = MAX_PHOTOS - S.photos.length;
+    if (room <= 0) return toast("Maksimum " + MAX_PHOTOS + " ta rasm");
+
+    const list = Array.prototype.slice.call(files, 0, room);
+    if (files.length > room) {
+      toast("Faqat " + room + " ta rasm qo'shildi (chegara " + MAX_PHOTOS + ")");
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      const slot = { url: null, pct: 0, phase: "siqish", error: null };
+      S.photos.push(slot);
+      renderThumbs();
+      try {
+        const res = await up.uploadFile(list[i], (pct, phase) => {
+          slot.pct = pct;
+          slot.phase = phase;
+          renderThumbs();
+        });
+        slot.url = res.url;
+        slot.bytes = res.bytes;
+      } catch (err) {
+        // Xatoni AYNAN ko'rsatamiz — «yuklanmadi» foydasiz.
+        slot.error = (err && err.message) || "Yuklanmadi";
+        if (err && err.code === "bad_key") {
+          slot.error = "ImgBB kaliti xato — config.js ni tekshiring";
+        }
+        toast(slot.error);
+      }
+      renderThumbs();
+    }
+    // Bir xil faylni qayta tanlash mumkin bo'lsin
+    const input = $("admo-file");
+    if (input) input.value = "";
+  }
+
+  function renderThumbs() {
+    const box = $("admo-thumbs");
+    if (!box) return;
+    box.innerHTML = S.photos
+      .map((p, i) => {
+        if (p.error) {
+          return (
+            '<div class="adm-figure"><div class="adm-thumb-empty">⚠️</div>' +
+            '<button class="btn btn-ghost btn-sm" id="admo-rm-' +
+            i +
+            '">O\'chirish</button></div>'
+          );
+        }
+        if (!p.url) {
+          const label = p.phase === "siqish" ? "siqilmoqda" : p.pct + "%";
+          return (
+            '<div class="adm-figure"><div class="adm-thumb-empty">' +
+            esc(label) +
+            "</div></div>"
+          );
+        }
+        return (
+          '<div class="adm-figure"><img class="adm-thumb" src="' +
+          esc(p.url) +
+          '" alt="">' +
+          '<button class="btn btn-ghost btn-sm" id="admo-rm-' +
+          i +
+          '">O\'chirish</button></div>'
+        );
+      })
+      .join("");
+
+    S.photos.forEach((_, i) => {
+      const btn = $("admo-rm-" + i);
+      if (btn)
+        btn.onclick = () => {
+          haptic();
+          S.photos.splice(i, 1);
+          renderThumbs();
+        };
+    });
+  }
+
+  /** Yuklangan havolalar (xato va tugallanmaganlar tashlanadi). */
+  function photoUrls() {
+    const out = S.photos.filter((p) => p.url).map((p) => p.url);
+    const manual = ($("admo-photo") && $("admo-photo").value.trim()) || "";
+    if (manual) out.push(manual);
+    return out.slice(0, MAX_PHOTOS);
   }
 
   function field(id, label, type, ph, req) {
@@ -236,16 +371,24 @@ window.ZimmerAdminOffline = (function () {
     const name = ($("admo-name").value || "").trim();
     const price = parseNum($("admo-price").value);
     const stock = parseNum($("admo-stock").value);
-    const photo = ($("admo-photo").value || "").trim();
     const desc = ($("admo-desc").value || "").trim();
+    const photos = photoUrls();
 
-    // Tekshiruvni SHU YERDA ham qilamiz — mijoz Worker javobini kutmasin.
-    // (Worker baribir qayta tekshiradi, bu faqat qulaylik uchun.)
     if (name.length < 2) return toast("Tovar nomini kiriting");
+    if (name.length > 160) return toast("Nom juda uzun (160 belgigacha)");
     if (!price) return toast("Narxni kiriting");
     if (stock === null) return toast("Qoldiqni kiriting (0 bo'lishi mumkin)");
-    if (photo && photo.indexOf("https://") !== 0) {
-      return toast("Rasm havolasi https:// bilan boshlanishi kerak");
+
+    // Qo'lda kiritilgan havola tekshiriladi (yuklanganlar ImgBB'dan keladi).
+    const manual = ($("admo-photo") && $("admo-photo").value.trim()) || "";
+    if (manual && !/^https?:\/\/[^\s]+$/i.test(manual)) {
+      return toast("Rasm havolasi http:// yoki https:// bilan boshlanishi kerak");
+    }
+
+    // Yuklanish tugamagan rasm bo'lsa kutamiz — aks holda tovar rasmsiz
+    // saqlanib, admin buni sezmasdi.
+    if (S.photos.some((p) => !p.url && !p.error)) {
+      return toast("Rasm yuklanmoqda — bir soniya kuting");
     }
 
     S.busy = true;
@@ -272,8 +415,13 @@ window.ZimmerAdminOffline = (function () {
         old_price: null,
         stock: stock,
         badge: null,
-        photo_url: photo || null,
+        // Uchta rasm ustuni — SQLite bilan bir xil (`database/db.py`).
+        photo_url: photos[0] || null,
         photo_id: null,
+        photo2_url: photos[1] || null,
+        photo2_id: null,
+        photo3_url: photos[2] || null,
+        photo3_id: null,
         is_active: 1,
         deleted: false,
         categoryName: "Boshqa",
