@@ -239,6 +239,101 @@
     });
   }
 
+  /* ==================================================================
+     BIR TOVARNING IKKI NUSXASI (bulutda eski kalit qolgani uchun)
+
+     QANDAY PAYDO BO'LADI
+     Mini App tovarni bulutga O'ZI yozadi va kalit sifatida o'z id sini
+     qo'yadi (900001 — `docs/js/fb.js: ID_BASE`). Render uyg'onganda
+     `services/sync.py: restore_catalog` uni SQLite'ga ko'chiradi, lekin
+     `id` ustuni ko'chirilmaydi (`EDITABLE["products"]` da yo'q) — SQLite
+     o'zining id sini beradi, masalan 47. So'ng `push_all_catalog` bulutga
+     PATCH bilan `47` kalitini QO'SHADI (PATCH ortiqcha kalitni o'chirmaydi).
+
+     Natijada bulutda AYNI tovar ikki kalit ostida turadi (900001 va 47) va
+     do'konda IKKI MARTA ko'rinadi. `app.js: buildShopProducts` bunga
+     yordam bermaydi — u `id` bo'yicha takrorni tekshiradi, bu ikkisining
+     esa id si BOSHQA.
+
+     NEGA BU YERDA HAM TEKSHIRAMIZ
+     Asosiy tuzatish server tomonida (eski kalit endi haqiqatan o'chiriladi),
+     lekin u faqat Render UYG'ONGANDA ishlaydi. Bepul tarifda Render
+     uxlab yotgan bo'lishi mumkin, bulutda esa allaqachon yig'ilib qolgan
+     takrorlar bor. Shuning uchun ko'rsatishdan oldin shu yerda ham
+     filtrlaymiz — mijoz bir tovarni ikki marta ko'rmaydi.
+
+     QANDAY ANIQLANADI
+     Nom + mashina + kategoriya bir xil bo'lsa VA nusxalarning biri server
+     makonidan (id < 900000), ikkinchisi Mini App makonidan (id >= 900000)
+     bo'lsa — bu bitta tovar. Serverdagisini qoldiramiz: uning id si
+     buyurtma, savat va saqlanganlarda ishlatiladi.
+
+     ATAYLAB EHTIYOTKOR: faqat nom bo'yicha birlashtirmaymiz. Bir xil nomli
+     tovar turli mashina yoki kategoriya uchun bo'lishi mumkin — u HAQIQATAN
+     ikki xil tovar va yashirilishi mumkin emas (yashirsak, sotuvchi
+     sababini bilmay tovarini yo'qotardi).
+     ================================================================== */
+  var MINIAPP_ID_BASE = 900000; // docs/js/fb.js: ID_BASE bilan bir xil
+
+  function twinKey(r) {
+    var norm = function (v) {
+      return String(v == null ? "" : v).trim().toLowerCase().replace(/\s+/g, " ");
+    };
+    return [norm(r.name || r._key), norm(r.carName), norm(r.categoryName)].join("|");
+  }
+
+  function dropTwins(list) {
+    var groups = {};
+    var order = [];
+    list.forEach(function (r) {
+      var k = twinKey(r);
+      if (!groups[k]) {
+        groups[k] = [];
+        order.push(k);
+      }
+      groups[k].push(r);
+    });
+
+    var out = [];
+    var hidden = 0;
+    order.forEach(function (k) {
+      var group = groups[k];
+      if (group.length < 2) {
+        out.push(group[0]);
+        return;
+      }
+      var server = [];
+      var mini = [];
+      group.forEach(function (r) {
+        var id = Number(r.id);
+        if (isFinite(id) && id >= MINIAPP_ID_BASE) mini.push(r);
+        else server.push(r);
+      });
+      // Ikki makonda ham nusxa bor -> Mini App nusxasi eskirgan.
+      if (server.length && mini.length) {
+        hidden += mini.length;
+        server.forEach(function (r) {
+          out.push(r);
+        });
+        return;
+      }
+      // Aks holda bular haqiqatan boshqa-boshqa tovar — hammasi qoladi.
+      group.forEach(function (r) {
+        out.push(r);
+      });
+    });
+
+    if (hidden) {
+      console.warn(
+        "[offline] " +
+          hidden +
+          " ta takror tovar yashirildi: bulutda eski kalit qolgan. " +
+          "Render uyg'onganda `restore_catalog` uni o'chiradi."
+      );
+    }
+    return out;
+  }
+
   /** `utils/helpers.py:fmt_price` bilan AYNAN bir xil: 120000 -> "120 000 so'm"
    *
    *  DIQQAT: `toLocaleString("ru-RU")` ishlatilmaydi — u ajratgich sifatida
@@ -424,7 +519,9 @@
       return await fallback();
     }
 
-    products = rows(rawProducts);
+    // Bulutda bir tovarning ikki kaliti qolgan bo'lishi mumkin — bittasini
+    // qoldiramiz (izohni `dropTwins` ustida ko'ring).
+    products = dropTwins(rows(rawProducts));
     categories = rows(rawCategories);
 
     // 3-holat: tugun bor, lekin hammasi o'chirilgan/yashirilgan.

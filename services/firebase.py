@@ -292,8 +292,43 @@ async def patch(path: str, data: dict) -> bool:
     return await _write("PATCH", path, data)
 
 
+async def delete(path: str) -> bool:
+    """Tugunni butunlay olib tashlaydi.
+
+    ==================================================================
+    NEGA ALOHIDA FUNKSIYA KERAK (va nega tovar ikki marta ko'rinardi)
+    ==================================================================
+    RTDB'da tugunni o'chirishning ikki yo'li bor: HTTP DELETE, yoki PUT
+    bilan tanaga `null` yuborish.
+
+    Ilgari bu modulda `delete` YO'Q edi va `services/sync.py` takror
+    nusxani `put(path, None)` bilan o'chirishga urinardi. Lekin `_write`
+    ni ko'ring: u `session.request(method, url, json=data)` deb chaqiradi.
+    aiohttp'da `json=None` — bu parametrning STANDART qiymati, ya'ni
+    `json=None` berish `json` ni umuman bermaslik bilan bir xil: so'rov
+    TANASIZ ketadi.
+
+    Natijada RTDB bo'sh tanani ko'rib `400 Invalid data; couldn't parse
+    JSON object, array, or value` qaytarardi, `_write` esa `False` qaytarib
+    faqat log'ga ogohlantirish yozardi. Ya'ni o'chirish HAR SAFAR jimgina
+    bajarilmasdi va bulutda tovarning eski kaliti qolib ketardi —
+    do'konda tovar IKKI MARTA ko'rinardi.
+
+    DELETE esa tanani talab qilmaydi, shuning uchun bu yo'l ishonchli.
+    """
+    return await _write("DELETE", path, None)
+
+
 async def put(path: str, data) -> bool:
-    """Tugunni butunlay almashtiradi."""
+    """Tugunni butunlay almashtiradi.
+
+    `data is None` bo'lsa — tugunni O'CHIRISH ko'zda tutilgan. Buni PUT
+    bilan qilib bo'lmaydi (yuqoridagi `delete` izohiga qarang), shuning
+    uchun DELETE ga o'tkazamiz. Shu tarzda eski chaqiruvlar ham,
+    kelajakdagi e'tiborsizlik ham xatoga olib kelmaydi.
+    """
+    if data is None:
+        return await delete(path)
     return await _write("PUT", path, data)
 
 

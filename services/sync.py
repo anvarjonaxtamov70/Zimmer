@@ -37,6 +37,8 @@ def pending_count() -> int:
 
 
 async def _send(method: str, path: str, payload) -> bool:
+    if method == "delete":
+        return await firebase.delete(path)
     if method == "put":
         return await firebase.put(path, payload)
     return await firebase.patch(path, payload)
@@ -890,10 +892,17 @@ async def restore_catalog() -> dict[str, int]:
                 # haqiqiy tovar bilan aynan bir xil, shuning uchun keyingi
                 # `restore_catalog` uni ko'rib `catalog_delete_by_key` bilan
                 # HAQIQIY tovarni o'chirib yuborardi. Shu sababli tugun
-                # butunlay olib tashlanadi (`put` + `None`).
+                # butunlay olib tashlanadi.
+                #
+                # Ilgari bu yerda `method="put"` va `None` turardi — ya'ni
+                # o'chirish HECH QACHON ishlamagan: aiohttp `json=None` ni
+                # "tana yo'q" deb tushunadi, RTDB esa bo'sh tanani 400 bilan
+                # rad etadi (batafsil: `services/firebase.py: delete`).
+                # Shuning uchun takror nusxa bulutda qolib, tovar do'konda
+                # ikki marta ko'rinardi.
                 if str(key) != str(row_id):
                     if await _write(
-                        f"{CATALOG_ROOT}/{table}/{key}", None, method="put"
+                        f"{CATALOG_ROOT}/{table}/{key}", None, method="delete"
                     ):
                         stats["deduped"] += 1
                     else:
