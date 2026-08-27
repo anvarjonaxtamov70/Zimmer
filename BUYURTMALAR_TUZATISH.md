@@ -160,3 +160,89 @@ Jami                        450 000 so'm
    buyurtmalar ko'rinadi va bu haqda ogohlantirish chiqadi.
 4. Render'ni qayta deploy qiling (holat lug'ati va sinxronizatsiya tartibi
    o'zgardi).
+
+
+---
+
+# 9. Admin panel: har bo'lim alohida oynada
+
+## Ilgari qanday edi
+
+Panelda uchta tugma bor edi: **Yangi tovar**, **Ombor**, **Buyurtmalar**.
+Oxirgisi faqat **do'kon** buyurtmalarini bitta uzun ro'yxatda ko'rsatardi.
+
+Mijozning kabinetida esa **uchta** bo'lim bor:
+
+- 🛍 Mahsulot buyurtmalari
+- 🔥 Bi-LED buyurtmalarim
+- 🗓 Navbatlarim
+
+Ya'ni admin mijoz ko'rgan narsaning **uchdan bir qismini** ko'rardi — Bi-LED
+buyurtmasi va navbat mini app panelida **umuman yo'q** edi. Ularni boshqarish
+uchun botga o'tish kerak bo'lardi.
+
+## Endi qanday
+
+Menyu **beshta** tugma, «Ombor» va «Yangi tovar» kabi har biri **o'z oynasini**
+ochadi:
+
+```
+┌──────────────┬──────────────┐
+│ ＋ Yangi tovar│ 📦 Ombor      │
+└──────────────┴──────────────┘
+  Buyurtmalar
+┌────────────────────────────┐
+│ 🛍 Mahsulot buyurtmalari ③ │
+│ 🔥 Bi-LED buyurtmalari      │
+│ 🗓 Navbatlar             ①  │
+└────────────────────────────┘
+```
+
+- Tugmada **yangi** yozuvlar soni qizil belgi bilan turadi — admin nimaga
+  qarash kerakligini darhol ko'radi va buyurtmani o'tkazib yubormaydi.
+  Sanoqchilar fonda yuklanadi, ya'ni menyu darhol ochiladi.
+- Har oynada **holat filtri**: `Hammasi · 🆕 Yangi · ⏳ Jarayonda ·
+  ✅ Yakunlangan · ✕ Bekor`. Har chipda soni ko'rinadi; bo'sh filtr
+  ko'rsatilmaydi.
+- Orqaga tugmasi menyuga qaytaradi, yangilash tugmasi **ayni** bo'limni qayta
+  o'qiydi (ilgari har doim do'kon buyurtmalariga qaytarib yuborardi).
+
+## Har turning O'Z holatlari
+
+Uch tur uchun bosqichlar boshqacha va bu endi hurmat qilinadi:
+
+| Tur | Bosqichlar |
+|---|---|
+| 🛍 Mahsulot | yangi → qabul qilindi → yo'lda → yetkazildi |
+| 🔥 Bi-LED | yangi → qabul qilindi → ish jarayonida → topshirildi |
+| 🗓 Navbat | yangi → tasdiqlangan → bajarilgan |
+
+Bularning barchasi `utils/texts.py` (`ORDER_STATUS`, `BILED_STATUS`,
+`BOOKING_STATUS`) va `services/orders.py` (`FLOWS`) dagi ro'yxatlar bilan
+**aynan bir xil** — shuning uchun panelda qo'yilgan holat bot uchun notanish
+bo'lib qolmaydi.
+
+Muhim tafsilot: `done` so'zi Bi-LED va navbatda **haqiqiy** holat («topshirildi»
+/ «bajarilgan»), do'kon buyurtmasida esa **eski** nom (yangisi `delivered`).
+Shu sababli o'girish faqat do'kon buyurtmalariga qo'llanadi.
+
+## Ma'lumot qayerdan
+
+| Bo'lim | Manba |
+|---|---|
+| 🛍 Mahsulot | Worker `/admin/orders` — `pending_orders` + `orders` birlashtirilgan |
+| 🔥 Bi-LED | **to'g'ridan** Firebase `biled_orders` |
+| 🗓 Navbat | **to'g'ridan** Firebase `bookings` |
+
+Bi-LED va navbat tugunlari `database.rules.json` da o'qishga ochiq, shuning
+uchun Worker o'chgan bo'lsa ham ro'yxat ko'rinadi.
+
+**Holatni o'zgartirish** esa Worker orqali — mijozga Telegram xabarini yuborish
+uchun bot tokeni kerak, u faqat Worker'da. Worker o'chgan bo'lsa Bi-LED va
+navbat to'g'ridan Firebase'ga yoziladi (qoidalar ruxsat beradi) va admin xabar
+ketmaganini ko'radi. Do'kon buyurtmasining SQLite nusxasi uchun esa Worker
+**shart** — `orders` tuguni yopiq.
+
+`cloudflare-worker.js` dagi `/admin/order-status` endi `kind` parametrini
+qabul qiladi (`order` | `biled` | `booking`) va har tur uchun o'z tuguniga
+yozib, o'z xabar matnini yuboradi.

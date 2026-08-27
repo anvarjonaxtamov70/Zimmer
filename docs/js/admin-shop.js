@@ -71,6 +71,9 @@ window.ZimmerShop = (function () {
     // Yuklanayotgan rasmlar (VAQTINCHA). Tayyor havolalar bu yerda EMAS —
     // ular formadagi uchta `shop-imgN` maydonida turadi (yagona manba).
     jobs: [], // [{file, localUrl, pct, phase, error, node}]
+    ordKind: "order", // qaysi buyurtma bo'limi ochiq: order | biled | booking
+    ordKindPrev: null, // filtr almashinuvini kuzatish uchun
+    ordFilter: "all", // all | new | run | done | cancelled
     catSel: null, // tanlangan kategoriya nomi
     carSel: null, // tanlangan mashina id si (ixtiyoriy)
     query: "",
@@ -181,187 +184,373 @@ window.ZimmerShop = (function () {
     renderMenu();
   }
 
+  /* ==================================================================
+     MENYU — har bo'lim ALOHIDA tugma va ALOHIDA oyna
+
+     Ilgari uchta tugma bor edi: «Yangi tovar», «Ombor», «Buyurtmalar».
+     Oxirgisi FAQAT do'kon buyurtmalarini bitta uzun ro'yxatda ko'rsatardi,
+     Bi-LED buyurtmasi va navbat esa panelda UMUMAN yo'q edi — vaholanki
+     mijozning kabinetida uchtasi ham bor.
+
+     Endi beshta tugma, har biri o'z oynasini ochadi (orqaga menyuga
+     qaytaradi). Buyurtma bo'limlarida tugmada YANGI yozuvlar soni qizil
+     belgi bilan turadi — admin nimaga qarash kerakligini darhol ko'radi.
+     ================================================================== */
   function renderMenu() {
     S.view = "menu";
     // Forma yopildi — mahalliy rasm URL'larini bo'shatamiz (xotira).
     clearPhotos();
-    setHead("Boshqaruv", "Tovarlar — bitta manba");
+    setHead("Boshqaruv", "Tovar va buyurtmalar");
+
+    const tile = (id, cls, icon, title, sub, badge) =>
+      '<button class="shop-hero-card ' + cls + '" id="' + id + '">' +
+      '<span class="shop-hero-ic">' + icon + "</span>" +
+      '<span class="shop-hero-tx"><b>' + esc(title) + "</b><i>" + esc(sub) + "</i></span>" +
+      (badge ? '<span class="shop-hero-badge hidden" id="' + badge + '"></span>' : "") +
+      "</button>";
+
     body().innerHTML =
+      // --- tovar
+      '<div class="shop-hero shop-hero-2">' +
+      tile("shop-add", "shop-hero-add", "＋", "Yangi tovar", "Mahsulot qo'shish") +
+      tile("shop-inv", "shop-hero-inv", "📦", "Ombor", "Zaxira nazorati") +
+      "</div>" +
+      // --- buyurtmalar
+      '<div class="apx-sub">Buyurtmalar</div>' +
       '<div class="shop-hero">' +
-      '<button class="shop-hero-card shop-hero-add" id="shop-add">' +
-      '<span class="shop-hero-ic">＋</span>' +
-      "<span class=\"shop-hero-tx\"><b>Yangi tovar</b><i>Mahsulot qo'shish</i></span>" +
-      "</button>" +
-      '<button class="shop-hero-card shop-hero-inv" id="shop-inv">' +
-      '<span class="shop-hero-ic">📦</span>' +
-      "<span class=\"shop-hero-tx\"><b>Ombor</b><i>Zaxira nazorati</i></span>" +
-      "</button>" +
-      '<button class="shop-hero-card shop-hero-ord" id="shop-ord">' +
-      '<span class="shop-hero-ic">📋</span>' +
-      "<span class=\"shop-hero-tx\"><b>Buyurtmalar</b><i>Mijoz buyurtmalari</i></span>" +
-      "</button>" +
+      tile("shop-ord", "shop-hero-ord", KINDS.order.icon, KINDS.order.title, KINDS.order.sub, "shop-badge-order") +
+      tile("shop-biled", "shop-hero-biled", KINDS.biled.icon, KINDS.biled.title, KINDS.biled.sub, "shop-badge-biled") +
+      tile("shop-book", "shop-hero-book", KINDS.booking.icon, KINDS.booking.title, KINDS.booking.sub, "shop-badge-booking") +
       "</div>";
-    $("shop-add").onclick = () => {
-      haptic();
-      openAdd();
+
+    const bind = (id, fn) => {
+      const el = $(id);
+      if (el)
+        el.onclick = () => {
+          haptic();
+          fn();
+        };
     };
-    $("shop-inv").onclick = () => {
-      haptic();
-      openInventory();
-    };
-    $("shop-ord").onclick = () => {
-      haptic();
-      openOrders();
-    };
+    bind("shop-add", openAdd);
+    bind("shop-inv", openInventory);
+    bind("shop-ord", openOrders);
+    bind("shop-biled", openBiled);
+    bind("shop-book", openBookings);
+
+    // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
+    refreshBadges();
   }
 
   /* ==================================================================
-     BUYURTMALAR
+     BUYURTMALAR — UCH ALOHIDA BO'LIM, HAR BIRI O'Z OYNASIDA
 
-     ================ NEGA «HALI BUYURTMA TUSHMAGAN» DEYARDI ================
-     Panel faqat `pending_orders` ni o'qirdi — u Cloudflare Worker qabul
-     qilgan (Render o'chgan paytdagi) buyurtmalar tuguni.
+     Ilgari bitta «Buyurtmalar» tugmasi bor edi va u faqat do'kon
+     buyurtmalarini bitta uzun ro'yxatda ko'rsatardi. Mijozning
+     kabinetida esa UCHTA bo'lim bor:
 
-     Render tirik bo'lganda buyurtma esa SQLite'ga tushadi va uning nusxasi
-     `zimmer/orders` da turadi. O'sha tugun `database.rules.json` da
-     `.read: false` — brauzer uni O'QIY OLMAYDI. Natijada mijozning
-     kabinetida buyurtmalar turadi, admin panelida esa bo'sh ekran.
+         🛍 Mahsulot buyurtmalari   (catalog/orders + pending_orders)
+         🔥 Bi-LED buyurtmalari     (biled_orders)
+         🗓 Navbatlar               (bookings)
 
-     Endi buyurtmalar Worker orqali olinadi: u service-account bilan
-     IKKALA tugunni o'qiydi, birlashtiradi va faqat TASDIQLANGAN adminga
-     beradi (`requireAdmin`: initData imzosi -> uid -> ADMIN_IDS). Shu
-     sababli `zimmer/orders` ni qoidalarda ochish KERAK EMAS — mijoz
-     telefon raqamlari yopiq qoladi.
+     Ya'ni admin mijoz ko'rgan narsaning uchdan bir qismini ko'rardi:
+     Bi-LED buyurtmasi va navbat panelda UMUMAN yo'q edi.
 
-     Worker sozlanmagan bo'lsa — eskicha, to'g'ridan `pending_orders`.
+     Endi «Ombor» va «Yangi tovar» kabi — har bo'lim alohida tugma va
+     alohida oyna. Har oynada holat bo'yicha filtr chiplari bor.
+
+     MA'LUMOT QAYERDAN
+       • do'kon buyurtmalari — Worker `/admin/orders` (ikki tugunni
+         birlashtiradi, yopiq `orders` tugunini ham o'qiydi);
+       • Bi-LED va navbat — TO'G'RIDAN Firebase'dan, chunki
+         `database.rules.json` da ular o'qishga ochiq. Shu sababli
+         Worker o'chgan bo'lsa ham ro'yxat ko'rinadi.
+       • holatni o'zgartirish — Worker orqali (mijozga Telegram xabari
+         uchun bot tokeni kerak, u faqat Worker'da).
      ================================================================== */
 
-  /* YAGONA HOLAT LUG'ATI (cloudflare-worker.js va app.js bilan bir xil).
-     Ilgari «yetkazildi» uchun bu yerda `done`, SQLite'da esa `delivered`
-     ishlatilardi — ya'ni panelda qo'yilgan holat SQLite uchun NOTANISH
-     bo'lib qolardi va Render admin paneli o'sha buyurtmada tiqilardi. */
-  const ORD = {
-    new: { label: "Yangi", icon: "🆕" },
-    accepted: { label: "Qabul qilindi", icon: "✅" },
-    delivering: { label: "Yo'lda", icon: "🚚" },
-    delivered: { label: "Yetkazildi", icon: "🎉" },
-    cancelled: { label: "Bekor qilingan", icon: "✕" },
+  /** Har bir tur: tuguni, holatlari, keyingi qadamlari, kartochka tanasi. */
+  const KINDS = {
+    order: {
+      icon: "🛍",
+      title: "Mahsulot buyurtmalari",
+      sub: "Do'kondan berilgan buyurtmalar",
+      empty: "Hali buyurtma tushmagan. Mijoz do'kondan buyurtma berganda shu yerda ko'rinadi.",
+      statuses: {
+        new: { label: "Yangi", icon: "🆕" },
+        accepted: { label: "Qabul qilindi", icon: "✅" },
+        delivering: { label: "Yo'lda", icon: "🚚" },
+        delivered: { label: "Yetkazildi", icon: "🎉" },
+        cancelled: { label: "Bekor qilingan", icon: "✕" },
+      },
+      next: {
+        new: [["accepted", "✅ Qabul qilish"], ["cancelled", "✕ Bekor qilish"]],
+        accepted: [["delivering", "🚚 Yo'lga chiqdi"], ["cancelled", "✕ Bekor qilish"]],
+        delivering: [["delivered", "🎉 Yetkazildi"]],
+      },
+      // «Jarayonda» filtri uchun
+      running: ["accepted", "delivering"],
+    },
+    biled: {
+      icon: "🔥",
+      title: "Bi-LED buyurtmalari",
+      sub: "Linza va o'rnatish buyurtmalari",
+      empty: "Bi-LED buyurtmasi yo'q. Mijoz konfiguratordan buyurtma berganda shu yerda ko'rinadi.",
+      statuses: {
+        new: { label: "Yangi", icon: "🆕" },
+        accepted: { label: "Qabul qilindi", icon: "✅" },
+        in_work: { label: "Ish jarayonida", icon: "🔧" },
+        done: { label: "Topshirildi", icon: "✨" },
+        cancelled: { label: "Bekor qilingan", icon: "✕" },
+      },
+      next: {
+        new: [["accepted", "✅ Qabul qilish"], ["cancelled", "✕ Bekor qilish"]],
+        accepted: [["in_work", "🔧 Ishga oldim"], ["cancelled", "✕ Bekor qilish"]],
+        in_work: [["done", "✨ Topshirildi"]],
+      },
+      running: ["accepted", "in_work"],
+    },
+    booking: {
+      icon: "🗓",
+      title: "Navbatlar",
+      sub: "O'rnatish va tozalash navbatlari",
+      empty: "Navbat yo'q. Mijoz vaqt band qilganda shu yerda ko'rinadi.",
+      statuses: {
+        new: { label: "Yangi", icon: "🆕" },
+        confirmed: { label: "Tasdiqlangan", icon: "✅" },
+        done: { label: "Bajarilgan", icon: "✔️" },
+        cancelled: { label: "Bekor qilingan", icon: "✕" },
+      },
+      next: {
+        new: [["confirmed", "✅ Tasdiqlash"], ["cancelled", "✕ Bekor qilish"]],
+        confirmed: [["done", "✔️ Bajarildi"], ["cancelled", "✕ Bekor qilish"]],
+      },
+      running: ["confirmed"],
+    },
   };
 
-  function normStatus(v) {
+  /** Do'kon buyurtmasidagi eski nomlarni yagona lug'atga keltiradi.
+   *  `done`/`shipped` — Mini App va mijoz profilida ishlatilgan eski
+   *  nomlar; SQLite'da esa `delivered`/`delivering`. */
+  function normStatus(v, kind) {
     const s = String(v || "new").toLowerCase();
-    if (s === "done" || s === "delivered") return "delivered";
-    if (s === "shipped" || s === "delivering") return "delivering";
-    return ORD[s] ? s : "new";
-  }
-
-  const NEXT_STEPS = {
-    new: [["accepted", "✅ Qabul qilish"], ["cancelled", "✕ Bekor qilish"]],
-    accepted: [["delivering", "🚚 Yo'lga chiqdi"], ["cancelled", "✕ Bekor qilish"]],
-    delivering: [["delivered", "🎉 Yetkazildi"]],
-  };
-
-  async function openOrders() {
-    S.view = "orders";
-    setHead("Buyurtmalar", "Mijoz buyurtmalari");
-    loading("Buyurtmalar o'qilmoqda...");
-    try {
-      S.orders = await loadOrders();
-      renderOrders();
-    } catch (err) {
-      fail(err, openOrders);
+    const set = (KINDS[kind || "order"] || KINDS.order).statuses;
+    if (set[s]) return s;
+    if (kind === "order" || !kind) {
+      if (s === "done") return "delivered";
+      if (s === "shipped") return "delivering";
     }
+    return "new";
   }
 
-  async function loadOrders() {
+  /* ------------------------------------------------------------ o'qish */
+
+  async function loadKind(kind) {
     const off = window.ZimmerOffline;
 
-    // 1-yo'l: Worker — `pending_orders` + `orders` birlashtirilgan.
+    if (kind === "biled") {
+      const rows = off && off.adminBiledOrders ? await off.adminBiledOrders() : [];
+      return rows.map((r) => ({
+        kind: "biled",
+        key: String(r._key != null ? r._key : r.id),
+        code: "#" + (r.id != null ? r.id : r._key),
+        uid: r.uid || null,
+        name: r.name || "",
+        phone: r.phone || "",
+        status: normStatus(r.status, "biled"),
+        total: Number(r.total) || 0,
+        total_label: money(Number(r.total) || 0),
+        created_at: Number(r.createdAt) || 0,
+        // Bi-LED tafsiloti
+        lines: [
+          ["🚗", r.car],
+          ["💡", r.biled],
+          ["🕶", r.shroud],
+          ["🎨", r.color],
+          ["💬", r.comment],
+        ],
+      }));
+    }
+
+    if (kind === "booking") {
+      const rows = off && off.adminBookings ? await off.adminBookings() : [];
+      return rows.map((r) => ({
+        kind: "booking",
+        key: String(r._key != null ? r._key : r.id),
+        code: "#" + (r.id != null ? r.id : r._key),
+        uid: r.uid || null,
+        name: r.name || "",
+        phone: r.phone || "",
+        status: normStatus(r.status, "booking"),
+        total: 0,
+        total_label: "",
+        created_at: Number(r.createdAt) || 0,
+        lines: [
+          ["🛠", r.service],
+          ["📅", r.date],
+          ["🕐", r.time],
+        ],
+      }));
+    }
+
+    // ---- do'kon buyurtmalari
     if (off && off.workerReady && off.workerReady() && off.adminOrders) {
       try {
         const res = await off.adminOrders();
-        return (res.orders || []).map((o) => ({
-          key: o.key,
-          source: o.source || "pending",
-          code: o.code || (o.id != null ? "#" + o.id : o.key),
-          uid: o.uid || null,
-          name: o.name || "",
-          phone: o.phone || "",
-          address: o.address || "",
-          delivery_info: o.delivery_info || "",
-          payment_method: o.payment_method || "",
-          total: Number(o.total) || 0,
-          total_label: o.total_label || money(o.total || 0),
-          status: normStatus(o.status),
-          items: o.items || [],
-          created_at: Number(o.created_at) || 0,
-        }));
+        return (res.orders || []).map((o) => shopOrder(o));
       } catch (err) {
-        // Worker javob bermadi — pastdagi zaxira yo'ldan o'qiymiz.
         console.warn("[shop] Worker buyurtmalarni bermadi:", err);
-        // `forbidden` — Worker'da ADMIN_IDS sozlanmagan. Buni AYTAMIZ,
-        // aks holda admin «eski buyurtmalarim qayerda?» deb o'ylaydi.
         if (err && (err.code === "forbidden" || /admin/i.test(err.message || ""))) {
           toast("⚠️ Worker'da ADMIN_IDS sozlanmagan — faqat yangi buyurtmalar ko'rinadi", 6000);
         }
       }
     }
-
-    // 2-yo'l: to'g'ridan `pending_orders` (Worker sozlanmagan holat)
+    // Zaxira: to'g'ridan `pending_orders` (yopiq `orders` ko'rinmaydi)
     const node = await fb().get("pending_orders");
     const out = [];
     if (node && typeof node === "object") {
       Object.keys(node).forEach((key) => {
         const r = node[key];
         if (!r || typeof r !== "object") return;
-        const total = Number(r.total) || 0;
-        out.push({
-          key: key,
-          source: "pending",
-          code: r.code || key,
-          uid: r.uid || null,
-          name: r.customer_name || r.name || "",
-          phone: r.phone || "",
-          address: r.address || "",
-          delivery_info: r.delivery_info || "",
-          payment_method: r.payment_method || "",
-          total: total,
-          total_label: money(total),
-          status: normStatus(r.status),
-          // `items` LUG'AT ham bo'lishi mumkin (RTDB siyrak massivni lug'at
-          // qilib saqlaydi) — ilgari `Array.isArray()` tekshiruvi tovarlarni
-          // jimgina yo'q qilardi va admin nima sotilganini ko'rmasdi.
-          items: off && off.itemRows ? off.itemRows(r.items) : Array.isArray(r.items) ? r.items : [],
-          created_at: Number(r.createdAt) || 0,
-        });
+        out.push(
+          shopOrder({
+            key: key,
+            source: "pending",
+            code: r.code || key,
+            uid: r.uid,
+            name: r.customer_name || r.name,
+            phone: r.phone,
+            address: r.address,
+            delivery_info: r.delivery_info,
+            payment_method: r.payment_method,
+            total: r.total,
+            status: r.status,
+            // `items` LUG'AT ham bo'lishi mumkin (RTDB siyrak massiv) —
+            // ilgari `Array.isArray()` tekshiruvi tovarlarni jimgina yo'q
+            // qilardi va admin nima sotilganini ko'rmasdi.
+            items: off && off.itemRows ? off.itemRows(r.items) : r.items,
+            created_at: r.createdAt,
+          })
+        );
       });
     }
     out.sort((a, b) => b.created_at - a.created_at);
     return out;
   }
 
+  function shopOrder(o) {
+    const total = Number(o.total) || 0;
+    return {
+      kind: "order",
+      key: String(o.key),
+      source: o.source || "pending",
+      code: o.code || (o.id != null ? "#" + o.id : String(o.key)),
+      uid: o.uid || null,
+      name: o.name || "",
+      phone: o.phone || "",
+      status: normStatus(o.status, "order"),
+      total: total,
+      total_label: o.total_label || money(total),
+      created_at: Number(o.created_at) || 0,
+      items: Array.isArray(o.items) ? o.items : [],
+      lines: [
+        ["📍", o.address],
+        ["🚚", o.delivery_info],
+        ["💳", o.payment_method],
+      ],
+    };
+  }
+
+  /* ------------------------------------------------------------ oynalar */
+
+  /** Bo'limni ochadi (o'z oynasi, o'z sarlavhasi, orqaga menyuga). */
+  async function openKind(kind) {
+    const cfg = KINDS[kind];
+    if (!cfg) return;
+    S.view = "orders";
+    S.ordKind = kind;
+    S.ordFilter = S.ordFilter && S.ordKindPrev === kind ? S.ordFilter : "all";
+    S.ordKindPrev = kind;
+    setHead(cfg.title, cfg.sub);
+    loading("O'qilmoqda...");
+    try {
+      S.orders = await loadKind(kind);
+      renderOrders();
+    } catch (err) {
+      fail(err, () => openKind(kind));
+    }
+  }
+
+  const openOrders = () => openKind("order");
+  const openBiled = () => openKind("biled");
+  const openBookings = () => openKind("booking");
+
+  /** Filtr chiplari: Hammasi · Yangi · Jarayonda · Yakunlangan · Bekor */
+  function filterOf(kind) {
+    const cfg = KINDS[kind];
+    const finals = Object.keys(cfg.statuses).filter(
+      (s) => s !== "new" && s !== "cancelled" && cfg.running.indexOf(s) === -1
+    );
+    return {
+      all: () => true,
+      new: (o) => o.status === "new",
+      run: (o) => cfg.running.indexOf(o.status) !== -1,
+      done: (o) => finals.indexOf(o.status) !== -1,
+      cancelled: (o) => o.status === "cancelled",
+    };
+  }
+
+  const FILTER_CHIPS = [
+    ["all", "Hammasi"],
+    ["new", "🆕 Yangi"],
+    ["run", "⏳ Jarayonda"],
+    ["done", "✅ Yakunlangan"],
+    ["cancelled", "✕ Bekor"],
+  ];
+
   function renderOrders() {
-    if (!S.orders.length) {
-      body().innerHTML =
-        '<div class="adm-hint-block">Hali buyurtma tushmagan. Mijoz do\'kondan ' +
-        "buyurtma berganda shu yerda ko'rinadi.</div>";
+    const kind = S.ordKind || "order";
+    const cfg = KINDS[kind];
+    const tests = filterOf(kind);
+    const all = S.orders || [];
+
+    if (!all.length) {
+      body().innerHTML = '<div class="adm-hint-block">' + esc(cfg.empty) + "</div>";
       return;
     }
 
-    // Tepada qisqa xulosa — nechta yangi buyurtma kutib turibdi.
-    const fresh = S.orders.filter((o) => o.status === "new").length;
-    const active = S.orders.filter((o) => o.status === "accepted" || o.status === "delivering").length;
+    const list = all.filter(tests[S.ordFilter] || tests.all);
+
+    // Filtr chiplari — har birida soni ko'rinadi
+    const chips = FILTER_CHIPS.map(([key, label]) => {
+      const n = all.filter(tests[key]).length;
+      if (key !== "all" && !n) return ""; // bo'sh filtrni ko'rsatmaymiz
+      return (
+        '<button class="ord-fchip' +
+        (S.ordFilter === key ? " selected" : "") +
+        '" data-f="' +
+        key +
+        '">' +
+        esc(label) +
+        ' <i>' + n + "</i></button>"
+      );
+    }).join("");
 
     body().innerHTML =
-      '<div class="ord-summary">' +
-      '<div class="ord-stat is-new"><b>' + fresh + "</b><span>Yangi</span></div>" +
-      '<div class="ord-stat is-run"><b>' + active + "</b><span>Jarayonda</span></div>" +
-      '<div class="ord-stat"><b>' + S.orders.length + "</b><span>Jami</span></div>" +
-      "</div>" +
-      S.orders.map(orderCard).join("");
+      '<div class="ord-filters">' + chips + "</div>" +
+      (list.length
+        ? list.map((o) => orderCard(o, cfg)).join("")
+        : '<div class="adm-hint">Bu bo\'limda yozuv yo\'q.</div>');
 
-    S.orders.forEach((o) => {
-      (NEXT_STEPS[o.status] || []).forEach(([status]) => {
+    document.querySelectorAll(".ord-fchip").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        S.ordFilter = b.dataset.f;
+        renderOrders();
+      };
+    });
+
+    list.forEach((o) => {
+      (cfg.next[o.status] || []).forEach(([status]) => {
         const btn = $("shop-o-" + o.key + "-" + status);
         if (btn) btn.onclick = () => setOrderStatus(o, status);
       });
@@ -393,14 +582,14 @@ window.ZimmerShop = (function () {
     return sameDay ? "Bugun " + time : two(d.getDate()) + "." + two(d.getMonth() + 1) + " " + time;
   }
 
-  /* Buyurtma kartochkasi — sodda va tushunarli (iOS uslubi):
+  /* Kartochka — uch tur uchun BITTA uslub (iOS):
        tepada  : kod · vaqt              + holat belgisi
        mijoz   : ism · telefon (bosiladi)
-       tovarlar: nom × son = summa
-       tafsilot: manzil · yetkazish · to'lov
-       pastda  : JAMI + amal tugmalari (katta, bosishga qulay) */
-  function orderCard(o) {
-    const st = ORD[o.status] || ORD.new;
+       tovarlar: nom × son = summa       (faqat do'kon buyurtmasida)
+       tafsilot: turga qarab (manzil / mashina / xizmat va vaqt)
+       pastda  : JAMI + amal tugmalari */
+  function orderCard(o, cfg) {
+    const st = cfg.statuses[o.status] || cfg.statuses.new;
 
     const goods = (o.items || [])
       .map((it) => {
@@ -418,12 +607,12 @@ window.ZimmerShop = (function () {
       })
       .join("");
 
-    const meta = [];
-    if (o.address) meta.push('<div class="ord-meta-row">📍 ' + esc(o.address) + "</div>");
-    if (o.delivery_info) meta.push('<div class="ord-meta-row">🚚 ' + esc(o.delivery_info) + "</div>");
-    if (o.payment_method) meta.push('<div class="ord-meta-row">💳 ' + esc(o.payment_method) + "</div>");
+    const meta = (o.lines || [])
+      .filter((pair) => pair && pair[1])
+      .map((pair) => '<div class="ord-meta-row">' + pair[0] + " " + esc(pair[1]) + "</div>")
+      .join("");
 
-    const acts = (NEXT_STEPS[o.status] || [])
+    const acts = (cfg.next[o.status] || [])
       .map(
         ([status, label]) =>
           '<button class="ord-act' +
@@ -455,8 +644,10 @@ window.ZimmerShop = (function () {
           "</div>"
         : "") +
       (goods ? '<div class="ord-goods">' + goods + "</div>" : "") +
-      (meta.length ? '<div class="ord-meta">' + meta.join("") + "</div>" : "") +
-      '<div class="ord-foot"><span>Jami</span><b>' + esc(o.total_label) + "</b></div>" +
+      (meta ? '<div class="ord-meta">' + meta + "</div>" : "") +
+      (o.total
+        ? '<div class="ord-foot"><span>Jami</span><b>' + esc(o.total_label) + "</b></div>"
+        : "") +
       (acts ? '<div class="ord-acts">' + acts + "</div>" : "") +
       "</div>"
     );
@@ -465,45 +656,78 @@ window.ZimmerShop = (function () {
   async function setOrderStatus(order, status) {
     if (S.busy) return;
     S.busy = true;
-    const label = (ORD[status] || {}).label || status;
+    const cfg = KINDS[order.kind] || KINDS.order;
+    const label = (cfg.statuses[status] || {}).label || status;
 
-    /* 1-yo'l: Worker. U TO'G'RI tugunga yozadi (`pending_orders` yoki
-       `orders`) va mijozga Telegram xabarini yuboradi (bot tokeni faqat
-       o'sha yerda). Ilgari panel o'zi `pending_orders` ga yozardi —
-       shuning uchun SQLite buyurtmasining holatini umuman o'zgartira
-       olmasdi va mijoz hech qanday xabar olmasdi. */
+    /* 1-yo'l: Worker. U TO'G'RI tugunga yozadi (`pending_orders`, `orders`,
+       `biled_orders`, `bookings`) va mijozga Telegram xabarini yuboradi
+       (bot tokeni faqat o'sha yerda). */
     const off = window.ZimmerOffline;
     if (off && off.workerReady && off.workerReady() && off.adminOrderStatus) {
       try {
-        await off.adminOrderStatus(order.key, status, order.source);
+        await off.adminOrderStatus(order.key, status, order.source, order.kind);
         haptic("ok");
         toast("✅ " + label + " — mijozga xabar ketdi");
         S.busy = false;
-        return openOrders();
+        return openKind(order.kind);
       } catch (err) {
         console.warn("[shop] Worker holatni o'zgartirmadi:", err);
       }
     }
 
-    // 2-yo'l: to'g'ridan Firebase. `orders` tuguni yopiq, shuning uchun
-    // faqat Worker qabul qilgan buyurtmalar uchun ishlaydi.
-    if (order.source === "db") {
+    /* 2-yo'l: to'g'ridan Firebase. Qoidalarda `pending_orders`,
+       `biled_orders` va `bookings` yozishga ochiq; `orders` esa YOPIQ —
+       SQLite buyurtmasi uchun Worker shart. */
+    const NODE = { biled: "biled_orders", booking: "bookings" };
+    const node = order.kind === "order" ? "pending_orders" : NODE[order.kind];
+    if (order.kind === "order" && order.source === "db") {
       S.busy = false;
       return toast("❌ Bu buyurtma uchun Worker kerak (config.js -> WORKER_URL)", 5000);
     }
     try {
-      await fb().patch("pending_orders/" + order.key, {
-        status: status,
-        status_at: Date.now(),
-      });
+      await fb().patch(node + "/" + order.key, { status: status, status_at: Date.now() });
       haptic("ok");
       toast("✅ " + label + " (mijozga xabar ketmadi)");
       S.busy = false;
-      return openOrders();
+      return openKind(order.kind);
     } catch (err) {
       toast((err && err.message) || "Holat o'zgarmadi");
       S.busy = false;
     }
+  }
+
+  /* ==================================================================
+     MENYU SANOQCHILARI — har tugmada nechta YANGI yozuv borligi
+
+     Menyu ochilganda uch bo'lim fonda o'qiladi va tugmalarga qizil
+     belgi qo'yiladi. Bloklamaydi: ro'yxat kelmasa tugma shunchaki
+     belgisiz qoladi.
+     ================================================================== */
+  async function refreshBadges() {
+    const jobs = [
+      ["order", loadKind("order")],
+      ["biled", loadKind("biled")],
+      ["booking", loadKind("booking")],
+    ];
+    await Promise.all(
+      jobs.map(async ([kind, p]) => {
+        let rows = [];
+        try {
+          rows = await p;
+        } catch (_) {
+          return;
+        }
+        const fresh = rows.filter((o) => o.status === "new").length;
+        const badge = $("shop-badge-" + kind);
+        if (!badge) return; // menyu yopilgan
+        if (fresh) {
+          badge.textContent = fresh > 99 ? "99+" : String(fresh);
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      })
+    );
   }
 
   /* ==================================================================
@@ -1823,7 +2047,9 @@ window.ZimmerShop = (function () {
   }
   function reload() {
     if (S.view === "inventory") return openInventory();
-    if (S.view === "orders") return openOrders();
+    // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim
+    // do'kon buyurtmalariga qaytarib yuborardi).
+    if (S.view === "orders") return openKind(S.ordKind || "order");
     if (S.view === "add") return openAdd();
     return open();
   }
