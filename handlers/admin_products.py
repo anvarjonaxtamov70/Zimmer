@@ -24,6 +24,11 @@ from services import firebase_storage as fb_storage
 from services import sync
 from utils import product_card
 
+# SQLite'da faqat 3 ustun juftligi bor: photo/photo2/photo3
+# (`database/db.py`). Undan ortig'i saqlanmaydi, shuning uchun admin'ni
+# jimgina emas, OCHIQ ogohlantiramiz.
+MAX_PRODUCT_IMAGES = 3
+
 logger = logging.getLogger(__name__)
 router = Router()
 
@@ -205,7 +210,11 @@ async def process_product_description(message: Message, state: FSMContext):
     await state.set_state(AddProductStates.images)
     
     user_id = message.from_user.id
-    _temp_product_data[user_id] = {"images": []}
+    # `media_group_id` SHU YERDA ham qo'yilishi SHART. Ilgari faqat
+    # {"images": []} yozilardi va `process_product_images` o'sha kalitni
+    # o'qiganda KeyError berardi — natijada telefondan bir necha rasmni
+    # BIRGA (albom) yuborish umuman ishlamasdi va admin javob ham olmasdi.
+    _temp_product_data[user_id] = {"images": [], "media_group_id": None}
     
     await message.answer(
         "✅ Tavsif saqlandi\n\n"
@@ -227,41 +236,58 @@ async def process_product_images(message: Message, state: FSMContext, bot: Bot):
     doimiy URL qaytariladi.
     """
     user_id = message.from_user.id
-    
-    if user_id not in _temp_product_data:
-        _temp_product_data[user_id] = {"images": [], "media_group_id": None}
-    
+
+    # `setdefault` — kalit yo'q bo'lsa ham yiqilmaydi. Ilgari bu yerda
+    # `_temp_product_data[user_id]["media_group_id"]` to'g'ridan o'qilardi va
+    # albom yuborilganda KeyError bilan yiqilardi.
+    store = _temp_product_data.setdefault(
+        user_id, {"images": [], "media_group_id": None}
+    )
+    store.setdefault("images", [])
+    store.setdefault("media_group_id", None)
+
     # Eng katta o'lchamdagi rasmni olish
-    photo = message.photo[-1]
-    file_id = photo.file_id
-    
-    # MediaGroup tekshirish (bir necha rasm birga yuborilgan)
+    file_id = message.photo[-1].file_id
     media_group_id = message.media_group_id
-    
-    # Agar MediaGroup bo'lsa va avvalgi bilan bir xil bo'lsa, faqat qo'shamiz
+
+    # Albom (bir necha rasm birga): Telegram ularni ALOHIDA update sifatida
+    # yuboradi. Birinchisiga javob beramiz, qolganlarini jimgina qo'shamiz —
+    # aks holda 5 rasmga 5 marta javob ketardi.
+    first_of_group = True
     if media_group_id:
-        if _temp_product_data[user_id]["media_group_id"] == media_group_id:
-            # Bir xil MediaGroup - faqat qo'shamiz, javob bermaymiz
-            _temp_product_data[user_id]["images"].append(file_id)
-            return
-        else:
-            # Yangi MediaGroup boshlandi
-            _temp_product_data[user_id]["media_group_id"] = media_group_id
-    
-    _temp_product_data[user_id]["images"].append(file_id)
-    
-    count = len(_temp_product_data[user_id]["images"])
-    
-    # MediaGroup bo'lsa, kuting deb aytamiz
+        first_of_group = store["media_group_id"] != media_group_id
+        store["media_group_id"] = media_group_id
+
+    if len(store["images"]) >= MAX_PRODUCT_IMAGES:
+        # 3 dan ortig'i jimgina tashlanardi — endi admin buni BILADI.
+        if first_of_group:
+            await message.answer(
+                f"⚠️ Maksimum {MAX_PRODUCT_IMAGES} ta rasm.\n\n"
+                f"Qo'shilganlari saqlanadi. Davom etish uchun /done bosing.",
+                parse_mode="HTML",
+            )
+        return
+
+    store["images"].append(file_id)
+
+    if not first_of_group:
+        # Albomning qolgan rasmlari — javob bermaymiz
+        return
+
     if media_group_id:
-        # MediaGroup oxirigacha kutamiz (0.5 soniya)
-        await asyncio.sleep(0.5)
-        count = len(_temp_product_data[user_id]["images"])
-    
+        # Albom to'liq kelishini kutamiz, keyin haqiqiy sonni aytamiz
+        await asyncio.sleep(1.2)
+
+    count = len(store["images"])
+    left = MAX_PRODUCT_IMAGES - count
     await message.answer(
-        f"✅ Rasm qo'shildi ({count} ta)\n\n"
-        f"Yana rasm yuborishingiz yoki /done bosishingiz mumkin.",
-        parse_mode="HTML"
+        f"✅ Rasm qabul qilindi — jami <b>{count} ta</b>\n\n"
+        + (
+            f"Yana {left} ta qo'shish mumkin yoki /done bosing."
+            if left > 0
+            else "Chegara to'ldi. /done bosing."
+        ),
+        parse_mode="HTML",
     )
 
 
@@ -320,22 +346,21 @@ async def confirm_add_product(message: Message, state: FSMContext, bot: Bot):
     images = _temp_product_data.get(user_id, {}).get("images", [])
 
     try:
-        # ---- 1. Rasmlar: Firebase Storage sozlangan bo'lsa doimiy URL olamiz
-        uploaded_urls: list[str] = []
-        if images and fb_storage.is_storage_enabled():
-            progress_msg = await message.answer("📤 Rasmlar yuklanmoqda...")
-            for i, file_id in enumerate(images):
-                image_url = await fb_storage.upload_telegram_photo(bot, file_id, 0, i)
-                # Storage ishlamasa `upload_telegram_photo` file_id ni qaytaradi —
-                # uni URL deb hisoblamaymiz, quyida `photo*_id` ga yozamiz.
-                if image_url and str(image_url).startswith("http"):
-                    uploaded_urls.append(image_url)
-            try:
-                await progress_msg.delete()
-            except Exception:  # xabar allaqachon o'chirilgan bo'lishi mumkin
-                logger.debug("Progress xabari o'chirilmadi", exc_info=True)
-
-        # ---- 2. SQLite'ga yozish (ASOSIY manba)
+        # ---- 1. SQLite'ga yozish (ASOSIY manba)
+        #
+        # TARTIB ATAYLAB O'ZGARTIRILDI. Ilgari rasmlar AVVAL Storage'ga
+        # yuklanardi va `upload_telegram_photo(bot, file_id, 0, i)` ga
+        # mahsulot id si o'rniga **0** uzatilardi. Yo'l esa
+        # `products/{product_id}/image_{index}.jpg` — ya'ni BARCHA
+        # mahsulotlarning rasmi `products/0/image_0.jpg` ga yozilardi va
+        # har yangi tovar oldingi tovarning rasmini USTIDAN yozardi.
+        # `delete_product_images(product_id)` ham hech qachon to'g'ri
+        # papkani topmasdi.
+        #
+        # Endi avval qator yaratiladi (rasm sifatida Telegram `file_id`
+        # bilan — ya'ni tovar HAR DOIM rasmli bo'ladi), so'ng haqiqiy
+        # `product_id` bilan Storage'ga ko'chiriladi va `photo*_url`
+        # yangilanadi. Storage yiqilsa `file_id` joyida qoladi.
         values: dict = {
             "name": str(data["name"])[:160],
             "price": int(data["price"]),
@@ -347,23 +372,53 @@ async def confirm_add_product(message: Message, state: FSMContext, bot: Bot):
         if data.get("description"):
             values["description"] = str(data["description"])[:2000]
 
-        # Rasmlar: doimiy URL bo'lsa `photo*_url`, aks holda Telegram `photo*_id`.
-        # Ikkisini ham `/api/media/products/{id}/photo` proksisi to'g'ri beradi.
+        # Rasmlar: hozircha Telegram `file_id`. `/api/media/products/{id}/photo`
+        # proksisi ularni to'g'ri ko'rsatadi, ya'ni tovar darhol rasmli.
         columns = (
             ("photo_url", "photo_id"),
             ("photo2_url", "photo2_id"),
             ("photo3_url", "photo3_id"),
         )
-        for i, (url_col, id_col) in enumerate(columns):
-            if i < len(uploaded_urls):
-                values[url_col] = uploaded_urls[i][:500]
-            elif i < len(images):
+        for i, (_url_col, id_col) in enumerate(columns):
+            if i < len(images):
                 values[id_col] = images[i]
 
         values = await prepare_insert(ENTITIES["prd"], values)  # category_id + sort
         product_id = await q.admin_insert("products", values)
 
-        # ---- 3. Firebase'ga zaxira (nosozlik bo'lsa ham mahsulot saqlangan)
+        # ---- 2. Rasmlarni Storage'ga ko'chirish — HAQIQIY product_id bilan.
+        # Doimiy URL olingach `photo*_url` yangilanadi. Bu ixtiyoriy qadam:
+        # yiqilsa tovar `file_id` bilan ishlashda davom etadi.
+        uploaded_urls: list[str] = []
+        if images and fb_storage.is_storage_enabled():
+            progress_msg = await message.answer("📤 Rasmlar yuklanmoqda...")
+            for i, file_id in enumerate(images):
+                try:
+                    image_url = await fb_storage.upload_telegram_photo(
+                        bot, file_id, product_id, i
+                    )
+                except Exception:
+                    logger.warning(
+                        "Rasm #%s Storage'ga ko'chirilmadi (tovar #%s)",
+                        i,
+                        product_id,
+                        exc_info=True,
+                    )
+                    image_url = None
+
+                # Storage ishlamasa funksiya `file_id` ni qaytaradi — uni URL
+                # deb hisoblamaymiz, `photo*_id` allaqachon yozilgan.
+                if image_url and str(image_url).startswith("http"):
+                    uploaded_urls.append(image_url)
+                    url_col = columns[i][0]
+                    await q.admin_update("products", product_id, url_col, image_url[:500])
+
+            try:
+                await progress_msg.delete()
+            except Exception:  # xabar allaqachon o'chirilgan bo'lishi mumkin
+                logger.debug("Progress xabari o'chirilmadi", exc_info=True)
+
+        # ---- 3. Firebase'ga zaxira (rasm URL'lari yozilgandan KEYIN)
         await sync.push_catalog("products", product_id)
 
         # ---- 4. Qo'shimcha: Firebase products tuguniga ham yozamiz (multi-image)
