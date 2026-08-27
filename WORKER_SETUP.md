@@ -1,4 +1,66 @@
-# Cloudflare Worker — Render o'chganda buyurtma qabul qilish
+# Cloudflare Worker
+
+> ## ⚡ KODNI YANGILASH — eng ko'p kerak bo'ladigan ish
+>
+> **Muhim:** Cloudflare GitHub'dan **o'zi yangilanmaydi**. Repoda
+> `cloudflare-worker.js` o'zgargan bo'lsa, uni **qo'lda** qo'yish kerak.
+>
+> **Qism-qism emas — BUTUN faylni almashtirasiz.** Ichidan biror qatorni
+> topib o'zgartirish kerak emas.
+>
+> ### 5 qadam
+>
+> 1. <https://dash.cloudflare.com> ni ochib, chapdan **Workers & Pages**
+>    ni bosing.
+> 2. Ro'yxatdan Worker'ingizni tanlang (nomi `zimmer-worker` yoki
+>    `zimmer-bot` — `docs/config.js` dagi `WORKER_URL` da qaysi bo'lsa).
+> 3. O'ng tepadan **Edit code** (ba'zi ko'rinishlarda `< >` belgisi yoki
+>    **Quick edit**) ni bosing. Kod muharriri ochiladi.
+> 4. Muharrirdagi **hamma kodni belgilab o'chiring**
+>    (`Ctrl+A`, keyin `Delete`), so'ng repodagi **`cloudflare-worker.js`**
+>    faylining **to'liq matnini** qo'ying (`Ctrl+V`).
+>    Faylni GitHub'dan olish: repo → `cloudflare-worker.js` → **Raw** →
+>    `Ctrl+A` → `Ctrl+C`.
+> 5. **Deploy** (yoki **Save and deploy**) ni bosing.
+>
+> **Secret'lar va o'zgaruvchilarga tegmaysiz** — ular joyida qoladi. Faqat
+> kod almashadi.
+>
+> ### Yangilanganini tasdiqlash
+>
+> Brauzerda oching (`<manzil>` — o'zingizning Worker manzili):
+>
+> ```
+> https://<manzil>/health
+> ```
+>
+> `version` maydonini qaraysiz:
+>
+> ```json
+> { "status": "ok", "version": "1.4.0", "features": [ ... ] }
+> ```
+>
+> | `version` | Ma'nosi |
+> |---|---|
+> | **1.4.0** yoki yuqori | ✅ Yangi nusxa turibdi, hammasi joyida |
+> | 1.3.0 yoki pastroq | ❌ Eski nusxa — 4-qadam bajarilmagan |
+>
+> Mini App ham buni o'zi tekshiradi: admin panelni ochganda eski nusxa
+> bo'lsa **«Cloudflare'da Worker'ning ESKI nusxasi turibdi»** degan
+> ogohlantirish chiqadi.
+>
+> ### 1.4.0 nima olib keldi
+>
+> - admin panelida **eski buyurtmalar ham ko'rinadi** (`orders` tuguni
+>   yopiq, uni faqat Worker o'qiy oladi);
+> - **Bi-LED buyurtmasi va navbat** holatini o'zgartirganda mijozga
+>   Telegram xabari ketadi (`kind` parametri).
+>
+> Bu ikkisi eski nusxada **ishlamaydi** — shuning uchun yangilash kerak.
+
+---
+
+## Render o'chganda buyurtma qabul qilish
 
 Bu Worker bo'lsa Mini App **Render'siz to'liq ishlaydi**: mijoz tanilishi,
 katalog, savat, **buyurtma berish** va adminga Telegram xabari. Render faqat

@@ -71,6 +71,7 @@ window.ZimmerShop = (function () {
     // Yuklanayotgan rasmlar (VAQTINCHA). Tayyor havolalar bu yerda EMAS —
     // ular formadagi uchta `shop-imgN` maydonida turadi (yagona manba).
     jobs: [], // [{file, localUrl, pct, phase, error, node}]
+    workerChecked: false, // Worker versiyasi sessiyada bir marta tekshiriladi
     ordKind: "order", // qaysi buyurtma bo'limi ochiq: order | biled | booking
     ordKindPrev: null, // filtr almashinuvini kuzatish uchun
     ordFilter: "all", // all | new | run | done | cancelled
@@ -174,7 +175,7 @@ window.ZimmerShop = (function () {
     S.query = "";
     S.filter = "all";
     bindTopbar();
-    setHead("Boshqaruv", "Tovarlar — bitta manba");
+    setHead("Boshqaruv", "Tovar va buyurtmalar");
     loading("Tekshirilmoqda...");
     try {
       await loadCatalogMeta();
@@ -182,6 +183,42 @@ window.ZimmerShop = (function () {
       return fail(err, open);
     }
     renderMenu();
+    checkWorkerVersion(); // fonda — menyuni kutib turmaydi
+  }
+
+  /* ==================================================================
+     CLOUDFLARE'DA ESKI NUSXA TURGANINI ANIQLASH
+
+     Cloudflare GitHub'dan O'ZI yangilanmaydi — `cloudflare-worker.js`
+     qo'lda qo'yiladi. Shu sababli repoda yangi imkoniyat bo'lsa-da,
+     Cloudflare'da eski nusxa turishi mumkin. O'sha holatda buyurtmalar
+     bo'limi jimgina yarim ishlaydi:
+
+        • do'kon buyurtmalarining SQLite nusxasi (`orders`) ko'rinmaydi —
+          admin «buyurtmalarim qayerda?» deb o'ylaydi;
+        • Bi-LED va navbat holatini o'zgartirganda mijozga xabar ketmaydi.
+
+     Worker `/health` da `features` ro'yxatini beradi. Shu ro'yxatda
+     `admin_orders_merged` bo'lmasa — nusxa eski, va buni ANIQ aytamiz.
+     ================================================================== */
+  async function checkWorkerVersion() {
+    const off = window.ZimmerOffline;
+    if (!off || !off.workerReady || !off.workerReady() || !off.workerSupports) return;
+    if (S.workerChecked) return; // sessiyada bir marta
+    S.workerChecked = true;
+    try {
+      const out = await off.workerSupports("admin_orders_merged");
+      if (out && out.ok === false) {
+        toast(
+          "⚠️ Cloudflare'da Worker'ning ESKI nusxasi (" +
+            out.version +
+            ") turibdi. Eski buyurtmalar ko'rinmaydi — cloudflare-worker.js ni qayta qo'ying.",
+          8000
+        );
+      }
+    } catch (_) {
+      // Tekshiruv ixtiyoriy — yiqilsa e'tibor bermaymiz.
+    }
   }
 
   /* ==================================================================

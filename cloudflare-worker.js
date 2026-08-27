@@ -61,7 +61,7 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // berishga to'g'ri keladi).
 // Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
 // YANGI nusxa turganini tasdiqlashning eng oson yo'li.
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 const FEATURES = [
   "order",
   "me",
@@ -73,6 +73,13 @@ const FEATURES = [
   "admin_product_add",
   "admin_edit",
   "admin_orders",
+  // 1.4.0 — buyurtmalar: `pending_orders` VA `orders` birlashtirilib beriladi
+  // (yopiq tugunni Worker service-account bilan o'qiydi), holat o'zgartirish
+  // esa `kind` (order|biled|booking) bo'yicha to'g'ri tugunga yoziladi.
+  // Mini App shu belgilarga qarab Cloudflare'da ESKI nusxa turganini
+  // aniqlaydi va aniq aytadi.
+  "admin_orders_merged",
+  "admin_status_kind",
 ];
 
 function json(obj, status = 200) {
