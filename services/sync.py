@@ -612,7 +612,7 @@ async def restore_catalog() -> dict[str, int]:
     if not isinstance(node, dict):
         return {}
 
-    stats = {"added": 0, "updated": 0, "deleted": 0}
+    stats = {"added": 0, "updated": 0, "deleted": 0, "deduped": 0}
 
     # Tartib muhim: kategoriya va mashinalar avval tiklanadi, chunki
     # tovarlar va bannerlar ularga bog'lanadi.
@@ -643,17 +643,49 @@ async def restore_catalog() -> dict[str, int]:
                 if table == "products" and not values.get("category_id"):
                     values["category_id"] = await q.ensure_category("Boshqa")
 
-                _, created = await q.catalog_upsert(table, values)
+                row_id, created = await q.catalog_upsert(table, values)
                 stats["added" if created else "updated"] += 1
+
+                # ---- TAKRORLANISHNI OLDINI OLISH -------------------------
+                # Mini App tovarni bulutga O'ZI yozadi va kalit sifatida
+                # o'zining id sini qo'yadi (masalan 900001). `catalog_columns`
+                # esa `id` ustunini tashlab yuboradi, shuning uchun SQLite
+                # o'zining id sini beradi (masalan 47).
+                #
+                # `push_all_catalog` PATCH ishlatadi va bulutdagi ortiqcha
+                # kalitlarni O'CHIRMAYDI. Natijada bulutda ikkita yozuv
+                # qolardi — 900001 va 47 — va tovar do'konda IKKI MARTA
+                # ko'rinardi.
+                #
+                # DIQQAT: bu yerda «deleted: True» belgisi bilan YUMSHOQ
+                # o'chirish MUMKIN EMAS. Eski kalitning `_key` si (nomi)
+                # haqiqiy tovar bilan aynan bir xil, shuning uchun keyingi
+                # `restore_catalog` uni ko'rib `catalog_delete_by_key` bilan
+                # HAQIQIY tovarni o'chirib yuborardi. Shu sababli tugun
+                # butunlay olib tashlanadi (`put` + `None`).
+                if str(key) != str(row_id):
+                    if await _write(
+                        f"{CATALOG_ROOT}/{table}/{key}", None, method="put"
+                    ):
+                        stats["deduped"] += 1
+                    else:
+                        logger.warning(
+                            "«%s/%s» takror nusxasi o'chirilmadi — tovar ikki "
+                            "marta ko'rinishi mumkin",
+                            table,
+                            key,
+                        )
             except Exception as error:
                 logger.warning("«%s/%s» tiklanmadi: %s", table, key, error)
 
     if any(stats.values()):
         logger.info(
-            "Katalog bulutdan tiklandi: %s yangi, %s yangilandi, %s o'chirildi",
+            "Katalog bulutdan tiklandi: %s yangi, %s yangilandi, %s o'chirildi, "
+            "%s takror nusxa tozalandi",
             stats["added"],
             stats["updated"],
             stats["deleted"],
+            stats["deduped"],
         )
     return stats
 
