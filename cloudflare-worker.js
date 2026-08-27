@@ -960,26 +960,72 @@ async function handleAdminOrders(request, env) {
    yangisiga o'giradi (orqaga moslik). */
 const ORDER_STATUSES = ["new", "accepted", "delivering", "delivered", "cancelled"];
 
+/* ---------------------------------------------------------------------
+   UCH XIL BUYURTMA TURI
+
+   Admin panelida uchta alohida bo'lim bor va har birining O'Z holatlari,
+   O'Z tuguni va O'Z xabar matnlari bo'ladi. Ular `utils/texts.py` va
+   `services/orders.py` dagi ro'yxatlar bilan AYNAN bir xil bo'lishi shart —
+   aks holda panelda qo'yilgan holat bot uchun notanish bo'lib qoladi.
+   --------------------------------------------------------------------- */
+const KIND_STATUSES = {
+  order: ORDER_STATUSES,
+  biled: ["new", "accepted", "in_work", "done", "cancelled"],
+  booking: ["new", "confirmed", "done", "cancelled"],
+};
+
+const KIND_NODES = { biled: "biled_orders", booking: "bookings" };
+
+const KIND_TEXT = {
+  order: {
+    accepted: "✅ Buyurtmangiz qabul qilindi",
+    delivering: "🚚 Buyurtmangiz yo'lda",
+    delivered: "🎉 Buyurtmangiz yetkazildi",
+    cancelled: "❌ Buyurtmangiz bekor qilindi",
+  },
+  biled: {
+    accepted: "✅ Bi-LED buyurtmangiz qabul qilindi",
+    in_work: "🔧 Ish boshlandi",
+    done: "✨ Tayyor — topshirishga hozir",
+    cancelled: "❌ Bi-LED buyurtmangiz bekor qilindi",
+  },
+  booking: {
+    confirmed: "✅ Navbatingiz tasdiqlandi",
+    done: "✔️ Navbat bajarildi",
+    cancelled: "❌ Navbatingiz bekor qilindi",
+  },
+};
+
 async function handleAdminOrderStatus(request, env) {
   const gate = await requireAdmin(request, env);
   if (gate.error) return gate.error;
   const { c, body, uid } = gate;
 
+  const kind = KIND_STATUSES[clean(body.kind, 12)] ? clean(body.kind, 12) : "order";
+
   const key = clean(body.key, 120);
   if (!key || !/^[A-Za-z0-9_-]+$/.test(key)) {
     return json({ ok: false, error: "Buyurtma kaliti noto'g'ri" }, 400);
   }
-  const status = normStatus(clean(body.status, 20));
-  if (!ORDER_STATUSES.includes(status)) {
-    return json({ ok: false, error: "Holat noto'g'ri", allowed: ORDER_STATUSES }, 400);
+  // Faqat do'kon buyurtmalarida eski nomlar (`done`/`shipped`) uchraydi.
+  const status = kind === "order" ? normStatus(clean(body.status, 20)) : clean(body.status, 20);
+  if (!KIND_STATUSES[kind].includes(status)) {
+    return json({ ok: false, error: "Holat noto'g'ri", allowed: KIND_STATUSES[kind] }, 400);
   }
-  // Buyurtma qaysi tugunda? `db` — SQLite nusxasi (`orders`), aks holda
-  // Worker qabul qilgani (`pending_orders`).
-  const source = clean(body.source, 12) === "db" ? "db" : "pending";
+
+  // Qaysi tugun?
+  //   order + db      -> `orders` (SQLite nusxasi)
+  //   order + pending -> `pending_orders` (Worker qabul qilgani)
+  //   biled / booking -> o'z tuguni
+  let node;
+  if (kind === "order") {
+    node = clean(body.source, 12) === "db" ? "orders" : "pending_orders";
+  } else {
+    node = KIND_NODES[kind];
+  }
 
   const token = await accessToken(env);
-  const path =
-    source === "db" ? `${c.root}/orders/${key}` : `${c.root}/pending_orders/${key}`;
+  const path = `${c.root}/${node}/${key}`;
   const row = await rtdbGet(c.dbUrl, path, token);
   if (!row || typeof row !== "object") {
     return json({ ok: false, error: "Bunday buyurtma yo'q" }, 404);
@@ -996,18 +1042,13 @@ async function handleAdminOrderStatus(request, env) {
   }
 
   // Mijozga xabar — buyurtma holatini bilmay qolmasin.
-  const TEXT = {
-    accepted: "✅ Buyurtmangiz qabul qilindi",
-    delivering: "🚚 Buyurtmangiz yo'lda",
-    delivered: "🎉 Buyurtmangiz yetkazildi",
-    cancelled: "❌ Buyurtmangiz bekor qilindi",
-  };
-  const label = row.code ? String(row.code) : "#" + key;
-  if (TEXT[status] && row.uid) {
-    await sendMessage(env, row.uid, `${TEXT[status]}\n\n🧾 ${escHtml(label)}`).catch(() => {});
+  const text = (KIND_TEXT[kind] || {})[status];
+  const label = row.code ? String(row.code) : "#" + (row.id != null ? row.id : key);
+  if (text && row.uid) {
+    await sendMessage(env, row.uid, `${text}\n\n🧾 ${escHtml(label)}`).catch(() => {});
   }
 
-  return json({ ok: true, key, status, source });
+  return json({ ok: true, kind, key, status, node });
 }
 
 /** Barcha adminlarga bir xil xabar. */

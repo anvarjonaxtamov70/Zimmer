@@ -1120,13 +1120,62 @@
   }
 
   /** Buyurtma holatini o'zgartirish — mijozga xabar Worker yuboradi.
-   *  `source`: "pending" (Worker qabul qilgani) yoki "db" (SQLite nusxasi). */
-  function adminOrderStatus(key, status, source) {
+   *  `kind`   : "order" | "biled" | "booking"
+   *  `source` : do'kon buyurtmasi uchun "pending" yoki "db". */
+  function adminOrderStatus(key, status, source, kind) {
     return callWorker("/admin/order-status", {
       key: key,
       status: status,
       source: source || "pending",
+      kind: kind || "order",
     });
+  }
+
+  /* ==================================================================
+     BI-LED BUYURTMALARI VA NAVBATLAR (admin panel uchun)
+
+     Bu ikki tugun qoidalarda o'qishga OCHIQ (`database.rules.json`:
+     `biled_orders` va `bookings` -> `.read: true`). Shu sababli ularni
+     Worker'siz, to'g'ridan o'qiymiz — Worker o'chgan bo'lsa ham admin
+     ro'yxatni ko'radi.
+
+     Holatni o'zgartirish esa Worker orqali bo'ladi: mijozga Telegram
+     xabarini yuborish uchun bot tokeni kerak, u faqat Worker'da.
+     ================================================================== */
+  async function adminBiledOrders() {
+    return await readOrderNode("biled_orders");
+  }
+
+  async function adminBookings() {
+    return await readOrderNode("bookings");
+  }
+
+  async function readOrderNode(node) {
+    if (!DB) return [];
+    var url = DB + "/" + ROOT + "/" + node + ".json";
+    var raw;
+    try {
+      var res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(node + " -> " + res.status);
+      raw = await res.json();
+    } catch (err) {
+      console.warn("[offline] " + node + " o'qilmadi:", err);
+      return [];
+    }
+    if (!raw || typeof raw !== "object") return [];
+
+    var out = [];
+    Object.keys(raw).forEach(function (key) {
+      var r = raw[key];
+      if (!r || typeof r !== "object") return;
+      r._key = key;
+      if (r.id === undefined) r.id = isNaN(+key) ? key : +key;
+      out.push(r);
+    });
+    out.sort(function (a, b) {
+      return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+    });
+    return out;
   }
 
   window.ZimmerOffline = {
@@ -1156,6 +1205,8 @@
     adminAddProduct: adminAddProduct,
     adminEdit: adminEdit,
     adminOrders: adminOrders,
+    adminBiledOrders: adminBiledOrders,
+    adminBookings: adminBookings,
     myOrders: myOrders,
     itemRows: itemRows,
     adminOrderStatus: adminOrderStatus,
