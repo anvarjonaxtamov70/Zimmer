@@ -45,6 +45,7 @@
     favorites: new Set(), // saqlangan tovar ID'lari
     favLoaded: false, // saqlanganlar serverdan olindimi (Firebase manbasida)
     catIndex: 0,
+    shopCat: null, // tanlangan kategoriya (null = hammasi)
     cart: loadCart(),
     rings: [], // halqalar (kategoriyalar)
     ringIndex: 0, // joriy halqa
@@ -408,6 +409,7 @@
       b.classList.add("hidden");
       b.classList.remove("pulse", "bounce");
     }
+    refreshQuickBadges(); // bosh sahifadagi «Savatcha» plitkasi
   }
   const cartSum = () => S.cart.reduce((s, i) => s + i.price * i.qty, 0);
 
@@ -472,6 +474,11 @@
   }
 
   function goBack() {
+    /* Ustma-ust qatlamlar: avval eng ustidagisi yopiladi. Aks holda
+       Telegram'ning «orqaga» tugmasi rasm ko'ruvchi ochiq turganda ham
+       sahifani almashtirib yuborardi. */
+    if (viewerOpen()) return closeViewer();
+    if (currentProduct) return closeProductModal();
     // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz.
     // Zaxira rejimda boshqa panel ishlayotgani uchun avval o'shani so'raymiz.
     if (S.page === "admin") {
@@ -1258,6 +1265,8 @@
         S.me && S.me.car
           ? `${S.me.car.name} uchun linza, ochki va rangni tanlang`
           : "Linza, ochki va rangni tanlab narxni ko'ring";
+      renderGreeting();
+      refreshQuickBadges();
     } catch (err) {
       // Zaxira rejimda xato bo'lsa ilovani YIQITMAYMIZ — bo'sh katalog
       // ko'rsatib, sababni pastdagi chiziqda aytamiz.
@@ -1841,12 +1850,23 @@
     return a;
   }
 
-  /** Barcha mahsulotni kategoriyalardan bitta ro'yxatga yig'ib, aralashtiradi.
-      Kategoriyalar olib tashlangan — tovarlar RANDOM tartibda chiqadi (Avto_A1). */
+  /** Barcha mahsulotni kategoriyalardan bitta ro'yxatga yig'adi.
+   *
+   *  ILGARI oxirida `shuffle(all)` turardi — tovarlar HAR chizishda
+   *  tasodifiy tartibda chiqardi. Mijoz ro'yxatni varaqlab, tovarga kirib
+   *  chiqsa (modal `renderCatalog()` ni qayta chaqiradi) tartib
+   *  ALMASHARDI va o'sha tovarni qaytib topolmasdi. Endi tartib BARQAROR:
+   *  yangi tovar yuqorida.
+   *
+   *  Har tovarga kategoriya nomi (`_cat`) yopishtiriladi — kategoriya
+   *  chiplari shu bilan filtrlaydi.
+   */
   function buildShopProducts() {
     const seen = new Set();
     const all = [];
-    ((S.home && S.home.catalog) || []).forEach((c) =>
+    ((S.home && S.home.catalog) || []).forEach((c) => {
+      const catName = String((c && c.name) || "").trim();
+      const catIcon = (c && c.icon) || "";
       (c.products || []).forEach((p) => {
         // OXIRGI TO'SIQ: o'chirilgan/yashirilgan tovar ekranga CHIQMAYDI.
         //
@@ -1857,109 +1877,260 @@
         // Shu sababli chizishdan OLDIN yana bir marta tekshiramiz: bu
         // yerdan o'tmagan tovar hech qaysi manbadan ham o'tolmaydi.
         if (!p || p.deleted || p.is_active === 0 || p.is_active === false) return;
-        if (!seen.has(p.id)) {
-          seen.add(p.id);
-          all.push(p);
-        }
-      })
-    );
-    return shuffle(all);
+        if (seen.has(p.id)) return;
+        seen.add(p.id);
+        p._cat = catName;
+        p._catIcon = catIcon;
+        all.push(p);
+      });
+    });
+    all.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
+    return all;
   }
 
-  function renderCatalog() {
-    // Kategoriya chiplari kerak emas — yashiramiz
-    const chips = $("cats");
-    if (chips) {
-      chips.innerHTML = "";
-      chips.classList.add("hidden");
-    }
+  /* ==================================================================
+     KATALOG — kategoriya chiplari + tovar kartochkalari
 
-    const products = S.shopProducts || [];
+     NIMA O'ZGARDI
+       * Kategoriya chiplari ISHLAYDI. Ilgari `renderCatalog()` ularni
+         tozalab yashirardi ("kerak emas") va butun do'kon bitta uzun
+         ro'yxat edi: mijoz kerakli turni ajratib ololmasdi.
+       * Tovar soni sarlavha yonida ko'rinadi.
+       * Kartochka rasmi yuklanganda SILLIQ paydo bo'ladi, xato bo'lsa
+         o'rniga belgi qoladi. Ilgari `img()` yordamchisi xatoda rasmni
+         `display:none` qilardi va kartochkada BO'SH OQ kvadrat turardi.
+       * Narx endi kartochka TANASIDA, tugmada emas. Ilgari narx faqat
+         savat tugmasi ichida yozilardi — chegirmani ko'rsatish uchun joy
+         yo'q edi va narx tugma rangida yo'qolib ketardi.
+     ================================================================== */
+
+  function renderCatalog() {
+    const all = S.shopProducts || [];
+    renderCatChips(all);
+
+    const products = S.shopCat ? all.filter((p) => p._cat === S.shopCat) : all;
+
     const box = $("products");
     box.innerHTML = "";
+
     // Bo'sh holat matni: zaxira rejimda sabab boshqacha, shuni aytamiz.
     const emptyEl = $("products-empty");
     if (emptyEl) {
       emptyEl.textContent =
         S.offline && (!S.home || S.home._empty)
           ? "Katalog hozir yuklanmadi. Server uyg'onganda o'zi paydo bo'ladi."
-          : "Bu bo'limda hozircha mahsulot yo'q.";
+          : S.shopCat
+            ? "Bu turkumda hozircha mahsulot yo'q."
+            : "Bu bo'limda hozircha mahsulot yo'q.";
       emptyEl.classList.toggle("hidden", products.length > 0);
     }
+
     // Katalog bo'limini zaxira rejimda YASHIRMAYMIZ — aks holda bosh sahifa
     // butunlay bo'sh ko'rinib, mijoz nima bo'lganini tushunmaydi.
-    $("catalog-sec").classList.toggle("hidden", !products.length && !S.offline);
+    $("catalog-sec").classList.toggle("hidden", !all.length && !S.offline);
 
-    products.forEach((p) => {
-      const card = el("div", "prod");
-      const photo = abs(p.photo_url);
-      const off = discountPercent(p);
+    const countEl = $("products-count");
+    if (countEl) countEl.textContent = products.length ? products.length + " ta" : "";
 
-      // Nom "·" bo'yicha ajratiladi: asosiy nom + mashina eslatmasi (Avto_A1)
-      const parts = String(p.name || "").split("·");
-      const mainName = (parts[0] || p.name || "").trim();
-      const carHint = parts[1] ? `<div class="prod-hint">${esc(parts[1].trim())}</div>` : "";
+    products.forEach((p) => box.append(prodCard(p)));
+  }
 
-      // Meta: eski narx (chegirma) + kam qolgani
-      const metaBits = [];
-      if (off && p.old_price_label)
-        metaBits.push(`<span class="prod-old">${esc(p.old_price_label)}</span>`);
-      if (p.stock > 0 && p.stock <= 5)
-        metaBits.push(`<span class="prod-low">📦 ${p.stock} ta qoldi</span>`);
-      const metaHTML = metaBits.length ? `<div class="prod-meta">${metaBits.join("")}</div>` : "";
+  /** Kategoriya chiplari. Ikkitadan kam turkum bo'lsa filtrning ma'nosi yo'q. */
+  function renderCatChips(all) {
+    const box = $("cats");
+    if (!box) return;
 
-      card.innerHTML = `
-        <div class="prod-art${photo ? "" : " empty"}">
-          ${photo ? img(photo, "card-img-lazy") : '<span class="prod-art-ph">💡</span>'}
-          ${off ? `<span class="prod-off">-${off}%</span>` : ""}
-          ${p.badge ? `<span class="prod-badge">${esc(p.badge)}</span>` : ""}
-          ${p.video_url ? '<span class="prod-play">▶</span>' : ""}
-          <button class="prod-fav${S.favorites.has(p.id) ? " on" : ""}"
-                  aria-label="Saqlash">♥</button>
-        </div>
-        <div class="prod-body">
-          <div class="prod-name">${esc(mainName)}</div>
-          ${carHint}
-          ${p.car_id ? '<div class="prod-fit">✓ Mashinangizga mos</div>' : ""}
-          ${metaHTML}
-          ${p.stock > 0 ? '<div class="prod-trust">🛡 14 kun kafolat</div>' : ""}
-        </div>`;
-
-      // Butun kartani bosish — modal ochiladi (yangilangan)
-      card.onclick = () => openProductModal(p);
-
-      const fav = card.querySelector(".prod-fav");
-      fav.onclick = (ev) => {
-        ev.stopPropagation(); // karta bosilishi bilan aralashmasin
-        toggleFavorite(p, fav);
-      };
-
-      // Narx + savat tugmasi BIRGA (Avto_A1 kabi)
-      const btn = el("button", "prod-add");
-      const priceInner = `<span class="prod-add-price">${esc(p.price_label)}</span><span class="prod-add-ico">🛒</span>`;
-      if (p.stock > 0) {
-        btn.innerHTML = priceInner;
-      } else {
-        btn.classList.add("out");
-        btn.textContent = "Tugadi";
-        btn.disabled = true;
-      }
-      btn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (p.stock < 1) return;
-        addToCart(p);
-        btn.classList.add("added");
-        btn.innerHTML = "✓ Qo'shildi";
-        setTimeout(() => {
-          btn.classList.remove("added");
-          btn.innerHTML = priceInner;
-        }, 1100);
-      };
-      // Tugma kartochka TANASI ichida — pastga yopishib turadi (Avto_A1 kabi)
-      card.querySelector(".prod-body").append(btn);
-
-      box.append(card);
+    const count = new Map();
+    all.forEach((p) => {
+      const k = p._cat || "";
+      if (k) count.set(k, (count.get(k) || 0) + 1);
     });
+
+    if (count.size < 2) {
+      box.innerHTML = "";
+      box.classList.add("hidden");
+      S.shopCat = null;
+      return;
+    }
+    // Tanlangan turkum yo'qolgan bo'lsa (tovar o'chirilgan) — hammasiga qaytamiz
+    if (S.shopCat && !count.has(S.shopCat)) S.shopCat = null;
+
+    const chip = (key, label, n, on) =>
+      '<button class="chip' +
+      (on ? " on" : "") +
+      '" data-cat="' +
+      esc(key) +
+      '">' +
+      esc(label) +
+      " <i>" +
+      n +
+      "</i></button>";
+
+    const names = [...count.keys()].sort((a, b) => a.localeCompare(b, "uz"));
+    box.innerHTML =
+      chip("", "Hammasi", all.length, !S.shopCat) +
+      names.map((k) => chip(k, k, count.get(k), S.shopCat === k)).join("");
+    box.classList.remove("hidden");
+
+    box.querySelectorAll(".chip").forEach((b) => {
+      b.onclick = () => {
+        haptic("selection");
+        S.shopCat = b.dataset.cat || null;
+        renderCatalog();
+      };
+    });
+  }
+
+  /** Bitta tovar kartochkasi. */
+  function prodCard(p) {
+    const card = el("div", "prod");
+    const photo = abs(p.photo_url);
+    const off = discountPercent(p);
+    const out = !(p.stock > 0);
+
+    // Nom "·" bo'yicha ajratiladi: asosiy nom + mashina eslatmasi (Avto_A1)
+    const parts = String(p.name || "").split("·");
+    const mainName = (parts[0] || p.name || "").trim();
+    const carHint = parts[1] ? '<div class="prod-hint">' + esc(parts[1].trim()) + "</div>" : "";
+
+    card.innerHTML =
+      '<div class="prod-art' +
+      (photo ? "" : " empty") +
+      (out ? " is-out" : "") +
+      '">' +
+      (photo
+        ? '<img class="prod-img" src="' + esc(photo) + '" alt="" loading="lazy">'
+        : '<span class="prod-art-ph">💡</span>') +
+      (off ? '<span class="prod-off">−' + off + "%</span>" : "") +
+      (p.badge ? '<span class="prod-badge">' + esc(p.badge) + "</span>" : "") +
+      (p.video_url ? '<span class="prod-play">▶</span>' : "") +
+      (out ? '<span class="prod-outtag">Tugagan</span>' : "") +
+      '<button class="prod-fav' +
+      (S.favorites.has(p.id) ? " on" : "") +
+      '" aria-label="Saqlash">♥</button>' +
+      "</div>" +
+      '<div class="prod-body">' +
+      '<div class="prod-name">' +
+      esc(mainName) +
+      "</div>" +
+      carHint +
+      (p.car_id ? '<div class="prod-fit">✓ Mashinangizga mos</div>' : "") +
+      '<div class="prod-cost"><b>' +
+      esc(p.price_label || fmt(p.price)) +
+      "</b>" +
+      (off && p.old_price_label ? "<s>" + esc(p.old_price_label) + "</s>" : "") +
+      "</div>" +
+      (p.stock > 0 && p.stock <= 5
+        ? '<div class="prod-low">📦 ' + p.stock + " ta qoldi</div>"
+        : p.stock > 0
+          ? '<div class="prod-trust">🛡 14 kun kafolat</div>'
+          : "") +
+      "</div>";
+
+    /* Rasm: yuklanganda silliq paydo bo'ladi. Xato bo'lsa (havola o'lgan,
+       internet uzilgan) o'rniga belgi qo'yiladi — bo'sh kvadrat qolmaydi. */
+    const im = card.querySelector(".prod-img");
+    if (im) {
+      const art = card.querySelector(".prod-art");
+      im.onload = () => im.classList.add("ready");
+      im.onerror = () => {
+        im.remove();
+        if (art) {
+          art.classList.add("empty");
+          art.insertAdjacentHTML("afterbegin", '<span class="prod-art-ph">💡</span>');
+        }
+      };
+      // Keshdan kelgan rasm `onload` ni o'tkazib yuborishi mumkin
+      if (im.complete && im.naturalWidth) im.classList.add("ready");
+    }
+
+    card.onclick = () => openProductModal(p);
+
+    const fav = card.querySelector(".prod-fav");
+    fav.onclick = (ev) => {
+      ev.stopPropagation(); // karta bosilishi bilan aralashmasin
+      toggleFavorite(p, fav);
+    };
+
+    // Savat tugmasi — narx tanada bo'lgani uchun tugmada faqat amal yoziladi
+    const btn = el("button", "prod-add");
+    const idle = '<span class="prod-add-ico">🛒</span><span class="prod-add-tx">Savatga</span>';
+    if (out) {
+      btn.classList.add("out");
+      btn.textContent = "Tugadi";
+      btn.disabled = true;
+    } else {
+      btn.innerHTML = idle;
+    }
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      if (out) return;
+      addToCart(p);
+      btn.classList.add("added");
+      btn.innerHTML = '<span class="prod-add-ico">✓</span><span class="prod-add-tx">Qo\'shildi</span>';
+      setTimeout(() => {
+        btn.classList.remove("added");
+        btn.innerHTML = idle;
+      }, 1100);
+    };
+    // Tugma kartochka TANASI ichida — pastga yopishib turadi (Avto_A1 kabi)
+    card.querySelector(".prod-body").append(btn);
+    return card;
+  }
+
+  /* ==================================================================
+     BOSH SAHIFA — salomlashuv va tez o'tish plitkalari
+     ================================================================== */
+
+  /** Shaxsiy salomlashuv. Ilgari salomlashuv FAQAT splash ekranida bor edi
+   *  va bosh sahifa quruq sarlavha bilan boshlanardi. */
+  function renderGreeting() {
+    const nameEl = $("hm-greet-name");
+    const subEl = $("hm-greet-sub");
+    if (!nameEl || !subEl) return;
+
+    const full = (S.me && (S.me.first_name || S.me.full_name)) || "";
+    const first = String(full).trim().split(/\s+/)[0] || "";
+    const h = new Date().getHours();
+    const part = h < 6 ? "Xayrli tun" : h < 12 ? "Xayrli tong" : h < 18 ? "Xayrli kun" : "Xayrli kech";
+
+    nameEl.textContent = first ? part + ", " + first + " 👋" : "Assalomu alaykum 👋";
+    const car = S.me && S.me.car ? S.me.car.name : null;
+    subEl.textContent = car
+      ? car + " uchun mos tovarlarni tanladik"
+      : "Mashinangizni tanlang — mos tovarlarni ko'rsatamiz";
+  }
+
+  /** Tez o'tish plitkalari (bir bosishda: konfigurator / navbat / saqlangan / savat). */
+  function bindQuickActions() {
+    document.querySelectorAll("#hm-quick .hm-q").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        const go = b.dataset.go;
+        if (go === "flow") return openFlow();
+        if (go === "book") {
+          const sec = $("book-sec");
+          if (sec && sec.scrollIntoView) sec.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        show(go);
+      };
+    });
+  }
+
+  /** Plitkalardagi sanoqchilar (saqlangan va savat). */
+  function refreshQuickBadges() {
+    const set = (id, n) => {
+      const b = $(id);
+      if (!b) return;
+      b.textContent = n > 99 ? "99+" : String(n);
+      b.classList.toggle("hidden", !n);
+    };
+    set("hm-q-saved", S.favorites ? S.favorites.size : 0);
+    set(
+      "hm-q-cart",
+      (S.cart || []).reduce((s, i) => s + (Number(i.qty) || 0), 0)
+    );
   }
 
   function openProduct(p) {
@@ -3797,6 +3968,7 @@
   };
 
   $("config-cta").onclick = openFlow;
+  bindQuickActions(); // bosh sahifadagi tez o'tish plitkalari
   $("car-chip").onclick = openCarSheet;
   $("change-car").onclick = openCarSheet;
   $("order-submit").onclick = startCheckout;
@@ -4271,8 +4443,7 @@
   let currentProduct = null;
   let currentImageIndex = 0;
   let modalQuantity = 1;
-  let touchStartX = 0;
-  let touchEndX = 0;
+
 
   /** Mahsulotning barcha rasmlari — mutlaq manzillar ro'yxati (bo'sh bo'lishi mumkin).
       Server `images` massivini beradi; eski yozuvlar uchun `photo_url` ga tayanamiz. */
@@ -4309,10 +4480,15 @@
 
     const images = productImages(product);
     images.forEach((src, i) => {
-      const imgEl = el("img", "", "");
+      const imgEl = el("img", "pm-shot", "");
       imgEl.src = src;
       imgEl.alt = product.name || "";
       imgEl.loading = i === 0 ? "eager" : "lazy";
+      // Yuklanmagan rasm o'rnida bo'shliq turmasin — silliq paydo bo'ladi
+      imgEl.onload = () => imgEl.classList.add("ready");
+      if (imgEl.complete && imgEl.naturalWidth) imgEl.classList.add("ready");
+      // Rasmni bosish -> to'liq ekranli ko'ruvchi (kattalashtirish)
+      imgEl.onclick = () => openViewer(images, i);
       slider.appendChild(imgEl);
 
       // Bitta rasm bo'lsa nuqtalar kerak emas
@@ -4403,48 +4579,21 @@
     
     haptic("light");
     
-    // Scroll listener - rasm o'zgarishi
+    // «Kattalashtirish» tugmasi faqat rasm bo'lganda ko'rinadi
+    const zoomBtn = $("pm-zoom");
+    if (zoomBtn) zoomBtn.classList.toggle("hidden", !images.length);
+
+    /* Rasm almashinuvini brauzerning O'ZI hal qiladi (`scroll-snap`), biz
+       faqat nuqtalarni kuzatamiz.
+
+       ILGARI bu yerda `setupTouchGestures(slider)` ham chaqirilardi va u
+       har `touchend` da `scrollToImage()` ni majburan chaqirardi. Natijada
+       ikki mexanizm bir-biriga qarshi ishlab, tez surganda rasm sakrab
+       ketardi. Bundan tashqari o'sha tinglovchilar HAR ochilishda qayta
+       qo'shilardi va yopilganda OLIB TASHLANMASDI — modal 10 marta
+       ochilsa, bitta surish 10 marta ishlov berardi. */
+    slider.removeEventListener("scroll", handleModalScroll);
     slider.addEventListener("scroll", handleModalScroll, { passive: true });
-    
-    // Touch swipe gestures
-    setupTouchGestures(slider);
-  }
-
-  function setupTouchGestures(slider) {
-    slider.addEventListener("touchstart", (e) => {
-      touchStartX = e.changedTouches[0].screenX;
-    }, { passive: true });
-    
-    slider.addEventListener("touchend", (e) => {
-      touchEndX = e.changedTouches[0].screenX;
-      handleSwipeGesture();
-    }, { passive: true });
-  }
-
-  function handleSwipeGesture() {
-    const swipeThreshold = 50;
-    const diff = touchStartX - touchEndX;
-    
-    if (Math.abs(diff) > swipeThreshold) {
-      if (diff > 0) {
-        // Swipe left - keyingi rasm
-        navigateImage(1);
-      } else {
-        // Swipe right - oldingi rasm
-        navigateImage(-1);
-      }
-    }
-  }
-
-  function navigateImage(direction) {
-    if (!currentProduct) return;
-    const images = productImages(currentProduct);
-    const newIndex = currentImageIndex + direction;
-
-    if (newIndex >= 0 && newIndex < images.length) {
-      scrollToImage(newIndex);
-      haptic("light");
-    }
   }
 
   function scrollToImage(index) {
@@ -4482,9 +4631,293 @@
     }
   }
 
+  /* ==================================================================
+     RASM KO'RUVCHI — to'liq ekran, kattalashtirish va surish
+
+     NEGA YOZILDI
+     Mahsulot rasmini kattalashtirib ko'rish imkoni UMUMAN yo'q edi:
+     galereyadagi rasmda bosish ishlovchisi yo'q, brauzerning o'z
+     kattalashtirishi esa `index.html` dagi `user-scalable=no` bilan
+     o'chirilgan. Ustiga galereya rasmni OQ kvadratda `object-fit: cover`
+     bilan QIRQIB ko'rsatardi — ya'ni kartochkada butun tovar ko'rinib,
+     "kattalashtirganda" chetlari kesilardi.
+
+     ISHORALAR
+       * bir marta bosish (fon)      -> yopadi
+       * ikki marta bosish (rasm)    -> 2.6× kattalashtiradi / qaytaradi
+       * ikki barmoq (chimchilash)   -> 1× dan 4× gacha
+       * kattalashtirilgan holda surish -> rasmni ko'chiradi (chegarada to'xtaydi)
+       * chapga/o'ngga surish        -> keyingi / oldingi rasm
+       * pastga surish               -> yopadi (fon xiralashib boradi)
+
+     Faqat `transform` va `opacity` o'zgaradi — kompozitor ishi, telefon
+     qizimaydi (styles.css boshidagi qoidaga muvofiq).
+     ================================================================== */
+
+  const IV_MAX = 4; // eng katta kattalashtirish
+  const IV = {
+    images: [],
+    index: 0,
+    scale: 1,
+    x: 0,
+    y: 0,
+    pinch: 0, // chimchilash boshidagi masofa
+    startScale: 1,
+    dragging: false,
+    sx: 0,
+    sy: 0,
+    ox: 0,
+    oy: 0,
+    lastTap: 0,
+    bound: false,
+  };
+
+  const viewerOpen = () => {
+    const b = $("imgViewer");
+    return !!b && !b.classList.contains("hidden");
+  };
+
+  function openViewer(images, index) {
+    const list = (images || []).filter(Boolean);
+    if (!list.length) return;
+    IV.images = list;
+    IV.index = Math.min(Math.max(Number(index) || 0, 0), list.length - 1);
+    bindViewer();
+    ivPaint();
+    const box = $("imgViewer");
+    box.classList.remove("hidden", "closing");
+    document.body.style.overflow = "hidden";
+    haptic("light");
+  }
+
+  function closeViewer() {
+    const box = $("imgViewer");
+    if (!box || box.classList.contains("hidden")) return;
+    box.classList.add("closing");
+    box.style.opacity = "";
+    setTimeout(() => {
+      box.classList.add("hidden");
+      box.classList.remove("closing", "zoomed");
+    }, 200);
+    /* Modal hali ochiq bo'lsa sahifa qulfini SAQLAB qolamiz — aks holda
+       ko'ruvchi yopilgach modal orqasidagi sahifa surila boshlardi. */
+    const pm = $("productModal");
+    if (!pm || pm.classList.contains("hidden")) document.body.style.overflow = "";
+    haptic("light");
+  }
+
+  function ivReset() {
+    IV.scale = 1;
+    IV.x = 0;
+    IV.y = 0;
+  }
+
+  function ivApply(smooth) {
+    const im = $("iv-img");
+    if (!im) return;
+    im.style.transition = smooth ? "transform 0.26s var(--silk)" : "none";
+    im.style.transform =
+      "translate(" + Math.round(IV.x) + "px," + Math.round(IV.y) + "px) scale(" + IV.scale + ")";
+    const box = $("imgViewer");
+    if (box) box.classList.toggle("zoomed", IV.scale > 1.02);
+  }
+
+  /** Kattalashtirilgan rasm chegaradan chiqib ketmasin. */
+  function ivClamp(smooth) {
+    const stage = $("iv-stage");
+    const im = $("iv-img");
+    if (!stage || !im) return;
+    const maxX = Math.max(0, (im.clientWidth * IV.scale - stage.clientWidth) / 2);
+    const maxY = Math.max(0, (im.clientHeight * IV.scale - stage.clientHeight) / 2);
+    IV.x = Math.min(maxX, Math.max(-maxX, IV.x));
+    IV.y = Math.min(maxY, Math.max(-maxY, IV.y));
+    ivApply(smooth !== false);
+  }
+
+  function ivPaint() {
+    const im = $("iv-img");
+    if (!im) return;
+    im.classList.remove("ready");
+    im.src = IV.images[IV.index];
+    im.onload = () => im.classList.add("ready");
+    if (im.complete && im.naturalWidth) im.classList.add("ready");
+
+    const c = $("iv-count");
+    if (c) c.textContent = IV.images.length > 1 ? IV.index + 1 + " / " + IV.images.length : "";
+
+    const hint = $("iv-hint");
+    if (hint) {
+      hint.textContent =
+        IV.images.length > 1
+          ? "Ikki marta bosing yoki chimchilang · yon tomonga surib almashtiring"
+          : "Ikki marta bosing yoki chimchilab kattalashtiring";
+    }
+
+    // Kichik rasmlar tasmasi — bir bosishda kerakli rasmga o'tadi
+    const th = $("iv-thumbs");
+    if (th) {
+      th.innerHTML =
+        IV.images.length > 1
+          ? IV.images
+              .map(
+                (src, i) =>
+                  '<button class="iv-th' +
+                  (i === IV.index ? " on" : "") +
+                  '" data-i="' +
+                  i +
+                  '"><img src="' +
+                  esc(src) +
+                  '" alt="" loading="lazy"></button>'
+              )
+              .join("")
+          : "";
+      th.querySelectorAll(".iv-th").forEach((b) => {
+        b.onclick = () => ivGo(Number(b.dataset.i));
+      });
+    }
+
+    ivReset();
+    ivApply(false);
+  }
+
+  function ivGo(i) {
+    if (i < 0 || i >= IV.images.length || i === IV.index) return;
+    IV.index = i;
+    haptic("selection");
+    ivPaint();
+  }
+
+  /** Ishoralar bir MARTA bog'lanadi (modal xatosi qaytarilmasin). */
+  function bindViewer() {
+    if (IV.bound) return;
+    IV.bound = true;
+
+    const stage = $("iv-stage");
+    if (!stage) return;
+    const closeBtn = $("iv-close");
+    if (closeBtn) closeBtn.onclick = closeViewer;
+
+    const gap = (t) => {
+      const dx = t[0].clientX - t[1].clientX;
+      const dy = t[0].clientY - t[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    stage.addEventListener(
+      "touchstart",
+      (e) => {
+        if (e.touches.length === 2) {
+          IV.pinch = gap(e.touches);
+          IV.startScale = IV.scale;
+          IV.dragging = false;
+          return;
+        }
+        const t = e.touches[0];
+        IV.dragging = true;
+        IV.sx = t.clientX;
+        IV.sy = t.clientY;
+        IV.ox = IV.x;
+        IV.oy = IV.y;
+      },
+      { passive: true }
+    );
+
+    stage.addEventListener(
+      "touchmove",
+      (e) => {
+        // ---- chimchilash
+        if (e.touches.length === 2 && IV.pinch) {
+          const k = gap(e.touches) / IV.pinch;
+          IV.scale = Math.min(IV_MAX, Math.max(1, IV.startScale * k));
+          if (IV.scale <= 1) {
+            IV.x = 0;
+            IV.y = 0;
+          }
+          ivApply(false);
+          return;
+        }
+        if (!IV.dragging || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        const dx = t.clientX - IV.sx;
+        const dy = t.clientY - IV.sy;
+
+        if (IV.scale > 1.02) {
+          // ---- kattalashtirilgan: rasmni surish
+          IV.x = IV.ox + dx;
+          IV.y = IV.oy + dy;
+          ivApply(false);
+        } else if (dy > 0 && Math.abs(dy) > Math.abs(dx)) {
+          // ---- pastga surish: yopishga tayyorlanadi, fon xiralashadi
+          IV.y = dy;
+          ivApply(false);
+          const box = $("imgViewer");
+          if (box) box.style.opacity = String(Math.max(0.25, 1 - dy / 420));
+        }
+      },
+      { passive: true }
+    );
+
+    stage.addEventListener(
+      "touchend",
+      (e) => {
+        const box = $("imgViewer");
+
+        if (IV.pinch) {
+          if (e.touches.length === 0) {
+            IV.pinch = 0;
+            if (IV.scale < 1.05) {
+              ivReset();
+              ivApply(true);
+            } else ivClamp(true);
+          }
+          return;
+        }
+        if (!IV.dragging) return;
+        IV.dragging = false;
+
+        if (IV.scale > 1.02) return ivClamp(true);
+
+        if (box) box.style.opacity = "";
+        // Pastga yetarlicha surildi -> yopamiz
+        if (IV.y > 110) return closeViewer();
+
+        // Yon tomonga surish -> qo'shni rasm
+        const t = (e.changedTouches && e.changedTouches[0]) || null;
+        const dx = t ? t.clientX - IV.sx : 0;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > IV.y) {
+          ivReset();
+          ivApply(false);
+          return ivGo(IV.index + (dx < 0 ? 1 : -1));
+        }
+        ivReset();
+        ivApply(true);
+      },
+      { passive: true }
+    );
+
+    /* Bosish: rasmda IKKI MARTA -> kattalashtirish; fonda bir marta -> yopish. */
+    stage.addEventListener("click", (e) => {
+      const onImg = !!(e.target && e.target.id === "iv-img");
+      const now = Date.now();
+      if (onImg && now - IV.lastTap < 320) {
+        IV.lastTap = 0;
+        if (IV.scale > 1.02) ivReset();
+        else IV.scale = 2.6;
+        ivApply(true);
+        haptic("light");
+        return;
+      }
+      IV.lastTap = onImg ? now : 0;
+      if (!onImg && IV.scale <= 1.02) closeViewer();
+    });
+  }
+
   function closeProductModal() {
     const modal = $("productModal");
-    
+
+    // Rasm ko'ruvchi ochiq bo'lsa u ham yopiladi (ostida qolib ketmasin)
+    if (viewerOpen()) closeViewer();
+
     // Animatsiya bilan yopish
     modal.style.animation = "modalSlideDown 0.25s cubic-bezier(0.4, 0, 1, 1)";
     
@@ -4680,17 +5113,26 @@
     $("pm-qty-minus").onclick = () => updateModalQuantity(-1);
     $("pm-qty-plus").onclick = () => updateModalQuantity(1);
     $("pm-add-cart").onclick = addFromModal;
-    
+
+    // «⤢ Kattalashtirish» — joriy rasmni to'liq ekranda ochadi
+    const zoomBtn = $("pm-zoom");
+    if (zoomBtn)
+      zoomBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (!currentProduct) return;
+        openViewer(productImages(currentProduct), currentImageIndex);
+      };
+
     // Tashqariga bosib yopish
     $("productModal").onclick = (e) => {
       if (e.target.id === "productModal") closeProductModal();
     };
-    
-    // ESC tugmasi bilan yopish
+
+    // ESC: avval rasm ko'ruvchi, keyin modal yopiladi
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && currentProduct) {
-        closeProductModal();
-      }
+      if (e.key !== "Escape") return;
+      if (viewerOpen()) return closeViewer();
+      if (currentProduct) closeProductModal();
     });
   }
 

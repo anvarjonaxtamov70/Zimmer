@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=51">
+  <link rel="stylesheet" href="styles.css?v=52">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -136,7 +136,24 @@
     <button class="car-chip" id="car-chip"><i>🚗</i><span id="car-chip-name">—</span><em>▾</em></button>
   </header>
 
+  <!-- Shaxsiy salomlashuv. Ilgari salomlashuv FAQAT splash ekranida bor edi
+       va bosh sahifa quruq sarlavha bilan boshlanardi. -->
+  <div class="hm-greet" id="hm-greet">
+    <b id="hm-greet-name">Assalomu alaykum 👋</b>
+    <span id="hm-greet-sub">Zimmer avtotuningga xush kelibsiz</span>
+  </div>
+
   <div class="stories" id="stories"></div>
+
+  <!-- Tez o'tish plitkalari: eng ko'p ishlatiladigan to'rt bo'lim bir bosishda -->
+  <div class="hm-quick" id="hm-quick">
+    <button class="hm-q" data-go="flow"><i>💡</i><span>Konfigurator</span></button>
+    <button class="hm-q" data-go="book"><i>🗓</i><span>Navbat</span></button>
+    <button class="hm-q" data-go="saved"><i>♥</i><span>Saqlangan</span>
+      <b class="hm-q-b hidden" id="hm-q-saved"></b></button>
+    <button class="hm-q" data-go="cart"><i>🧺</i><span>Savatcha</span>
+      <b class="hm-q-b hidden" id="hm-q-cart"></b></button>
+  </div>
 
   <div class="banner-wrap">
     <div class="banners" id="banners"></div>
@@ -159,7 +176,13 @@
   </section>
 
   <section class="sec" id="catalog-sec">
-    <h3 class="sec-title">🛍 Mahsulotlar</h3>
+    <div class="sec-head">
+      <h3 class="sec-title">🛍 Mahsulotlar</h3>
+      <span class="sec-count" id="products-count"></span>
+    </div>
+    <!-- Kategoriya chiplari: ilgari `renderCatalog` ularni tozalab
+         YASHIRARDI, ya'ni butun katalog bitta uzun ro'yxat edi va filtr
+         yo'q edi. Endi ular ishlaydi. -->
     <div class="chips hidden" id="cats"></div>
     <div class="grid" id="products"></div>
     <p class="empty hidden" id="products-empty">Bu bo'limda hozircha mahsulot yo'q.</p>
@@ -412,6 +435,11 @@
   <div class="pm-gallery">
     <div class="pm-slider" id="pm-slider"></div>
     <div class="pm-dots" id="pm-dots"></div>
+    <!-- Rasmni to'liq ekranda ochish. Ilgari rasmni kattalashtirish
+         imkoni UMUMAN yo'q edi (bosish hech narsa qilmasdi). -->
+    <button class="pm-zoom" id="pm-zoom" aria-label="Rasmni kattalashtirish">
+      <span>⤢</span> Kattalashtirish
+    </button>
   </div>
 
   <div class="pm-body" id="pm-body">
@@ -440,29 +468,57 @@
   </div>
 </div>
 
+<!-- ==========================================================================
+     RASM KO'RUVCHI (to'liq ekran)
+
+     NEGA KERAK
+     Mahsulot rasmini kattalashtirib ko'rish imkoni yo'q edi: galereyada rasm
+     OQ kvadrat ichida `object-fit: cover` bilan QIRQIB ko'rsatilardi (ya'ni
+     kartochkada butun tovar ko'rinib, "kattalashtirganda" chetlari kesilardi),
+     rasmni bosish esa hech narsa qilmasdi. Brauzerning o'z kattalashtirishi
+     ham `viewport` da o'chirilgan (`user-scalable=no`).
+
+     Endi: qora fonda to'liq rasm, ikki marta bosib yoki chimchilab
+     kattalashtirish, surib ko'rish, chapga-o'ngga surib almashtirish va
+     pastga surib yopish.
+     ========================================================================== -->
+<div class="iv hidden" id="imgViewer">
+  <div class="iv-top">
+    <span class="iv-count" id="iv-count"></span>
+    <button class="iv-close" id="iv-close" aria-label="Yopish">✕</button>
+  </div>
+  <div class="iv-stage" id="iv-stage">
+    <img id="iv-img" alt="">
+  </div>
+  <div class="iv-foot">
+    <div class="iv-thumbs" id="iv-thumbs"></div>
+    <p class="iv-hint" id="iv-hint">Ikki marta bosing yoki chimchilab kattalashtiring</p>
+  </div>
+</div>
+
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=51"></script>
+<script src="config.js?v=52"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=51"></script>
+<script src="js/fb.js?v=52"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=51"></script>
-<script src="js/offline.js?v=51"></script>
-<script src="js/headlight.js?v=51"></script>
-<script src="js/cars.js?v=51"></script>
+<script src="js/upload.js?v=52"></script>
+<script src="js/offline.js?v=52"></script>
+<script src="js/headlight.js?v=52"></script>
+<script src="js/cars.js?v=52"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=51"></script>
+<script src="js/bts.js?v=52"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=51"></script>
+<script src="js/admin.js?v=52"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=51"></script>
+<script src="js/admin-shop.js?v=52"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=51"></script>
-<script src="js/app.js?v=51"></script>
+<script src="js/admin-crm.js?v=52"></script>
+<script src="js/app.js?v=52"></script>
 </body>
 </html>
