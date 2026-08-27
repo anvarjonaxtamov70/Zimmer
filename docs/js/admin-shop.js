@@ -77,9 +77,17 @@ window.ZimmerShop = (function () {
     ordFilter: "all", // all | new | run | done | cancelled
     catSel: null, // tanlangan kategoriya nomi
     carSel: null, // tanlangan mashina id si (ixtiyoriy)
-    query: "",
-    filter: "all", // all | low
+    query: "", // ombor qidiruvi (nom / kod / kategoriya / mashina)
     selected: {}, // ombor ommaviy tanlovi {id:true}
+    // ---- ombor (zaxira nazorati)
+    invFilter: "all", // all | low | out | hidden | sale
+    invSort: "alert", // alert | new | price | stock | name
+    invDir: "desc", // desc | asc
+    invLimit: 30, // ekranda nechta kartochka
+    invBulkOpen: false, // ommaviy amallar yoyilganmi (⚙)
+    invTimers: {}, // qoldiqni saqlash taymerlari {id: timeoutId}
+    invTyping: null, // qidiruv debounce taymeri
+    invIO: null, // IntersectionObserver (cheksiz skroll)
     orders: [],
     busy: false,
   };
@@ -173,7 +181,7 @@ window.ZimmerShop = (function () {
     // Qidiruv va filtr har ochilishda tozalanadi — aks holda oldingi
     // sessiyaning qidiruvi qolib, ombor bo'sh ko'rinardi.
     S.query = "";
-    S.filter = "all";
+    S.invFilter = "all";
     bindTopbar();
     setHead("Boshqaruv", "Tovar va buyurtmalar");
     loading("Tekshirilmoqda...");
@@ -1732,13 +1740,88 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
-     OMBOR
+     OMBOR — ZAXIRA NAZORATI
+
+     NEGA QAYTA YOZILDI
+     Eski ombor ishlardi, lekin telefonda boshqarish og'ir edi:
+       • har harfda BUTUN ro'yxat qayta chizilardi va kursor qo'lda joyiga
+         qaytarilardi — ko'p tovarda qidiruv sakraydi va sekinlashadi;
+       • faqat ikki filtr bor edi (Hammasi / Kam qolgan). «Tugagan» va
+         «Yashirin» sonlari ko'rinardi-yu, ularni BOSIB filtrlash mumkin
+         emasdi — ya'ni raqam bor, foydasi yo'q;
+       • saralash UMUMAN yo'q edi: qimmat tovarni yoki tugaganini topish
+         uchun ro'yxatni ko'z bilan varaqlash kerak edi;
+       • qoldiqni bir donaga oshirish uchun ham raqamni qo'lda yozib, ✓ ni
+         bosish kerak edi;
+       • zaxiraning UMUMIY QIYMATI ko'rsatilmasdi — do'kon uchun eng muhim
+         raqam panelda yo'q edi;
+       • tovarni yashirish/ko'rsatish uchun tahrirlash oynasini ochish
+         kerak edi;
+       • ommaviy amallar paneli ro'yxat TEPASIDA turardi: pastga tushsangiz
+         ko'rinmasdi va nima belgilaganingiz esdan chiqardi.
+
+     ENDI
+       • qidiruv va boshqaruv BIR MARTA chiziladi, faqat ro'yxat yangilanadi
+         (kursor sakramaydi); qidiruv nom, kod, kategoriya va mashina bo'yicha;
+       • 4 ta bosiladigan hisob kartochkasi = filtr (jami / kam / tugagan /
+         yashirin) + «chegirmali» filtri;
+       • saralash: ⚠️ diqqat · yangi · narx · qoldiq · nom, yo'nalishi almashadi;
+       • qoldiq − va + tugmalari bilan o'zgaradi va O'ZI saqlanadi (✓ kerak
+         emas); xato bo'lsa eski qiymat qaytariladi va sabab aytiladi;
+       • tepada zaxira qiymati (narx × qoldiq yig'indisi) — sanaladigan raqam;
+       • har kartochkada 👁 bilan darhol yashirish/ko'rsatish;
+       • ommaviy panel pastga YOPISHADI, «Hammasi» tanlovi bor, amallar
+         ⚙ bilan yoyiladi (panel joy egallab turmaydi);
+       • uzun ro'yxat 30 talab yuklanadi (pastga tushganda o'zi).
      ================================================================== */
+
+  const INV_PAGE = 30; // bir marta chiziladigan kartochka soni
+  const LOW_STOCK = 3; // «kam qoldi» chegarasi
+  const INV_SAVE_DELAY = 650; // qoldiqni saqlashdan oldin kutish (ms)
+
+  /** Hisob kartochkalari — bosilganda filtr bo'lib ishlaydi. */
+  const INV_FILTERS = [
+    { key: "all", icon: "📦", label: "Jami", tone: "" },
+    { key: "low", icon: "⚠️", label: "Kam qoldi", tone: "is-low" },
+    { key: "out", icon: "✕", label: "Tugagan", tone: "is-out" },
+    { key: "hidden", icon: "👁", label: "Yashirin", tone: "is-hidden" },
+  ];
+
+  const INV_TESTS = {
+    all: () => true,
+    low: (p) => p.stock > 0 && p.stock <= LOW_STOCK,
+    out: (p) => p.stock <= 0,
+    hidden: (p) => !p.is_active,
+    sale: (p) => !!p.old_price && p.old_price > p.price,
+  };
+
+  /** Qoldiq bo'yicha «shoshilinchlik»: tugagan → kam → yetarli. */
+  function stockRank(s) {
+    return s <= 0 ? 0 : s <= LOW_STOCK ? 1 : 2;
+  }
+
+  const INV_SORTS = [
+    { key: "alert", label: "⚠️ Diqqat", cmp: (a, b) => stockRank(a.stock) - stockRank(b.stock) },
+    { key: "new", label: "🆕 Yangi", cmp: (a, b) => Number(b.id) - Number(a.id) },
+    { key: "price", label: "💰 Narx", cmp: (a, b) => b.price - a.price },
+    { key: "stock", label: "📦 Qoldiq", cmp: (a, b) => b.stock - a.stock },
+    { key: "name", label: "🔤 Nom", cmp: (a, b) => a.name.localeCompare(b.name, "uz") },
+  ];
+
+  const itemOf = (id) => S.items.find((x) => String(x.id) === String(id));
+
+  /* ------------------------------------------------------------ o'qish */
+
   async function openInventory() {
     S.view = "inventory";
     S.selected = {};
-    setHead("Ombor", "Zaxira nazorati");
-    loading("Ombor o'qilmoqda...");
+    S.invLimit = INV_PAGE;
+    S.invTimers = {};
+    S.invBulkOpen = false;
+    invStopScroll();
+    setHead("📦 Ombor", "Zaxira nazorati");
+    body().innerHTML = invSkeleton();
+
     try {
       const node = await fb().get(P);
       S.items = [];
@@ -1746,11 +1829,14 @@ window.ZimmerShop = (function () {
         Object.keys(node).forEach((k) => {
           const r = node[k];
           if (!r || typeof r !== "object" || r.deleted) return;
+          const stock = Number(r.stock) || 0;
           S.items.push({
             id: r.id == null ? k : r.id,
             name: String(r.name || "Nomsiz"),
             price: Number(r.price) || 0,
-            stock: Number(r.stock) || 0,
+            old_price: Number(r.old_price) || 0,
+            stock: stock,
+            _saved: stock, // serverdagi oxirgi tasdiqlangan qiymat
             code: r.code || "",
             is_active: r.is_active !== 0 && r.is_active !== false,
             photo_url: r.photo_url || null,
@@ -1760,238 +1846,720 @@ window.ZimmerShop = (function () {
             _raw: r,
           });
         });
-        S.items.sort((a, b) => Number(b.id) - Number(a.id));
       }
-      renderInventory();
+      renderInventory(true);
     } catch (err) {
       fail(err, openInventory);
     }
   }
 
-  function stockRank(s) {
-    return s <= 0 ? 0 : s <= 3 ? 1 : 2;
+  /** Yuklanish paytidagi «suyak» kartochkalar — bo'sh ekran ko'rsatmaydi. */
+  function invSkeleton() {
+    let rows = "";
+    for (let i = 0; i < 5; i++) rows += '<div class="inv-skel"></div>';
+    return '<div class="inv-skel-hero"></div><div class="inv-skel-stats"></div>' + rows;
   }
 
-  function renderInventory() {
-    const q = S.query.toLowerCase();
-    let list = S.items.slice();
-    if (S.filter === "low") list = list.filter((p) => p.stock <= 3);
-    if (q) list = list.filter((p) => p.name.toLowerCase().indexOf(q) !== -1 || String(p.code).toLowerCase().indexOf(q) !== -1);
-    list.sort((a, b) => stockRank(a.stock) - stockRank(b.stock));
+  /* ------------------------------------------------------- hisob-kitob */
 
-    const low = S.items.filter((p) => p.stock > 0 && p.stock <= 3).length;
-    const out = S.items.filter((p) => p.stock <= 0).length;
+  /** Filtr va qidiruvdan o'tgan, saralangan ro'yxat. */
+  function invVisible() {
+    const q = String(S.query || "").trim().toLowerCase();
+    const test = INV_TESTS[S.invFilter] || INV_TESTS.all;
+    let list = S.items.filter(test);
 
-    let html =
-      '<input type="text" class="search-box" id="shop-q" placeholder="🔍 Tovar nomi yoki kod" value="' +
-      esc(S.query) +
-      '">' +
-      '<div class="shop-filters">' +
-      '<button class="chip shop-fchip' +
-      (S.filter === "all" ? " selected" : "") +
-      '" data-f="all">Hammasi</button>' +
-      '<button class="chip shop-fchip' +
-      (S.filter === "low" ? " selected" : "") +
-      '" data-f="low" style="color:#ff9f0a;">⚠️ Kam qolgan</button>' +
-      "</div>" +
-      '<div class="inv2-summary">' +
-      '<div class="inv2-stat"><b>' +
-      S.items.length +
-      "</b><span>Jami tovar</span></div>" +
-      '<div class="inv2-stat inv2-stat-low"><b>' +
-      low +
-      "</b><span>Kam qoldi</span></div>" +
-      '<div class="inv2-stat inv2-stat-out"><b>' +
-      out +
-      "</b><span>Tugagan</span></div></div>";
-
-    // Ommaviy amallar paneli
-    const selIds = Object.keys(S.selected);
-    if (selIds.length) {
-      html +=
-        '<div class="shop-bulk"><div class="shop-bulk-top"><b>' +
-        selIds.length +
-        ' ta belgilandi</b><span id="shop-bulk-clear">Bekor</span></div>' +
-        '<div class="shop-bulk-row">' +
-        '<input type="text" inputmode="numeric" class="inv-input" id="shop-bulk-price" placeholder="Yangi narx" style="width:100px">' +
-        '<button class="inv-btn" id="shop-bulk-setprice">Narx qo\'yish</button>' +
-        '<input type="number" class="inv-input" id="shop-bulk-pct" placeholder="%" style="width:54px">' +
-        '<button class="inv-btn" id="shop-bulk-plus" style="background:#30d158">＋%</button>' +
-        '<button class="inv-btn" id="shop-bulk-minus" style="background:#ff9f0a">−%</button>' +
-        '<button class="inv-btn" id="shop-bulk-del" style="background:#ff453a;color:#fff">🗑</button>' +
-        "</div></div>";
+    if (q) {
+      list = list.filter((p) =>
+        [p.name, p.code, p.categoryName, p.carName]
+          .join(" ")
+          .toLowerCase()
+          .indexOf(q) !== -1
+      );
     }
 
-    html += list.length ? list.map(itemRow).join("") : '<div class="adm-hint">Tovar topilmadi.</div>';
-    body().innerHTML = html;
-
-    const qEl = $("shop-q");
-    qEl.oninput = () => {
-      S.query = qEl.value;
-      const pos = qEl.selectionStart;
-      renderInventory();
-      const again = $("shop-q");
-      again.focus();
-      again.setSelectionRange(pos, pos);
-    };
-    document.querySelectorAll(".shop-fchip").forEach((b) => {
-      b.onclick = () => {
-        haptic();
-        S.filter = b.dataset.f;
-        renderInventory();
-      };
+    const sort = INV_SORTS.find((s) => s.key === S.invSort) || INV_SORTS[0];
+    const dir = S.invDir === "asc" ? -1 : 1;
+    list.sort((a, b) => {
+      const primary = sort.cmp(a, b) * dir;
+      if (primary) return primary;
+      return Number(b.id) - Number(a.id); // barqaror tartib
     });
-    bindInventoryRows(list);
-    bindBulk();
+    return list;
   }
 
-  function itemRow(p) {
-    const thumb = p.photo_url
-      ? '<img class="adm-thumb" src="' + esc(p.photo_url) + '" alt="">'
-      : p.photo_id && window.ZimmerOffline && window.ZimmerOffline.mediaUrl
-        ? '<img class="adm-thumb" src="' + esc(window.ZimmerOffline.mediaUrl(p.photo_id)) + '" alt="">'
-        : '<div class="adm-thumb-empty">📦</div>';
-    const flag =
-      p.stock <= 0
-        ? '<span class="inv-flag inv-flag-out">Tugagan</span>'
-        : p.stock <= 3
-          ? '<span class="inv-flag inv-flag-low">Kam qoldi</span>'
-          : "";
-    const marks = [];
-    if (!p.is_active) marks.push('<span class="inv-flag inv-flag-out">Yashirin</span>');
-    const sel = S.selected[p.id] ? " shop-sel" : "";
+  const invValue = (list) =>
+    list.reduce((sum, p) => sum + p.price * Math.max(0, p.stock), 0);
 
+  /* --------------------------------------------------------- chizish */
+
+  /** Boshqaruv qismi BIR MARTA chiziladi.
+   *  Sabab: ilgari har harfda butun panel qayta chizilib, qidiruv maydoni
+   *  fokusdan chiqardi va kursor qo'lda joyiga qaytarilardi. Endi faqat
+   *  ro'yxat (`#inv-list`) yangilanadi. */
+  function renderInventory(animate) {
+    setHead("📦 Ombor", S.items.length + " ta tovar");
+
+    body().innerHTML =
+      // ---- zaxira qiymati
+      '<div class="inv-hero">' +
+      '<span class="inv-hero-lb">Zaxira qiymati</span>' +
+      '<b id="inv-hero-val">0</b>' +
+      '<i id="inv-hero-sub"></i>' +
+      "</div>" +
+      // ---- bosiladigan hisob kartochkalari
+      '<div class="inv-stats" id="inv-stats"></div>' +
+      // ---- qidiruv
+      '<div class="inv-search">' +
+      '<span class="inv-search-ic">🔍</span>' +
+      '<input type="text" id="inv-q" class="inv-search-in" autocomplete="off" ' +
+      'placeholder="Nom, kod, kategoriya yoki mashina..." value="' +
+      esc(S.query || "") +
+      '">' +
+      '<button class="inv-search-x hidden" id="inv-qx" aria-label="Tozalash">✕</button>' +
+      "</div>" +
+      // ---- saralash
+      '<div class="inv-sortbar">' +
+      INV_SORTS.map(
+        (s) => '<button class="inv-sort" data-s="' + s.key + '">' + esc(s.label) + "</button>"
+      ).join("") +
+      '<button class="inv-dir" id="inv-dir" aria-label="Yo\'nalish"></button>' +
+      "</div>" +
+      // ---- chegirmali filtri (alohida — hisob kartochkasi emas)
+      '<div class="inv-extra" id="inv-extra"></div>' +
+      '<div id="inv-list"></div>' +
+      '<div id="inv-more"></div>' +
+      '<div id="inv-bulk"></div>';
+
+    // ---- qidiruv (debounce: har harfda ro'yxat qayta chizilmaydi)
+    const input = $("inv-q");
+    if (input) {
+      input.oninput = () => {
+        clearTimeout(S.invTyping);
+        S.invTyping = setTimeout(() => {
+          S.query = input.value;
+          S.invLimit = INV_PAGE;
+          paintInventory();
+        }, 130);
+      };
+    }
+    if ($("inv-qx"))
+      $("inv-qx").onclick = () => {
+        haptic();
+        S.query = "";
+        S.invLimit = INV_PAGE;
+        if ($("inv-q")) $("inv-q").value = "";
+        paintInventory();
+      };
+
+    // ---- saralash tugmalari
+    document.querySelectorAll(".inv-sort").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        // Ayni tugma qayta bosilsa — yo'nalish almashadi.
+        if (S.invSort === b.dataset.s) S.invDir = S.invDir === "asc" ? "desc" : "asc";
+        else {
+          S.invSort = b.dataset.s;
+          S.invDir = "desc";
+        }
+        S.invLimit = INV_PAGE;
+        paintInventory();
+      };
+    });
+    if ($("inv-dir"))
+      $("inv-dir").onclick = () => {
+        haptic();
+        S.invDir = S.invDir === "asc" ? "desc" : "asc";
+        paintInventory();
+      };
+
+    paintInventory(animate);
+  }
+
+  function paintInventory(animate) {
+    if (S.view !== "inventory") return;
+
+    // ---- hisob kartochkalari (filtr sifatida)
+    const counts = {};
+    INV_FILTERS.forEach((f) => (counts[f.key] = S.items.filter(INV_TESTS[f.key]).length));
+    $("inv-stats").innerHTML = INV_FILTERS.map(
+      (f) =>
+        '<button class="inv-stat ' +
+        f.tone +
+        (S.invFilter === f.key ? " on" : "") +
+        '" data-f="' +
+        f.key +
+        '"><span>' +
+        f.icon +
+        "</span><b>" +
+        counts[f.key] +
+        "</b><i>" +
+        esc(f.label) +
+        "</i></button>"
+    ).join("");
+    document.querySelectorAll("#inv-stats .inv-stat").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        // Ayni filtr qayta bosilsa — hammasiga qaytadi.
+        S.invFilter = S.invFilter === b.dataset.f ? "all" : b.dataset.f;
+        S.invLimit = INV_PAGE;
+        paintInventory();
+      };
+    });
+
+    // ---- chegirmali tovarlar filtri (bo'lsa ko'rsatiladi)
+    const saleCount = S.items.filter(INV_TESTS.sale).length;
+    $("inv-extra").innerHTML = saleCount
+      ? '<button class="ord-fchip' +
+        (S.invFilter === "sale" ? " selected" : "") +
+        '" id="inv-f-sale">🔥 Chegirmali <i>' +
+        saleCount +
+        "</i></button>"
+      : "";
+    if ($("inv-f-sale"))
+      $("inv-f-sale").onclick = () => {
+        haptic();
+        S.invFilter = S.invFilter === "sale" ? "all" : "sale";
+        S.invLimit = INV_PAGE;
+        paintInventory();
+      };
+
+    // ---- saralash holati
+    document.querySelectorAll(".inv-sort").forEach((b) =>
+      b.classList.toggle("on", b.dataset.s === S.invSort)
+    );
+    /* Yo'nalish ko'rsatkichi KONTEKSTLI. Narx/qoldiq uchun ↓ «kattadan
+       kichikka», nom uchun esa o'sha strelka «A dan Z ga» degani bo'lardi —
+       ikki xil ma'no bitta belgida chalkashtiradi. Shuning uchun nomda
+       to'g'ridan «A-Z» / «Z-A» yoziladi. */
+    const dirBtn = $("inv-dir");
+    if (dirBtn) {
+      const isName = S.invSort === "name";
+      dirBtn.textContent = isName
+        ? S.invDir === "asc"
+          ? "Z-A"
+          : "A-Z"
+        : S.invDir === "asc"
+          ? "↑"
+          : "↓";
+      dirBtn.classList.toggle("wide", isName);
+    }
+    if ($("inv-qx")) $("inv-qx").classList.toggle("hidden", !S.query);
+
+    // ---- zaxira qiymati
+    refreshTotals(animate);
+
+    // ---- ro'yxat
+    const list = invVisible();
+    const shown = list.slice(0, S.invLimit);
+
+    if (!list.length) {
+      $("inv-list").innerHTML = invEmpty();
+      $("inv-more").innerHTML = "";
+      invStopScroll();
+      const add = $("inv-empty-add");
+      if (add) add.onclick = openAdd;
+      const clear = $("inv-empty-clear");
+      if (clear)
+        clear.onclick = () => {
+          S.query = "";
+          S.invFilter = "all";
+          if ($("inv-q")) $("inv-q").value = "";
+          paintInventory();
+        };
+      renderBulk();
+      return;
+    }
+
+    $("inv-list").innerHTML =
+      '<div class="inv-list' + (animate ? " enter" : "") + '">' +
+      shown.map(invCard).join("") +
+      "</div>";
+    bindCards(shown);
+
+    // ---- «yana yuklash»
+    const rest = list.length - shown.length;
+    $("inv-more").innerHTML = rest
+      ? '<div class="inv-more" id="inv-sentinel">Yana ' + rest + " ta tovar · pastga tushiring</div>"
+      : list.length > INV_PAGE
+        ? '<div class="inv-end">Ro\'yxat tugadi · ' + list.length + " ta</div>"
+        : "";
+    if (rest) {
+      invWatchScroll(() => {
+        S.invLimit += INV_PAGE;
+        paintInventory();
+      });
+    } else invStopScroll();
+
+    renderBulk();
+  }
+
+  /** Zaxira qiymati va ostidagi izoh. */
+  function refreshTotals(animate) {
+    const list = invVisible();
+    const total = invValue(list);
+    const units = list.reduce((s, p) => s + Math.max(0, p.stock), 0);
+    const hero = $("inv-hero-val");
+    const sub = $("inv-hero-sub");
+    if (sub) {
+      sub.textContent =
+        list.length + " ta tovar · " + units + " dona" +
+        (S.invFilter !== "all" || S.query ? " (filtr bo'yicha)" : "");
+    }
+    if (!hero) return;
+    if (animate) countTo(hero, total);
+    else hero.textContent = money(total);
+  }
+
+  /** Raqamni noldan yuqoriga sanaydi (bir martalik, faqat ombor ochilganda). */
+  function countTo(node, end) {
+    const target = Math.round(Number(end) || 0);
+    const reduced =
+      window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || target <= 0) {
+      node.textContent = money(target);
+      return;
+    }
+    const dur = 800;
+    let t0 = null;
+    function step(ts) {
+      if (t0 === null) t0 = ts;
+      const p = Math.min((ts - t0) / dur, 1);
+      node.textContent = money(Math.round((1 - Math.pow(1 - p, 3)) * target));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function invEmpty() {
+    if (S.query || S.invFilter !== "all") {
+      return (
+        '<div class="inv-empty"><div class="inv-empty-ic">🔍</div>' +
+        "<b>Tovar topilmadi</b><p>Qidiruv yoki filtrga mos tovar yo'q.</p>" +
+        '<button class="btn btn-ghost btn-sm" id="inv-empty-clear">Filtrni tozalash</button></div>'
+      );
+    }
     return (
-      '<div class="shop-item' +
-      sel +
-      '">' +
-      '<input type="checkbox" class="shop-check" data-id="' +
-      esc(p.id) +
-      '"' +
-      (S.selected[p.id] ? " checked" : "") +
-      ">" +
-      thumb +
-      '<div class="shop-item-mid"><b>' +
-      esc(p.name) +
-      "</b>" +
-      (p.code ? '<span class="inv-code">🔖 ' + esc(p.code) + "</span>" : "") +
-      '<div class="shop-item-sub">' +
-      esc(money(p.price)) +
-      " " +
-      flag +
-      marks.join(" ") +
-      "</div></div>" +
-      '<div class="shop-item-act">' +
-      '<input type="number" class="inv-input" id="shop-st-' +
-      esc(p.id) +
-      '" value="' +
-      p.stock +
-      '">' +
-      '<button class="inv-btn shop-savestock" data-id="' +
-      esc(p.id) +
-      '">✓</button>' +
-      '<button class="btn btn-ghost btn-sm shop-edit" data-id="' +
-      esc(p.id) +
-      '">✏️</button>' +
-      "</div></div>"
+      '<div class="inv-empty"><div class="inv-empty-ic">📦</div>' +
+      "<b>Ombor bo'sh</b><p>Birinchi tovarni qo'shsangiz, u shu yerda va do'konda paydo bo'ladi.</p>" +
+      '<button class="btn btn-primary btn-sm" id="inv-empty-add">＋ Yangi tovar</button></div>'
     );
   }
 
-  function bindInventoryRows(list) {
-    document.querySelectorAll(".shop-check").forEach((el) => {
-      el.onchange = () => {
-        const id = el.dataset.id;
-        if (el.checked) S.selected[id] = true;
-        else delete S.selected[id];
-        renderInventory();
+  /* ---------------------------------------------------------- kartochka */
+
+  const stateClass = (p) =>
+    !p.is_active ? " is-off" : p.stock <= 0 ? " is-out" : p.stock <= LOW_STOCK ? " is-low" : "";
+
+  function flagHtml(p) {
+    if (!p.is_active) return '<span class="inv-flag inv-flag-off">Yashirin</span>';
+    if (p.stock <= 0) return '<span class="inv-flag inv-flag-out">Tugagan</span>';
+    if (p.stock <= LOW_STOCK) return '<span class="inv-flag inv-flag-low">Kam qoldi</span>';
+    return "";
+  }
+
+  function invThumb(p) {
+    const url =
+      p.photo_url ||
+      (p.photo_id && window.ZimmerOffline && window.ZimmerOffline.mediaUrl
+        ? window.ZimmerOffline.mediaUrl(p.photo_id)
+        : null);
+    return url
+      ? '<img src="' + esc(url) + '" alt="" loading="lazy">'
+      : '<span class="inv-thumb-empty">📦</span>';
+  }
+
+  function invCard(p) {
+    const id = esc(p.id);
+    const meta = [];
+    if (p.code) meta.push("🔖 " + esc(p.code));
+    if (p.categoryName) meta.push(esc(p.categoryName));
+    if (p.carName) meta.push("🚗 " + esc(p.carName));
+    const sale = p.old_price && p.old_price > p.price;
+
+    return (
+      '<div class="inv-card' +
+      stateClass(p) +
+      (S.selected[p.id] ? " is-picked" : "") +
+      '" id="inv-card-' + id + '" data-id="' + id + '">' +
+      '<div class="inv-card-top">' +
+      '<button class="inv-pick" data-id="' + id + '" aria-label="Belgilash">✓</button>' +
+      '<div class="inv-thumb">' + invThumb(p) + "</div>" +
+      '<div class="inv-mid">' +
+      "<b>" + esc(p.name) + "</b>" +
+      (meta.length ? '<div class="inv-meta">' + meta.map((m) => "<span>" + m + "</span>").join("") + "</div>" : "") +
+      '<div class="inv-price">' +
+      esc(money(p.price)) +
+      (sale ? "<s>" + esc(money(p.old_price)) + "</s><em>🔥</em>" : "") +
+      "</div>" +
+      "</div>" +
+      '<div class="inv-right">' +
+      '<span id="inv-flag-' + id + '">' + flagHtml(p) + "</span>" +
+      '<span class="inv-val" id="inv-val-' + id + '">' + esc(money(p.price * Math.max(0, p.stock))) + "</span>" +
+      "</div>" +
+      "</div>" +
+      '<div class="inv-card-bot">' +
+      '<div class="inv-step">' +
+      '<button data-id="' + id + '" data-d="-1" aria-label="Kamaytirish">−</button>' +
+      '<input type="text" inputmode="numeric" id="inv-st-' + id + '" value="' + p.stock + '">' +
+      '<button data-id="' + id + '" data-d="1" aria-label="Ko\'paytirish">+</button>' +
+      "</div>" +
+      '<div class="inv-acts">' +
+      '<button class="inv-mini inv-eye" data-id="' + id + '" aria-label="Yashirish">' +
+      (p.is_active ? "👁" : "🙈") +
+      "</button>" +
+      '<button class="inv-mini inv-edit" data-id="' + id + '" aria-label="Tahrirlash">✏️</button>' +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindCards(list) {
+    document.querySelectorAll(".inv-pick").forEach((b) => {
+      b.onclick = () => {
+        const id = b.dataset.id;
+        haptic("light");
+        if (S.selected[id]) delete S.selected[id];
+        else S.selected[id] = true;
+        syncCard(id);
+        renderBulk();
       };
     });
-    document.querySelectorAll(".shop-savestock").forEach((b) => {
-      b.onclick = () => fastStock(b.dataset.id);
-    });
-    document.querySelectorAll(".shop-edit").forEach((b) => {
+
+    document.querySelectorAll(".inv-step button").forEach((b) => {
       b.onclick = () => {
-        const p = list.find((x) => String(x.id) === String(b.dataset.id));
+        stepStock(b.dataset.id, Number(b.dataset.d));
+      };
+    });
+
+    document.querySelectorAll(".inv-step input").forEach((el) => {
+      // Qo'lda yozilgan qiymat: yozib bo'lgach saqlanadi.
+      el.oninput = () => {
+        const id = el.id.replace("inv-st-", "");
+        const it = itemOf(id);
+        if (!it) return;
+        const val = parseNum(el.value);
+        if (val === null) return; // bo'sh maydon — hali yozilmoqda
+        it.stock = Math.max(0, val);
+        touchRow(id, false);
+      };
+      el.onblur = () => {
+        const id = el.id.replace("inv-st-", "");
+        const it = itemOf(id);
+        if (!it) return;
+        if (parseNum(el.value) === null) el.value = it.stock; // bo'sh qoldirilsa tiklaymiz
+      };
+    });
+
+    document.querySelectorAll(".inv-eye").forEach((b) => {
+      b.onclick = () => toggleActive(b.dataset.id);
+    });
+    document.querySelectorAll(".inv-edit").forEach((b) => {
+      b.onclick = () => {
+        const p = list.find((x) => String(x.id) === String(b.dataset.id)) || itemOf(b.dataset.id);
         if (p) openEdit(p);
       };
     });
   }
 
-  async function fastStock(id) {
-    const el = $("shop-st-" + id);
-    const val = parseNum(el && el.value);
-    if (val === null) return toast("Qoldiqni to'g'ri kiriting");
+  /* ---------------------------------------------- qoldiqni o'zgartirish */
+
+  /** − / + tugmasi. Ekranda DARHOL o'zgaradi, saqlash keyin (debounce). */
+  function stepStock(id, delta) {
+    const it = itemOf(id);
+    if (!it) return;
+    const next = Math.max(0, it.stock + delta);
+    if (next === it.stock && delta < 0) return haptic("warning");
+    it.stock = next;
+    haptic("light");
+    const input = $("inv-st-" + id);
+    if (input) input.value = next;
+    touchRow(id, true);
+  }
+
+  /** Kartochkadagi raqamlarni yangilaydi va saqlashni rejalashtiradi.
+   *  Butun ro'yxat qayta chizilmaydi — aks holda qoldiq yozayotgan maydon
+   *  fokusdan chiqib ketardi. */
+  function touchRow(id, pop) {
+    syncCard(id, pop);
+    refreshTotals(false);
+    scheduleStockSave(id);
+  }
+
+  /** Bitta kartochkaning o'zgargan qismlarini yangilaydi. */
+  function syncCard(id, pop) {
+    const it = itemOf(id);
+    const card = $("inv-card-" + id);
+    if (!it || !card) return;
+    card.className =
+      "inv-card" + stateClass(it) + (S.selected[it.id] ? " is-picked" : "");
+    const val = $("inv-val-" + id);
+    if (val) val.textContent = money(it.price * Math.max(0, it.stock));
+    const flag = $("inv-flag-" + id);
+    if (flag) flag.innerHTML = flagHtml(it);
+    const input = $("inv-st-" + id);
+    if (input && document.activeElement !== input) input.value = it.stock;
+    if (pop && input) {
+      input.classList.remove("pop");
+      // reflow — animatsiya qayta ishga tushsin
+      void input.offsetWidth;
+      input.classList.add("pop");
+    }
+  }
+
+  function scheduleStockSave(id) {
+    clearTimeout(S.invTimers[id]);
+    S.invTimers[id] = setTimeout(() => saveStock(id), INV_SAVE_DELAY);
+  }
+
+  /** Qoldiqni bulutga yozadi. Xato bo'lsa ESKI qiymat qaytariladi —
+   *  admin saqlanmaganini bilmay qolmasligi kerak. */
+  async function saveStock(id) {
+    const it = itemOf(id);
+    if (!it || it.stock === it._saved) return;
+    const target = it.stock;
     try {
-      await fb().patch(P + "/" + id, { stock: val, updatedAt: Date.now() });
-      haptic("success");
-      toast("✅ Qoldiq yangilandi");
+      await fb().patch(P + "/" + id, { stock: target, updatedAt: Date.now() });
+      it._saved = target;
       freshenShop();
-      const it = S.items.find((x) => String(x.id) === String(id));
-      if (it) it.stock = val;
+      flashCard(id, "ok");
     } catch (err) {
+      it.stock = it._saved;
+      syncCard(id);
+      refreshTotals(false);
+      flashCard(id, "err");
+      toast((err && err.message) || "Qoldiq saqlanmadi");
+    }
+  }
+
+  function flashCard(id, kind) {
+    const card = $("inv-card-" + id);
+    if (!card) return;
+    const cls = kind === "ok" ? "flash-ok" : "flash-err";
+    card.classList.remove("flash-ok", "flash-err");
+    void card.offsetWidth;
+    card.classList.add(cls);
+    setTimeout(() => card.classList.remove(cls), 700);
+  }
+
+  /** 👁 — tovarni do'konda yashiradi yoki qaytaradi (tahrirlashni ochmasdan). */
+  async function toggleActive(id) {
+    const it = itemOf(id);
+    if (!it) return;
+    const next = !it.is_active;
+    it.is_active = next;
+    haptic();
+    syncCard(id);
+    const eye = document.querySelector('.inv-eye[data-id="' + String(id).replace(/"/g, '\\"') + '"]');
+    if (eye) eye.textContent = next ? "👁" : "🙈";
+    try {
+      await fb().patch(P + "/" + id, { is_active: next ? 1 : 0, updatedAt: Date.now() });
+      freshenShop();
+      flashCard(id, "ok");
+      toast(next ? "👁 Do'konda ko'rinadi" : "🙈 Do'kondan yashirildi");
+      paintInventory(); // «Yashirin» sanoqchisi o'zgardi
+    } catch (err) {
+      it.is_active = !next;
+      syncCard(id);
+      flashCard(id, "err");
       toast((err && err.message) || "Saqlanmadi");
     }
   }
 
-  /* ---- ommaviy amallar ---- */
-  function bindBulk() {
-    // Ommaviy narx maydonida ham raqamlar ajratiladi
-    bindMoney(["shop-bulk-price"]);
-    if ($("shop-bulk-clear"))
-      $("shop-bulk-clear").onclick = () => {
-        S.selected = {};
-        renderInventory();
-      };
-    if ($("shop-bulk-setprice"))
-      $("shop-bulk-setprice").onclick = async () => {
-        const np = parseNum($("shop-bulk-price").value);
-        if (!np) return toast("Yangi narx kiriting");
-        await bulkApply((it) => ({ price: np }));
-      };
-    if ($("shop-bulk-plus"))
-      $("shop-bulk-plus").onclick = () => bulkPercent(1);
-    if ($("shop-bulk-minus"))
-      $("shop-bulk-minus").onclick = () => bulkPercent(-1);
-    if ($("shop-bulk-del"))
-      $("shop-bulk-del").onclick = async () => {
-        const ids = Object.keys(S.selected);
-        if (!ids.length) return;
-        const ok = await ask(ids.length + " ta tovarni o'chirasizmi?");
-        if (!ok) return;
-        await bulkApply(null, true);
-      };
+  /* -------------------------------------------------- cheksiz skroll */
+
+  function invWatchScroll(onHit) {
+    invStopScroll();
+    const node = $("inv-sentinel");
+    if (!node) return;
+    if (!window.IntersectionObserver) {
+      node.textContent = "Yana ko'rsatish";
+      node.onclick = onHit;
+      return;
+    }
+    S.invIO = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          invStopScroll();
+          onHit();
+        }
+      },
+      { rootMargin: "260px 0px" }
+    );
+    S.invIO.observe(node);
+  }
+
+  function invStopScroll() {
+    if (S.invIO) {
+      S.invIO.disconnect();
+      S.invIO = null;
+    }
+  }
+
+  /* ------------------------------------------------- ommaviy amallar */
+
+  /** Pastga yopishgan panel. Ilgari u ro'yxat TEPASIDA turardi va pastga
+   *  tushganda ko'rinmasdi — admin nima belgilaganini eslay olmasdi. */
+  function renderBulk() {
+    const box = $("inv-bulk");
+    if (!box) return;
+    const ids = Object.keys(S.selected);
+    if (!ids.length) {
+      box.innerHTML = "";
+      return;
+    }
+    const visible = invVisible();
+    const allPicked = visible.length && visible.every((p) => S.selected[p.id]);
+
+    box.innerHTML =
+      /* Panel `position: fixed` — shuning uchun oqimda joy egallamaydi va
+         oxirgi kartochkani yopib qo'yardi. Balandligiga teng bo'sh joy
+         qo'shamiz (yoyilgan holatda kattaroq). */
+      '<div class="inv-bulk-spacer" style="height:' +
+      (S.invBulkOpen ? 214 : 66) +
+      'px"></div>' +
+      '<div class="inv-bulk">' +
+      '<div class="inv-bulk-head">' +
+      "<b>" + ids.length + " ta belgilandi</b>" +
+      '<button class="inv-bulk-lnk" id="inv-bulk-all">' +
+      (allPicked ? "Bekor qilish" : "Hammasi") +
+      "</button>" +
+      '<button class="inv-bulk-lnk" id="inv-bulk-clear">Tozalash</button>' +
+      '<button class="inv-bulk-gear' + (S.invBulkOpen ? " on" : "") + '" id="inv-bulk-gear">⚙</button>' +
+      "</div>" +
+      (S.invBulkOpen
+        ? '<div class="inv-bulk-body">' +
+          '<div class="inv-bulk-row">' +
+          '<input type="text" inputmode="numeric" class="inv-input wide" id="inv-b-price" placeholder="Yangi narx">' +
+          '<button class="inv-btn" id="inv-b-setprice">💰 Qo\'yish</button>' +
+          "</div>" +
+          '<div class="inv-bulk-row">' +
+          '<input type="number" class="inv-input" id="inv-b-pct" placeholder="%">' +
+          '<button class="inv-btn ok" id="inv-b-plus">＋%</button>' +
+          '<button class="inv-btn warn" id="inv-b-minus">−%</button>' +
+          '<input type="number" class="inv-input" id="inv-b-stock" placeholder="Qoldiq">' +
+          '<button class="inv-btn" id="inv-b-setstock">📦</button>' +
+          "</div>" +
+          '<div class="inv-bulk-row">' +
+          '<button class="inv-btn ghost" id="inv-b-hide">🙈 Yashirish</button>' +
+          '<button class="inv-btn ghost" id="inv-b-show">👁 Ko\'rsatish</button>' +
+          '<button class="inv-btn danger" id="inv-b-del">🗑 O\'chirish</button>' +
+          "</div></div>"
+        : "") +
+      "</div>";
+
+    $("inv-bulk-gear").onclick = () => {
+      haptic();
+      S.invBulkOpen = !S.invBulkOpen;
+      renderBulk();
+    };
+    $("inv-bulk-clear").onclick = () => {
+      haptic();
+      S.selected = {};
+      paintInventory();
+    };
+    $("inv-bulk-all").onclick = () => {
+      haptic();
+      if (allPicked) S.selected = {};
+      else visible.forEach((p) => (S.selected[p.id] = true));
+      paintInventory();
+    };
+
+    if (!S.invBulkOpen) return;
+
+    bindMoney(["inv-b-price"]);
+    $("inv-b-setprice").onclick = async () => {
+      const np = parseNum($("inv-b-price").value);
+      if (!np) return toast("Yangi narx kiriting");
+      await bulkApply(() => ({ price: np }), null, "narx");
+    };
+    $("inv-b-plus").onclick = () => bulkPercent(1);
+    $("inv-b-minus").onclick = () => bulkPercent(-1);
+    $("inv-b-setstock").onclick = async () => {
+      const ns = parseNum($("inv-b-stock").value);
+      if (ns === null) return toast("Qoldiqni kiriting");
+      await bulkApply(() => ({ stock: Math.max(0, ns) }), null, "qoldiq");
+    };
+    $("inv-b-hide").onclick = () => bulkApply(() => ({ is_active: 0 }), null, "yashirildi");
+    $("inv-b-show").onclick = () => bulkApply(() => ({ is_active: 1 }), null, "ko'rsatildi");
+    $("inv-b-del").onclick = async () => {
+      const ids2 = Object.keys(S.selected);
+      if (!ids2.length) return;
+      const ok = await ask(ids2.length + " ta tovarni o'chirasizmi?");
+      if (!ok) return;
+      await bulkApply(null, true);
+    };
   }
 
   async function bulkPercent(sign) {
-    const pct = parseFloat($("shop-bulk-pct").value);
+    const pct = parseFloat($("inv-b-pct").value);
     if (!pct || pct <= 0) return toast("Foiz kiriting");
-    await bulkApply((it) => ({ price: Math.max(0, Math.round(it.price * (1 + (sign * pct) / 100))) }));
+    await bulkApply(
+      (it) => ({ price: Math.max(0, Math.round(it.price * (1 + (sign * pct) / 100))) }),
+      null,
+      "narx"
+    );
   }
 
-  /** mutate(it)->patch obyekti; del=true bo'lsa o'chiradi. */
-  async function bulkApply(mutate, del) {
+  /** mutate(it) -> patch obyekti; del=true bo'lsa o'chiradi.
+   *
+   *  Ilgari yozuvlar BIRIN-KETIN yuborilardi (`for` + `await`) — 30 ta
+   *  tovarda bu bir necha soniya kutish edi. Endi 6 talik guruhlarda
+   *  parallel ketadi (bulutni ham bo'g'maydi). */
+  async function bulkApply(mutate, del, word) {
     const ids = Object.keys(S.selected);
-    if (!ids.length) return;
-    if (S.busy) return;
+    if (!ids.length || S.busy) return;
     S.busy = true;
+
+    const CHUNK = 6;
+    let done = 0;
+    let failed = 0;
     try {
-      for (const id of ids) {
-        const it = S.items.find((x) => String(x.id) === String(id));
-        if (del) {
-          // Bulutda «o'chirilgan» belgisi (bot import qilmasin) — put null EMAS,
-          // chunki bot restore uchun _key kerak bo'lishi mumkin. deleted:true.
-          await fb().patch(P + "/" + id, { deleted: true, updatedAt: Date.now() });
-        } else if (mutate && it) {
-          const patch = mutate(it);
-          patch.updatedAt = Date.now();
-          await fb().patch(P + "/" + id, patch);
-        }
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const part = ids.slice(i, i + CHUNK);
+        await Promise.all(
+          part.map(async (id) => {
+            const it = itemOf(id);
+            try {
+              if (del) {
+                // Bulutda «o'chirilgan» belgisi (bot import qilmasin) —
+                // butunlay o'chirmaymiz, chunki bot restore uchun `_key`
+                // kerak bo'lishi mumkin.
+                await fb().patch(P + "/" + id, { deleted: true, updatedAt: Date.now() });
+              } else if (mutate && it) {
+                const patch = mutate(it);
+                patch.updatedAt = Date.now();
+                await fb().patch(P + "/" + id, patch);
+                // Mahalliy nusxani ham yangilaymiz — qayta o'qimasdan.
+                Object.keys(patch).forEach((k) => {
+                  if (k === "updatedAt") return;
+                  if (k === "is_active") it.is_active = patch[k] === 1;
+                  else it[k] = patch[k];
+                });
+                if (patch.stock !== undefined) it._saved = it.stock;
+              }
+              done++;
+            } catch (_) {
+              failed++;
+            }
+          })
+        );
       }
-      haptic("success");
-      toast(del ? ids.length + " ta o'chirildi" : ids.length + " ta yangilandi");
+
+      haptic(failed ? "warning" : "success");
+      if (del) {
+        S.items = S.items.filter((x) => !S.selected[x.id]);
+        toast(done + " ta o'chirildi" + (failed ? " · " + failed + " tasi saqlanmadi" : ""));
+      } else {
+        toast(
+          done + " ta tovar " + (word || "yangilandi") +
+            (failed ? " · " + failed + " tasi saqlanmadi" : "")
+        );
+      }
       freshenShop();
       S.selected = {};
-      openInventory();
+      S.invBulkOpen = false;
+      renderInventory();
     } catch (err) {
       toast((err && err.message) || "Xatolik");
     } finally {
