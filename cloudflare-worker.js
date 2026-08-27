@@ -125,6 +125,8 @@ export default {
       if (path === "/me") return handleMe(request, env);
       if (path === "/profile") return handleProfile(request, env);
       if (path === "/order") return handleOrder(request, env);
+      // Story'ga javob: adminga QAYSI story'dan kelganini bildirib yuboradi
+      if (path === "/story-reply") return handleStoryReply(request, env);
 
       // ---- Admin: Render'siz katalog boshqaruvi. Har biri imzoni tekshirib,
       // uid ni ADMIN_IDS bilan solishtiradi (`requireAdmin`).
@@ -1063,6 +1065,100 @@ async function notifyAdmins(env, c, text) {
   if (!env.BOT_TOKEN || !c.admins.length) return false;
   await Promise.all(c.admins.map((id) => sendMessage(env, id, text).catch(() => {})));
   return true;
+}
+
+// =====================================================================
+//  STORY'GA JAVOB (Instagram'dagi "Reply to story" kabi)
+//
+//  NEGA WORKER ORQALI
+//  Mijozning kim ekanini FAQAT server tomonda ishonchli aniqlash mumkin:
+//  `initData` imzosi bot tokeni bilan tekshiriladi va token faqat shu
+//  yerda turadi. Brauzer o'zini boshqa odam deb ko'rsata olmaydi.
+//
+//  Xabar IKKI joyga boradi:
+//    1. Adminning Telegram'iga — qaysi bo'lim va qaysi story ekani bilan.
+//       Ilgari mijoz `t.me/admin` ga o'tib qo'lda yozardi va admin
+//       "qaysi story haqida gapiryapti?" deb tushunmasdi.
+//    2. `story_replies` tuguniga — admin panelida story bo'yicha
+//       guruhlangan holda ko'rinadi va yo'qolmaydi.
+// =====================================================================
+async function handleStoryReply(request, env) {
+  const c = cfg(env);
+  const body = await readJson(request);
+  const verified = await verifyInitData(body.initData, env);
+  if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+
+  const user = verified.user;
+  const uid = String(user.id);
+
+  const text = clean(body.text, 900);
+  if (text.length < 1) return json({ ok: false, error: "Xabar bo'sh" }, 400);
+
+  const storyId = clean(body.story_id, 40);
+  if (!storyId) return json({ ok: false, error: "story_id yo'q" }, 400);
+  const ringTitle = clean(body.ring_title, 80);
+  const ringKey = clean(body.ring_key, 40);
+  const heading = clean(body.heading, 160);
+
+  const name = clean(
+    [user.first_name, user.last_name].filter(Boolean).join(" ") || "Mijoz",
+    80
+  );
+  const username = clean(user.username, 40);
+
+  // ---- 1) Tugunga yozamiz (admin paneli shu yerdan o'qiydi)
+  let saved = false;
+  if (c.dbUrl) {
+    try {
+      const token = await accessToken(env);
+      const res = await fetch(rtdbUrl(c.dbUrl, "story_replies"), {
+        method: "POST", // push — kalitni Firebase o'zi beradi
+        headers: authHeaders(token, { "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          storyId: storyId,
+          ringKey: ringKey,
+          ringTitle: ringTitle,
+          heading: heading,
+          uid: uid,
+          name: name,
+          username: username,
+          text: text,
+          createdAt: Date.now(),
+          imported: false,
+        }),
+      });
+      saved = res.ok;
+    } catch (_) {
+      saved = false;
+    }
+  }
+
+  // ---- 2) Adminga Telegram xabari
+  const who = username
+    ? `<a href="https://t.me/${escHtml(username)}">${escHtml(name)}</a>`
+    : `<a href="tg://user?id=${uid}">${escHtml(name)}</a>`;
+
+  const where = ringTitle
+    ? `📖 Bo'lim: <b>${escHtml(ringTitle)}</b>\n`
+    : "";
+  const what = heading ? `🏷 Story: <b>${escHtml(heading)}</b>\n` : "";
+
+  const adminText =
+    "💬 <b>Story'ga javob</b>\n\n" +
+    where +
+    what +
+    `🆔 Story ID: <code>${escHtml(storyId)}</code>\n` +
+    `👤 ${who}\n\n` +
+    `<blockquote>${escHtml(text)}</blockquote>`;
+
+  const notified = await notifyAdmins(env, c, adminText);
+
+  /* Hech qayerga yetib bormasa — mijozga ROSTINI aytamiz. Aks holda u
+     "yubordim" deb o'ylab kutib o'tiradi. */
+  if (!saved && !notified) {
+    return json({ ok: false, error: "Xabar yuborilmadi — keyinroq urinib ko'ring" }, 502);
+  }
+  return json({ ok: true, saved: saved, notified: notified });
 }
 
 /** Qisqa, barqaror hash — idempotent kalitlar uchun. */

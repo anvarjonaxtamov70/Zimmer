@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=52">
+  <link rel="stylesheet" href="styles.css?v=53">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -357,22 +357,53 @@
 </nav>
 
 <!-- ==================== STORY KO'RUVCHI ==================== -->
+<!-- ==========================================================================
+     STORIES KO'RUVCHISI (Instagram mantiqi)
+
+     Tuzilishi tepadan pastga:
+       * bo'limlar chizig'i (progress) — har element uchun bitta segment;
+       * sarlavha: avatar + bo'lim nomi + "qancha vaqt oldin" + tugmalar;
+       * media (rasm/video) butun ekranni to'ldiradi;
+       * chap/o'ng bosish zonalari (oldinga/orqaga), bosib turish — pauza;
+       * pastda: tez reaksiyalar va "Xabar yozing" maydoni. Javob adminga
+         QAYSI story'dan kelganini bildirib boradi.
+     ========================================================================== -->
 <div class="story-view hidden" id="story-view">
   <div class="story-bars" id="story-bars"></div>
-  <!-- qaysi bo'limda turganini bildiradi: 🏆 Natijalar · 2/5 -->
-  <div class="story-cat hidden" id="story-cat"></div>
-  <!-- tepadagi tugmalar: ovoz (video uchun), yuklab olish, yopish -->
-  <div class="story-actions">
+
+  <header class="story-head" id="story-head">
+    <span class="story-ava" id="story-ava"></span>
+    <span class="story-who">
+      <b id="story-who-name">Zimmer</b>
+      <i id="story-who-time"></i>
+    </span>
     <button class="story-ico hidden" id="story-sound" aria-label="Ovoz">🔇</button>
     <button class="story-ico" id="story-save" aria-label="Yuklab olish">⬇</button>
     <!-- faqat adminlarga ko'rinadi -->
     <button class="story-ico danger hidden" id="story-del" aria-label="O'chirish">🗑</button>
     <button class="story-ico" id="story-close" aria-label="Yopish">✕</button>
-  </div>
+  </header>
+
   <div class="story-inner" id="story-inner"></div>
+
   <div class="story-tap left" id="story-prev"></div>
   <div class="story-tap right" id="story-next"></div>
   <div class="story-pause" id="story-pause">⏸</div>
+  <!-- ikki marta bosilganda uchib chiqadigan yurak -->
+  <div class="story-heart" id="story-heart">❤️</div>
+
+  <!-- Story'ga bog'langan havola (tovarga o'tish) -->
+  <button class="story-cta hidden" id="story-cta"><i>↗</i><span id="story-cta-tx"></span></button>
+
+  <div class="story-foot" id="story-foot">
+    <!-- Adminlar uchun: nechta kishi ko'rgani va reaksiyalar -->
+    <div class="story-stats hidden" id="story-stats"></div>
+    <div class="story-reacts" id="story-reacts"></div>
+    <form class="story-reply" id="story-reply" autocomplete="off">
+      <input type="text" id="story-reply-in" maxlength="900" placeholder="Xabar yozing...">
+      <button type="submit" class="story-send" id="story-send" aria-label="Yuborish">➤</button>
+    </form>
+  </div>
 </div>
 
 <!-- sheet: navbat olish -->
@@ -499,26 +530,28 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=52"></script>
+<script src="config.js?v=53"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=52"></script>
+<script src="js/fb.js?v=53"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=52"></script>
-<script src="js/offline.js?v=52"></script>
-<script src="js/headlight.js?v=52"></script>
-<script src="js/cars.js?v=52"></script>
+<script src="js/upload.js?v=53"></script>
+<script src="js/offline.js?v=53"></script>
+<script src="js/headlight.js?v=53"></script>
+<script src="js/cars.js?v=53"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=52"></script>
+<script src="js/bts.js?v=53"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=52"></script>
+<script src="js/admin.js?v=53"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=52"></script>
+<script src="js/admin-shop.js?v=53"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=52"></script>
-<script src="js/app.js?v=52"></script>
+<script src="js/admin-crm.js?v=53"></script>
+<!-- Stories boshqaruvi: qo'shish, ko'rishlar, reaksiyalar, mijoz javoblari -->
+<script src="js/admin-stories.js?v=53"></script>
+<script src="js/app.js?v=53"></script>
 </body>
 </html>

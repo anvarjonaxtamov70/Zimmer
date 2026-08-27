@@ -552,6 +552,11 @@ async def api_home(request: web.Request) -> web.Response:
                             "emoji": s["emoji"] or ring["info"]["emoji"],
                             "color_from": s["color_from"] or ring["info"]["color_from"],
                             "color_to": s["color_to"] or ring["info"]["color_to"],
+                            # Story ko'ruvchisi uchun CTA havolasi.
+                            # `in s.keys()` — migratsiya hali o'tmagan
+                            # bazada ustun yo'q bo'lsa yiqilmasligi uchun.
+                            "link": (s["link"] if "link" in s.keys() else "") or "",
+                            "title": s["title"],
                             **media_fields("stories", s),
                         }
                         for s in ring["items"]

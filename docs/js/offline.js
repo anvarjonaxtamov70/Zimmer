@@ -444,6 +444,13 @@
             video_url: photo(r.video_url, r.video_id),
             video_external: true,
             has_media: !!pic,
+            /* Story ko'ruvchisi uchun: "qancha vaqt oldin" yozuvi va
+               tovarga o'tish havolasi. Ilgari bu maydonlar tashlanib
+               ketardi va sarlavhada vaqt ko'rsatib bo'lmasdi. */
+            title: r.title || "",
+            link: r.link || "",
+            createdAt: Number(r.createdAt) || 0,
+            updatedAt: Number(r.updatedAt) || 0,
           };
         });
 
@@ -1089,6 +1096,18 @@
     return body;
   }
 
+  /** Story'ga javob yuboradi (Instagram'dagi "Reply to story" kabi).
+   *
+   *  Worker imzoni tekshirib, adminning Telegram'iga QAYSI bo'lim va
+   *  QAYSI story ekanini yozib yuboradi, hamda `story_replies` tuguniga
+   *  saqlaydi (admin paneli shu yerdan o'qiydi).
+   *
+   *  Brauzerdan to'g'ridan yuborib bo'lmaydi: bot tokeni Worker'da va
+   *  mijozning kim ekani faqat server tomonda ishonchli aniqlanadi. */
+  function storyReply(payload) {
+    return callWorker("/story-reply", payload);
+  }
+
   /** Mijoz profili + buyurtma tarixi (`/api/me` va `/api/orders` zaxirasi). */
   function me() {
     return callWorker("/me", {});
@@ -1297,6 +1316,14 @@
     me: me,
     saveProfile: saveProfile,
     createOrder: createOrder,
+    storyReply: storyReply,
+    /** Stories bo'limlari (admin paneli shu ro'yxatdan tanlaydi).
+     *  `utils/stories.py: STORY_CATEGORIES` bilan bir xil bo'lishi SHART. */
+    storyRings: function () {
+      return STORY_RINGS.map(function (d) {
+        return { key: d[0], title: d[1], emoji: d[2], color_from: d[3], color_to: d[4] };
+      });
+    },
     // Worker — admin
     adminCatalog: adminCatalog,
     adminAddProduct: adminAddProduct,

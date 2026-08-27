@@ -276,6 +276,15 @@ window.ZimmerShop = (function () {
       '<div class="shop-hero shop-hero-2">' +
       tile("shop-cust", "shop-hero-cust", "👥", "Mijozlar", "Foydalanuvchilar bazasi") +
       tile("shop-stats", "shop-hero-stats", "📊", "Statistika", "Savdo va hisobot") +
+      "</div>" +
+      /* --- stories
+         Ilgari story qo'shishning YAKKA yo'li Telegram boti edi
+         (rasmni `#bugun matn` izohi bilan yuborish). Panelda stories
+         bo'limi umuman yo'q edi va kim ko'rgani ham ko'rinmasdi. */
+      '<div class="apx-sub">Stories</div>' +
+      '<div class="shop-hero shop-hero-2">' +
+      tile("shop-story", "shop-hero-story", "📸", "Stories", "Qo'shish va statistika") +
+      tile("shop-story-add", "shop-hero-add", "＋", "Tez story", "Rasm + sarlavha") +
       "</div>";
 
     const bind = (id, fn) => {
@@ -303,6 +312,17 @@ window.ZimmerShop = (function () {
     };
     bind("shop-cust", goCrm("openCustomers"));
     bind("shop-stats", goCrm("openStats"));
+
+    /* Stories alohida modulda (admin-stories.js) — CRM bilan bir xil
+       tartibda: ochilganda ZimmerShop o'z ko'rinishini bo'shatadi. */
+    const goStory = (fn) => () => {
+      const m = stories();
+      if (!m) return toast("Bo'lim yuklanmadi — ilovani yangilang");
+      S.view = null;
+      m[fn]();
+    };
+    bind("shop-story", goStory("open"));
+    bind("shop-story-add", goStory("openAdd"));
 
     // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
     refreshBadges();
@@ -2659,15 +2679,28 @@ window.ZimmerShop = (function () {
      TASHQI INTERFEYS (app.js va admin.js ko'prigi)
      ================================================================== */
   const crm = () => window.ZimmerCRM;
+  const stories = () => window.ZimmerStories;
 
   function isActive() {
-    return S.view !== null || (crm() && crm().isActive());
+    return (
+      S.view !== null ||
+      (crm() && crm().isActive()) ||
+      (stories() && stories().isActive())
+    );
   }
   function close() {
     S.view = null;
     if (crm()) crm().close();
+    if (stories()) stories().close();
   }
   function back() {
+    // Stories oynasi ochiq bo'lsa — avval uning ichki qadami
+    if (stories() && stories().isActive()) {
+      if (stories().back()) return true;
+      stories().close();
+      renderMenu();
+      return true;
+    }
     /* Mijozlar/statistika oynasi ochiq bo'lsa — avval CRM o'zining ichki
        qadamini qaytaradi (mijoz tafsiloti -> ro'yxat). Ro'yxatning o'zida
        turgan bo'lsa `false` qaytaradi va biz menyuga chiqamiz. */
@@ -2685,6 +2718,7 @@ window.ZimmerShop = (function () {
     return false;
   }
   function reload() {
+    if (stories() && stories().isActive()) return stories().reload();
     if (crm() && crm().isActive()) return crm().reload();
     if (S.view === "inventory") return openInventory();
     // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim

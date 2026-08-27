@@ -131,9 +131,10 @@ window.ZimmerFB = (function () {
      o'zgartirgan bo'lsa Firebase 412 qaytaradi va qaytadan urinamiz.
      Shu sababli ikki admin bir vaqtda tovar qo'shsa ham id'lar har xil.
      -------------------------------------------------------------------- */
-  async function nextProductId() {
+  async function nextId(counter) {
+    var node = counter + "/n";
     for (var attempt = 0; attempt < 6; attempt++) {
-      var cur = await request("GET", "products_counter/n", undefined, {
+      var cur = await request("GET", node, undefined, {
         "X-Firebase-ETag": "true",
       });
 
@@ -142,7 +143,7 @@ window.ZimmerFB = (function () {
       var next = value + 1;
 
       try {
-        await request("PUT", "products_counter/n", next, {
+        await request("PUT", node, next, {
           "if-match": cur.etag || "null_etag",
         });
         return next;
@@ -156,6 +157,18 @@ window.ZimmerFB = (function () {
     return ID_BASE + (Date.now() % 1000000);
   }
 
+  /** Tovar uchun id (`products_counter`). */
+  function nextProductId() {
+    return nextId("products_counter");
+  }
+
+  /** Story uchun id (`stories_counter`).
+   *  ALOHIDA sanoqchi: tovar va story id'lari bir-biriga aralashmasligi
+   *  kerak — ikkisi ham SQLite'ga ko'chiriladi va o'z jadvalida yashaydi. */
+  function nextStoryId() {
+    return nextId("stories_counter");
+  }
+
   return {
     available: available,
     get: get,
@@ -166,6 +179,7 @@ window.ZimmerFB = (function () {
     serverTime: serverTime,
     increment: increment,
     nextProductId: nextProductId,
+    nextStoryId: nextStoryId,
     ID_BASE: ID_BASE,
     _url: url,
   };
