@@ -3268,6 +3268,10 @@
     fmt: fmt,
     ask: ask,
     show: show,
+    // Admin tovar qo'shgandan keyin katalogni QAYTA o'qish uchun kerak.
+    // `show("home")` o'zi yuklamaydi — nav tugmasi `loadHome()` ni alohida
+    // chaqiradi, shuning uchun ko'prikda ham ochiq bo'lishi kerak.
+    loadHome: loadHome,
     abs: abs,
     apiBase: () => API,
     state: S,
