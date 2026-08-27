@@ -810,44 +810,155 @@ async function handleAdminEdit(request, env) {
 // ---------------------------------------------------------------------
 //  POST /admin/orders — zaxira rejimda tushgan buyurtmalar
 // ---------------------------------------------------------------------
+/** RTDB tuguni dict yoki massiv — ikkisini ham [kalit, qiymat] ga keltiradi. */
+function entriesOf(node) {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node)) {
+    return node.map((v, i) => [String(i), v]).filter((pair) => pair[1] && typeof pair[1] === "object");
+  }
+  return Object.entries(node).filter((pair) => pair[1] && typeof pair[1] === "object");
+}
+
+/** `items` ro'yxat yoki lug'at bo'lishi mumkin (RTDB siyrak massivni lug'at qiladi). */
+function itemsOf(raw) {
+  return entriesOf(raw)
+    .map((pair) => pair[1])
+    .map((i) => ({
+      product_id: i.product_id != null ? i.product_id : null,
+      name: String(i.name || ""),
+      price: Number(i.price || 0),
+      qty: Number(i.qty || 1),
+    }))
+    .filter((i) => i.name || i.product_id != null);
+}
+
+/** Holat nomlarini YAGONA lug'atga keltiradi (pastdagi izohga qarang). */
+function normStatus(value) {
+  const s = String(value || "new").toLowerCase();
+  if (s === "done" || s === "delivered") return "delivered";
+  if (s === "shipped" || s === "delivering") return "delivering";
+  if (s === "new" || s === "accepted" || s === "cancelled") return s;
+  return "new";
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/orders — BARCHA do'kon buyurtmalari
+//
+//  NEGA IKKI TUGUN O'QILADI
+//  Buyurtmalar tarixan ikki joyda saqlanadi:
+//
+//    zimmer/pending_orders/{uid}_{kod}  — Worker qabul qilganlari
+//                                          (Render o'chgan paytda), brauzer
+//                                          o'qishi mumkin;
+//    zimmer/orders/{sqlite_id}          — Render (SQLite) buyurtmalarining
+//                                          nusxasi, `sync.push_order` yozadi.
+//                                          Qoidalarda `.read: false` —
+//                                          brauzer O'QIY OLMAYDI.
+//
+//  Mini app admin paneli faqat birinchisini o'qirdi. Natijada mijozning
+//  profilida buyurtmalar turadi (ular SQLite'dan), admin panelida esa
+//  «Hali buyurtma tushmagan» yozuvi chiqadi. Aynan shu holat.
+//
+//  Yechim: ikkisini SHU YERDA birlashtiramiz. Worker service-account bilan
+//  ishlaydi, ya'ni yopiq tugunni ham o'qiydi — va faqat TASDIQLANGAN admin
+//  (`requireAdmin`: initData imzosi -> uid -> ADMIN_IDS) javob oladi.
+//  Shu sababli `zimmer/orders` ni qoidalarda OCHISH KERAK EMAS: mijoz
+//  telefon raqamlari yopiq qoladi.
+// ---------------------------------------------------------------------
+/** Ikki tugunni bitta ro'yxatga birlashtiradi (TOZA funksiya — sinovga qulay).
+ *
+ *  `pending_orders` maydonlari snake_case (Worker yozadi),
+ *  `orders` maydonlari camelCase (`services/sync.py: _put_order` yozadi).
+ *  Shu sababli har maydon ikki nom bilan o'qiladi. */
+function mergeAdminOrders(pendingNode, dbNode) {
+  const orders = [];
+
+  // 1) SQLite nusxasi (`orders`) — bot yozadi.
+  const dbIds = new Set();
+  for (const [key, row] of entriesOf(dbNode)) {
+    const id = row.id != null ? row.id : key;
+    dbIds.add(String(id));
+    const total = Number(row.total || 0);
+    orders.push({
+      key: String(key),
+      source: "db", // holat o'zgarishi `orders/{id}` ga yoziladi
+      id: id,
+      code: "#" + id,
+      uid: row.uid || null,
+      name: row.name || row.customer_name || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      delivery_info: row.deliveryInfo || row.delivery_info || "",
+      payment_method: row.paymentMethod || row.payment_method || "",
+      total: total,
+      total_label: fmtPrice(total),
+      status: normStatus(row.status),
+      items: itemsOf(row.items),
+      created_at: Number(row.createdAt || 0) || null,
+      imported: true,
+    });
+  }
+
+  // 2) Worker qabul qilganlari (`pending_orders`).
+  //    Bot ularni SQLite'ga ko'chirgan bo'lsa (`imported` + `sqlite_id`),
+  //    yuqoridagi ro'yxatda allaqachon bor — TAKRORLAMAYMIZ.
+  for (const [key, row] of entriesOf(pendingNode)) {
+    if (row.imported && row.sqlite_id && dbIds.has(String(row.sqlite_id))) continue;
+    const total = Number(row.total || 0);
+    orders.push({
+      key: String(key),
+      source: "pending", // holat `pending_orders/{key}` ga yoziladi
+      id: row.sqlite_id || null,
+      code: row.code || key,
+      uid: row.uid || null,
+      name: row.customer_name || row.name || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      delivery_info: row.delivery_info || row.deliveryInfo || "",
+      payment_method: row.payment_method || row.paymentMethod || "",
+      total: total,
+      total_label: fmtPrice(total),
+      status: normStatus(row.status),
+      items: itemsOf(row.items),
+      created_at: Number(row.createdAt || 0) || null,
+      imported: !!row.imported,
+    });
+  }
+
+  // Yangi buyurtma TEPADA turishi kerak.
+  orders.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+  return orders;
+}
+
 async function handleAdminOrders(request, env) {
   const gate = await requireAdmin(request, env);
   if (gate.error) return gate.error;
   const { c } = gate;
 
   const token = await accessToken(env);
-  const node = await rtdbGet(c.dbUrl, `${c.root}/pending_orders`, token);
+  const [pendingNode, dbNode] = await Promise.all([
+    rtdbGet(c.dbUrl, `${c.root}/pending_orders`, token),
+    rtdbGet(c.dbUrl, `${c.root}/orders`, token),
+  ]);
 
-  const orders = [];
-  if (node && typeof node === "object") {
-    for (const [key, row] of Object.entries(node)) {
-      if (!row || typeof row !== "object") continue;
-      orders.push({
-        key,
-        code: row.code || key,
-        uid: row.uid || null,
-        name: row.customer_name || row.name || "",
-        phone: row.phone || "",
-        address: row.address || "",
-        total: Number(row.total || 0),
-        total_label: fmtPrice(Number(row.total || 0)),
-        status: row.status || "new",
-        items: Array.isArray(row.items) ? row.items : [],
-        created_at: row.createdAt || null,
-        imported: !!row.imported,
-      });
-    }
-    // Yangi buyurtma TEPADA turishi kerak.
-    orders.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
-  }
-
+  const orders = mergeAdminOrders(pendingNode, dbNode);
   return json({ ok: true, orders, count: orders.length });
 }
 
 // ---------------------------------------------------------------------
 //  POST /admin/order-status — buyurtma holatini o'zgartirish
 // ---------------------------------------------------------------------
-const ORDER_STATUSES = ["new", "accepted", "delivering", "done", "cancelled"];
+/* YAGONA HOLAT LUG'ATI.
+   Ilgari uch xil nom ishlatilardi va bir xil narsani bildirardi:
+       SQLite / Render  : new, accepted, delivered, cancelled
+       Worker + panel   : new, accepted, delivering, done, cancelled
+       mijoz profili    : new, accepted, shipped,    done, cancelled
+   Ya'ni «yetkazildi» uchun `delivered`, `done` — ikki xil so'z. Natijada
+   panelda qo'yilgan holat SQLite uchun NOTANISH bo'lib qolardi va Render
+   admin paneli o'sha buyurtmada tiqilib qolardi.
+   Endi hamma joyda BIR XIL beshta nom. `normStatus()` eski nomlarni
+   yangisiga o'giradi (orqaga moslik). */
+const ORDER_STATUSES = ["new", "accepted", "delivering", "delivered", "cancelled"];
 
 async function handleAdminOrderStatus(request, env) {
   const gate = await requireAdmin(request, env);
@@ -858,16 +969,17 @@ async function handleAdminOrderStatus(request, env) {
   if (!key || !/^[A-Za-z0-9_-]+$/.test(key)) {
     return json({ ok: false, error: "Buyurtma kaliti noto'g'ri" }, 400);
   }
-  const status = clean(body.status, 20);
+  const status = normStatus(clean(body.status, 20));
   if (!ORDER_STATUSES.includes(status)) {
-    return json(
-      { ok: false, error: "Holat noto'g'ri", allowed: ORDER_STATUSES },
-      400
-    );
+    return json({ ok: false, error: "Holat noto'g'ri", allowed: ORDER_STATUSES }, 400);
   }
+  // Buyurtma qaysi tugunda? `db` — SQLite nusxasi (`orders`), aks holda
+  // Worker qabul qilgani (`pending_orders`).
+  const source = clean(body.source, 12) === "db" ? "db" : "pending";
 
   const token = await accessToken(env);
-  const path = `${c.root}/pending_orders/${key}`;
+  const path =
+    source === "db" ? `${c.root}/orders/${key}` : `${c.root}/pending_orders/${key}`;
   const row = await rtdbGet(c.dbUrl, path, token);
   if (!row || typeof row !== "object") {
     return json({ ok: false, error: "Bunday buyurtma yo'q" }, 404);
@@ -887,16 +999,15 @@ async function handleAdminOrderStatus(request, env) {
   const TEXT = {
     accepted: "✅ Buyurtmangiz qabul qilindi",
     delivering: "🚚 Buyurtmangiz yo'lda",
-    done: "🎉 Buyurtmangiz yetkazildi",
+    delivered: "🎉 Buyurtmangiz yetkazildi",
     cancelled: "❌ Buyurtmangiz bekor qilindi",
   };
+  const label = row.code ? String(row.code) : "#" + key;
   if (TEXT[status] && row.uid) {
-    await sendMessage(env, row.uid, `${TEXT[status]}\n\n🧾 ${escHtml(row.code || key)}`).catch(
-      () => {}
-    );
+    await sendMessage(env, row.uid, `${TEXT[status]}\n\n🧾 ${escHtml(label)}`).catch(() => {});
   }
 
-  return json({ ok: true, key, status });
+  return json({ ok: true, key, status, source });
 }
 
 /** Barcha adminlarga bir xil xabar. */

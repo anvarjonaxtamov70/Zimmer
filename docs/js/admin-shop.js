@@ -216,19 +216,49 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
-     BUYURTMALAR (pending_orders — brauzerdan to'g'ridan)
+     BUYURTMALAR
+
+     ================ NEGA «HALI BUYURTMA TUSHMAGAN» DEYARDI ================
+     Panel faqat `pending_orders` ni o'qirdi — u Cloudflare Worker qabul
+     qilgan (Render o'chgan paytdagi) buyurtmalar tuguni.
+
+     Render tirik bo'lganda buyurtma esa SQLite'ga tushadi va uning nusxasi
+     `zimmer/orders` da turadi. O'sha tugun `database.rules.json` da
+     `.read: false` — brauzer uni O'QIY OLMAYDI. Natijada mijozning
+     kabinetida buyurtmalar turadi, admin panelida esa bo'sh ekran.
+
+     Endi buyurtmalar Worker orqali olinadi: u service-account bilan
+     IKKALA tugunni o'qiydi, birlashtiradi va faqat TASDIQLANGAN adminga
+     beradi (`requireAdmin`: initData imzosi -> uid -> ADMIN_IDS). Shu
+     sababli `zimmer/orders` ni qoidalarda ochish KERAK EMAS — mijoz
+     telefon raqamlari yopiq qoladi.
+
+     Worker sozlanmagan bo'lsa — eskicha, to'g'ridan `pending_orders`.
      ================================================================== */
-  const STATUS_TEXT = {
-    new: "yangi",
-    accepted: "qabul qilindi",
-    delivering: "yo'lda",
-    done: "yetkazildi",
-    cancelled: "bekor",
+
+  /* YAGONA HOLAT LUG'ATI (cloudflare-worker.js va app.js bilan bir xil).
+     Ilgari «yetkazildi» uchun bu yerda `done`, SQLite'da esa `delivered`
+     ishlatilardi — ya'ni panelda qo'yilgan holat SQLite uchun NOTANISH
+     bo'lib qolardi va Render admin paneli o'sha buyurtmada tiqilardi. */
+  const ORD = {
+    new: { label: "Yangi", icon: "🆕" },
+    accepted: { label: "Qabul qilindi", icon: "✅" },
+    delivering: { label: "Yo'lda", icon: "🚚" },
+    delivered: { label: "Yetkazildi", icon: "🎉" },
+    cancelled: { label: "Bekor qilingan", icon: "✕" },
   };
+
+  function normStatus(v) {
+    const s = String(v || "new").toLowerCase();
+    if (s === "done" || s === "delivered") return "delivered";
+    if (s === "shipped" || s === "delivering") return "delivering";
+    return ORD[s] ? s : "new";
+  }
+
   const NEXT_STEPS = {
-    new: [["accepted", "Qabul qilish"], ["cancelled", "Bekor qilish"]],
-    accepted: [["delivering", "Yo'lga chiqdi"], ["cancelled", "Bekor qilish"]],
-    delivering: [["done", "Yetkazildi"]],
+    new: [["accepted", "✅ Qabul qilish"], ["cancelled", "✕ Bekor qilish"]],
+    accepted: [["delivering", "🚚 Yo'lga chiqdi"], ["cancelled", "✕ Bekor qilish"]],
+    delivering: [["delivered", "🎉 Yetkazildi"]],
   };
 
   async function openOrders() {
@@ -236,33 +266,78 @@ window.ZimmerShop = (function () {
     setHead("Buyurtmalar", "Mijoz buyurtmalari");
     loading("Buyurtmalar o'qilmoqda...");
     try {
-      const node = await fb().get("pending_orders");
-      S.orders = [];
-      if (node && typeof node === "object") {
-        Object.keys(node).forEach((key) => {
-          const r = node[key];
-          if (!r || typeof r !== "object") return;
-          const total = Number(r.total) || 0;
-          S.orders.push({
-            key: key,
-            code: r.code || key,
-            uid: r.uid || null,
-            name: r.customer_name || r.name || "",
-            phone: r.phone || "",
-            address: r.address || "",
-            total: total,
-            total_label: money(total),
-            status: r.status || "new",
-            items: Array.isArray(r.items) ? r.items : [],
-            created_at: r.createdAt || null,
-          });
-        });
-        S.orders.sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
-      }
+      S.orders = await loadOrders();
       renderOrders();
     } catch (err) {
       fail(err, openOrders);
     }
+  }
+
+  async function loadOrders() {
+    const off = window.ZimmerOffline;
+
+    // 1-yo'l: Worker — `pending_orders` + `orders` birlashtirilgan.
+    if (off && off.workerReady && off.workerReady() && off.adminOrders) {
+      try {
+        const res = await off.adminOrders();
+        return (res.orders || []).map((o) => ({
+          key: o.key,
+          source: o.source || "pending",
+          code: o.code || (o.id != null ? "#" + o.id : o.key),
+          uid: o.uid || null,
+          name: o.name || "",
+          phone: o.phone || "",
+          address: o.address || "",
+          delivery_info: o.delivery_info || "",
+          payment_method: o.payment_method || "",
+          total: Number(o.total) || 0,
+          total_label: o.total_label || money(o.total || 0),
+          status: normStatus(o.status),
+          items: o.items || [],
+          created_at: Number(o.created_at) || 0,
+        }));
+      } catch (err) {
+        // Worker javob bermadi — pastdagi zaxira yo'ldan o'qiymiz.
+        console.warn("[shop] Worker buyurtmalarni bermadi:", err);
+        // `forbidden` — Worker'da ADMIN_IDS sozlanmagan. Buni AYTAMIZ,
+        // aks holda admin «eski buyurtmalarim qayerda?» deb o'ylaydi.
+        if (err && (err.code === "forbidden" || /admin/i.test(err.message || ""))) {
+          toast("⚠️ Worker'da ADMIN_IDS sozlanmagan — faqat yangi buyurtmalar ko'rinadi", 6000);
+        }
+      }
+    }
+
+    // 2-yo'l: to'g'ridan `pending_orders` (Worker sozlanmagan holat)
+    const node = await fb().get("pending_orders");
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((key) => {
+        const r = node[key];
+        if (!r || typeof r !== "object") return;
+        const total = Number(r.total) || 0;
+        out.push({
+          key: key,
+          source: "pending",
+          code: r.code || key,
+          uid: r.uid || null,
+          name: r.customer_name || r.name || "",
+          phone: r.phone || "",
+          address: r.address || "",
+          delivery_info: r.delivery_info || "",
+          payment_method: r.payment_method || "",
+          total: total,
+          total_label: money(total),
+          status: normStatus(r.status),
+          // `items` LUG'AT ham bo'lishi mumkin (RTDB siyrak massivni lug'at
+          // qilib saqlaydi) — ilgari `Array.isArray()` tekshiruvi tovarlarni
+          // jimgina yo'q qilardi va admin nima sotilganini ko'rmasdi.
+          items: off && off.itemRows ? off.itemRows(r.items) : Array.isArray(r.items) ? r.items : [],
+          created_at: Number(r.createdAt) || 0,
+        });
+      });
+    }
+    out.sort((a, b) => b.created_at - a.created_at);
+    return out;
   }
 
   function renderOrders() {
@@ -272,23 +347,88 @@ window.ZimmerShop = (function () {
         "buyurtma berganda shu yerda ko'rinadi.</div>";
       return;
     }
-    body().innerHTML = S.orders.map(orderCard).join("");
+
+    // Tepada qisqa xulosa — nechta yangi buyurtma kutib turibdi.
+    const fresh = S.orders.filter((o) => o.status === "new").length;
+    const active = S.orders.filter((o) => o.status === "accepted" || o.status === "delivering").length;
+
+    body().innerHTML =
+      '<div class="ord-summary">' +
+      '<div class="ord-stat is-new"><b>' + fresh + "</b><span>Yangi</span></div>" +
+      '<div class="ord-stat is-run"><b>' + active + "</b><span>Jarayonda</span></div>" +
+      '<div class="ord-stat"><b>' + S.orders.length + "</b><span>Jami</span></div>" +
+      "</div>" +
+      S.orders.map(orderCard).join("");
+
     S.orders.forEach((o) => {
       (NEXT_STEPS[o.status] || []).forEach(([status]) => {
         const btn = $("shop-o-" + o.key + "-" + status);
         if (btn) btn.onclick = () => setOrderStatus(o, status);
       });
+      const tel = $("shop-tel-" + o.key);
+      if (tel && o.phone) tel.onclick = () => callPhone(o.phone);
     });
   }
 
+  /** Telefon raqamini ochadi. */
+  function callPhone(phone) {
+    haptic();
+    try {
+      window.open("tel:" + String(phone).replace(/\s/g, ""), "_blank");
+    } catch (_) {}
+  }
+
+  /** «Bugun 14:38» yoki «26.08 14:38». */
+  function timeLabel(ms) {
+    if (!ms) return "";
+    const d = new Date(Number(ms));
+    if (isNaN(d.getTime())) return "";
+    const two = (n) => (n < 10 ? "0" + n : String(n));
+    const now = new Date();
+    const sameDay =
+      d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear();
+    const time = two(d.getHours()) + ":" + two(d.getMinutes());
+    return sameDay ? "Bugun " + time : two(d.getDate()) + "." + two(d.getMonth() + 1) + " " + time;
+  }
+
+  /* Buyurtma kartochkasi — sodda va tushunarli (iOS uslubi):
+       tepada  : kod · vaqt              + holat belgisi
+       mijoz   : ism · telefon (bosiladi)
+       tovarlar: nom × son = summa
+       tafsilot: manzil · yetkazish · to'lov
+       pastda  : JAMI + amal tugmalari (katta, bosishga qulay) */
   function orderCard(o) {
-    const items = (o.items || [])
-      .map((it) => "· " + esc(it.name || "") + " × " + (it.qty || 1))
-      .join("<br>");
+    const st = ORD[o.status] || ORD.new;
+
+    const goods = (o.items || [])
+      .map((it) => {
+        const qty = Number(it.qty) || 1;
+        const sum = (Number(it.price) || 0) * qty;
+        return (
+          '<div class="ord-good"><span>' +
+          esc(it.name || "Tovar") +
+          "</span><i>×" +
+          qty +
+          "</i>" +
+          (sum ? "<b>" + esc(money(sum)) + "</b>" : "") +
+          "</div>"
+        );
+      })
+      .join("");
+
+    const meta = [];
+    if (o.address) meta.push('<div class="ord-meta-row">📍 ' + esc(o.address) + "</div>");
+    if (o.delivery_info) meta.push('<div class="ord-meta-row">🚚 ' + esc(o.delivery_info) + "</div>");
+    if (o.payment_method) meta.push('<div class="ord-meta-row">💳 ' + esc(o.payment_method) + "</div>");
+
     const acts = (NEXT_STEPS[o.status] || [])
       .map(
         ([status, label]) =>
-          '<button class="btn btn-ghost btn-sm" id="shop-o-' +
+          '<button class="ord-act' +
+          (status === "cancelled" ? " is-danger" : "") +
+          '" id="shop-o-' +
           esc(o.key) +
           "-" +
           status +
@@ -297,20 +437,27 @@ window.ZimmerShop = (function () {
           "</button>"
       )
       .join("");
+
+    const when = timeLabel(o.created_at);
+
     return (
-      '<div class="adm-order"><div class="adm-order-head"><b>' +
-      esc(o.code) +
-      '</b><span class="adm-status">' +
-      esc(STATUS_TEXT[o.status] || o.status) +
-      "</span></div><div class=\"adm-order-body\">" +
-      (o.name ? "<div>" + esc(o.name) + "</div>" : "") +
-      (o.phone ? '<div class="adm-phone">' + esc(o.phone) + "</div>" : "") +
-      (o.address ? "<div>" + esc(o.address) + "</div>" : "") +
-      (items ? "<div>" + items + "</div>" : "") +
-      '</div><div class="adm-order-total">' +
-      esc(o.total_label) +
+      '<div class="ord is-' + o.status + '">' +
+      '<div class="ord-top">' +
+      '<span class="ord-code">' + esc(o.code) + (when ? ' <i>· ' + esc(when) + "</i>" : "") + "</span>" +
+      '<span class="ord-pill is-' + o.status + '">' + st.icon + " " + esc(st.label) + "</span>" +
       "</div>" +
-      (acts ? '<div class="adm-order-acts">' + acts + "</div>" : "") +
+      (o.name || o.phone
+        ? '<div class="ord-who">' +
+          (o.name ? "<b>" + esc(o.name) + "</b>" : "") +
+          (o.phone
+            ? '<button class="ord-tel" id="shop-tel-' + esc(o.key) + '">📞 ' + esc(o.phone) + "</button>"
+            : "") +
+          "</div>"
+        : "") +
+      (goods ? '<div class="ord-goods">' + goods + "</div>" : "") +
+      (meta.length ? '<div class="ord-meta">' + meta.join("") + "</div>" : "") +
+      '<div class="ord-foot"><span>Jami</span><b>' + esc(o.total_label) + "</b></div>" +
+      (acts ? '<div class="ord-acts">' + acts + "</div>" : "") +
       "</div>"
     );
   }
@@ -318,25 +465,43 @@ window.ZimmerShop = (function () {
   async function setOrderStatus(order, status) {
     if (S.busy) return;
     S.busy = true;
-    try {
-      await fb().patch("pending_orders/" + order.key, { status: status, status_at: Date.now() });
-      haptic("success");
-      // Mijozga Telegram xabari Worker orqali (bot tokeni faqat o'sha yerda).
-      let notified = false;
+    const label = (ORD[status] || {}).label || status;
+
+    /* 1-yo'l: Worker. U TO'G'RI tugunga yozadi (`pending_orders` yoki
+       `orders`) va mijozga Telegram xabarini yuboradi (bot tokeni faqat
+       o'sha yerda). Ilgari panel o'zi `pending_orders` ga yozardi —
+       shuning uchun SQLite buyurtmasining holatini umuman o'zgartira
+       olmasdi va mijoz hech qanday xabar olmasdi. */
+    const off = window.ZimmerOffline;
+    if (off && off.workerReady && off.workerReady() && off.adminOrderStatus) {
       try {
-        const off = window.ZimmerOffline;
-        if (off && off.adminOrderStatus) {
-          await off.adminOrderStatus(order.key, status);
-          notified = true;
-        }
-      } catch (_) {
-        notified = false;
+        await off.adminOrderStatus(order.key, status, order.source);
+        haptic("ok");
+        toast("✅ " + label + " — mijozga xabar ketdi");
+        S.busy = false;
+        return openOrders();
+      } catch (err) {
+        console.warn("[shop] Worker holatni o'zgartirmadi:", err);
       }
-      toast(notified ? "✅ Holat o'zgardi — mijozga xabar ketdi" : "✅ Holat o'zgardi (xabar ketmadi)");
-      openOrders();
+    }
+
+    // 2-yo'l: to'g'ridan Firebase. `orders` tuguni yopiq, shuning uchun
+    // faqat Worker qabul qilgan buyurtmalar uchun ishlaydi.
+    if (order.source === "db") {
+      S.busy = false;
+      return toast("❌ Bu buyurtma uchun Worker kerak (config.js -> WORKER_URL)", 5000);
+    }
+    try {
+      await fb().patch("pending_orders/" + order.key, {
+        status: status,
+        status_at: Date.now(),
+      });
+      haptic("ok");
+      toast("✅ " + label + " (mijozga xabar ketmadi)");
+      S.busy = false;
+      return openOrders();
     } catch (err) {
-      toast((err && err.message) || "O'zgarmadi");
-    } finally {
+      toast((err && err.message) || "Holat o'zgarmadi");
       S.busy = false;
     }
   }

@@ -1035,14 +1035,98 @@
     return callWorker("/admin/edit", fields || {});
   }
 
-  /** Zaxira rejimda tushgan buyurtmalar. */
+  /** Do'kon buyurtmalari — Worker `pending_orders` VA `orders` ni birlashtirib
+   *  beradi (faqat tasdiqlangan admin). Batafsil: cloudflare-worker.js. */
   function adminOrders() {
     return callWorker("/admin/orders", {});
   }
 
-  /** Buyurtma holatini o'zgartirish — mijozga xabar Worker yuboradi. */
-  function adminOrderStatus(key, status) {
-    return callWorker("/admin/order-status", { key: key, status: status });
+  /* ==================================================================
+     MENING BUYURTMALARIM (Worker qabul qilganlari)
+
+     `pending_orders` qoidalarda o'qishga OCHIQ va `uid` bo'yicha
+     indekslangan (`database.rules.json`). Shu sababli mijoz o'z
+     buyurtmalarini to'g'ridan-to'g'ri o'qiy oladi — Worker ham, Render
+     ham kerak bo'lmaydi.
+
+     Bu KERAK, chunki bot Worker buyurtmasini SQLite'ga faqat ishga
+     tushganda (yoki 2 daqiqalik tekshiruvda) ko'chiradi. Ya'ni mijoz
+     buyurtma bergandan keyin uni `/api/orders` da darhol topmaydi va
+     «buyurtmam yo'qoldi» deb o'ylaydi.
+     ================================================================== */
+  async function myOrders(uid) {
+    var id = Number(uid) || 0;
+    if (!DB || !id) return [];
+    // `orderBy` + `equalTo` — faqat O'Z buyurtmalarini tortadi.
+    var url =
+      DB +
+      "/" +
+      ROOT +
+      '/pending_orders.json?orderBy="uid"&equalTo=' +
+      id +
+      "&limitToLast=30";
+    var node;
+    try {
+      var res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("pending_orders -> " + res.status);
+      node = await res.json();
+    } catch (err) {
+      console.warn("[offline] buyurtmalar o'qilmadi:", err);
+      return [];
+    }
+    if (!node || typeof node !== "object") return [];
+
+    var out = [];
+    Object.keys(node).forEach(function (key) {
+      var r = node[key];
+      if (!r || typeof r !== "object") return;
+      var total = Number(r.total) || 0;
+      out.push({
+        id: r.code || key, // profil kartochkasida ko'rinadigan belgi
+        code: r.code || key,
+        sqlite_id: r.sqlite_id || null,
+        total: total,
+        total_label: priceLabel(total),
+        status: r.status || "new",
+        items: itemRows(r.items),
+        delivery_info: r.delivery_info || "",
+        payment_method: r.payment_method || "",
+        createdAt: Number(r.createdAt) || 0,
+        _worker: true,
+      });
+    });
+    out.sort(function (a, b) {
+      return b.createdAt - a.createdAt;
+    });
+    return out;
+  }
+
+  /** `items` ro'yxat yoki lug'at bo'lishi mumkin — ikkisini ham tekislaydi.
+   *  RTDB siyrak massivni LUG'AT qilib saqlaydi, shuning uchun ilgari
+   *  `Array.isArray()` tekshiruvi tovarlarni jimgina yo'q qilardi. */
+  function itemRows(raw) {
+    if (!raw || typeof raw !== "object") return [];
+    var list = Array.isArray(raw) ? raw : Object.keys(raw).map(function (k) { return raw[k]; });
+    return list
+      .filter(function (i) { return i && typeof i === "object"; })
+      .map(function (i) {
+        return {
+          product_id: i.product_id == null ? null : i.product_id,
+          name: String(i.name || ""),
+          price: Number(i.price) || 0,
+          qty: Number(i.qty) || 1,
+        };
+      });
+  }
+
+  /** Buyurtma holatini o'zgartirish — mijozga xabar Worker yuboradi.
+   *  `source`: "pending" (Worker qabul qilgani) yoki "db" (SQLite nusxasi). */
+  function adminOrderStatus(key, status, source) {
+    return callWorker("/admin/order-status", {
+      key: key,
+      status: status,
+      source: source || "pending",
+    });
   }
 
   window.ZimmerOffline = {
@@ -1072,6 +1156,8 @@
     adminAddProduct: adminAddProduct,
     adminEdit: adminEdit,
     adminOrders: adminOrders,
+    myOrders: myOrders,
+    itemRows: itemRows,
     adminOrderStatus: adminOrderStatus,
     mediaUrl: mediaUrl,
     save: save,

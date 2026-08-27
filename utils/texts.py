@@ -30,10 +30,23 @@ BOOKING_STATUS = {
     "cancelled": "❌ Bekor qilingan",
 }
 
+# Do'kon buyurtmasi holati.
+#
+# DIQQAT: bu lug'at UCH joy bilan bir xil bo'lishi SHART —
+#   docs/js/app.js        -> ORDER_STATUS
+#   docs/js/admin-shop.js -> ORD
+#   cloudflare-worker.js  -> ORDER_STATUSES
+#
+# Ilgari ular mos kelmasdi: Mini App paneli «yetkazildi» ni `done` deb
+# yozardi, bu yerda esa `delivered` turardi. `services/orders.py` `done` ni
+# tanimay UNKNOWN deb hisoblardi va bot paneli o'sha buyurtmada tiqilib
+# qolardi; mijoz esa `status_label` sifatida xom `done` so'zini ko'rardi.
+# `delivering` («yo'lda») ham faqat Worker'da bor edi — endi bu yerda ham.
 ORDER_STATUS = {
     "new": "🆕 Yangi",
     "accepted": "✅ Qabul qilindi",
-    "delivered": "🚚 Yetkazildi",
+    "delivering": "🚚 Yo'lda",
+    "delivered": "🎉 Yetkazildi",
     "cancelled": "❌ Bekor qilingan",
 }
 

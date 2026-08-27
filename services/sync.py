@@ -550,6 +550,34 @@ def _media_pairs(item: dict) -> list[tuple[str | None, str | None]]:
     return pairs
 
 
+def norm_order_status(value) -> str:
+    """Do'kon buyurtmasi holatini YAGONA lug'atga keltiradi.
+
+    Tarixiy sabab: bir xil narsa uch xil nomlanardi —
+
+        SQLite / bot      : new  accepted  delivered            cancelled
+        Mini App paneli   : new  accepted  delivering  done      cancelled
+        mijoz profili     : new  accepted  shipped     done      cancelled
+
+    Ya'ni «yetkazildi» uchun `delivered` va `done`, «yo'lda» uchun
+    `delivering` va `shipped`. Worker buyurtmasi bazaga ko'chirilganda
+    holat XOM ko'chirilardi, natijada SQLite'da `utils/texts.ORDER_STATUS`
+    da yo'q qiymat paydo bo'lardi:
+
+      • mijoz `status_label` sifatida xom `done` so'zini ko'rardi;
+      • `services/orders.check()` uni UNKNOWN deb hisoblab, bot paneli
+        o'sha buyurtmada tiqilib qolardi.
+    """
+    text = str(value or "new").strip().lower()
+    if text in ("done", "delivered"):
+        return "delivered"
+    if text in ("shipped", "delivering"):
+        return "delivering"
+    if text in ("new", "accepted", "cancelled"):
+        return text
+    return "new"
+
+
 def _int(value, default: int = 0) -> int:
     try:
         return int(float(str(value).replace(" ", "").replace(",", ".")))
@@ -985,7 +1013,7 @@ async def restore_orders() -> dict[str, int]:
                     "delivery_method": item.get("deliveryMethod"),
                     "delivery_info": item.get("deliveryInfo"),
                     "payment_method": item.get("paymentMethod"),
-                    "status": item.get("status") or "new",
+                    "status": norm_order_status(item.get("status")),
                     "created_at": _created_at(item.get("createdAt")),
                 },
                 [row for row in raw_items if isinstance(row, dict)],
@@ -1111,7 +1139,7 @@ async def import_pending_orders(bot=None) -> int:
                     "delivery_method": item.get("delivery_method"),
                     "delivery_info": item.get("delivery_info"),
                     "payment_method": item.get("payment_method"),
-                    "status": item.get("status") or "new",
+                    "status": norm_order_status(item.get("status")),
                     "created_at": _created_at(item.get("createdAt")),
                     "external_code": code,
                 },
@@ -1222,6 +1250,22 @@ async def initial_sync(bot=None) -> None:
         await import_products()
         # Admin panelda qilingan katalog o'zgarishlari — demo katalog ustidan
         await restore_catalog()
+
+        # ============================================================
+        # DIQQAT — TARTIB MUHIM: buyurtmalar KATALOGDAN OLDIN ko'chiriladi
+        #
+        # Worker qabul qilgan buyurtma bulutdagi qoldiqni ALLAQACHON
+        # kamaytirgan (`cloudflare-worker.js`), SQLite'da esa qoldiq hali
+        # eski. `import_pending_orders()` uni SQLite'da ham kamaytiradi
+        # (`queries.import_external_order`).
+        #
+        # Ilgari `push_all_catalog()` BUNDAN OLDIN turardi. Natijada bot
+        # har qayta ishga tushganda SQLite'ning KAMAYMAGAN qoldig'ini
+        # bulutga yozib, sotilgan tovarni QAYTA TIKLAB qo'yardi — ombor
+        # o'z-o'zidan «to'lib» ketardi va yo'q tovar sotuvda turardi.
+        # ============================================================
+        await import_pending_orders(bot)
+
         # …va TESKARI yo'nalish: mahalliy katalogni butunlay bulutga yozamiz.
         # Bu qator bo'lmasa `{root}/catalog` da faqat admin qo'l tekkizgan
         # yozuvlar bo'lib qolardi — natijada Mini App'ning zaxira rejimi
@@ -1232,9 +1276,6 @@ async def initial_sync(bot=None) -> None:
         # yozadi, shuning uchun eski/uzoq vaqt yozmagan mijozlar bulutda
         # bo'lmasdi va qayta deployda yo'qolardi.
         await push_all_users()
-        # Render o'chgan paytda Worker qabul qilgan buyurtmalarni bazaga
-        # ko'chiramiz — aks holda ular «Ombor» va statistikada ko'rinmaydi.
-        await import_pending_orders(bot)
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
         # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin

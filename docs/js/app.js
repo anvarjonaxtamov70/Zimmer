@@ -408,7 +408,9 @@
       .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
 
     if (page === "cart") {
-      renderCart();
+      // Katalog bilan moslashtirib chizamiz — o'chirilgan tovar savatda
+      // qolib, buyurtmani yiqitmasin.
+      refreshCart();
       animateCartTotal(); // jami summa 0 dan count-up bo'ladi
     }
     if (page === "saved") renderSaved();
@@ -2164,6 +2166,16 @@
   /** "Rasmiylashtirish" tugmasi: avval yetkazib berish usulini so'raymiz. */
   function startCheckout() {
     if (!S.cart.length) return toast("Savatcha bo'sh");
+    // Oxirgi tekshiruv: savatdagi tovar hali sotuvdami, narxi o'zgarmadimi.
+    const sync = syncCartWithCatalog();
+    if (sync.removed.length) {
+      renderCart();
+      return toast("⚠️ Sotuvdan chiqqan tovar savatdan olindi: " + sync.removed.join(", "), 5000);
+    }
+    if (sync.changed.length) {
+      renderCart();
+      return toast("ℹ️ Narx yangilandi — tekshirib, qaytadan bosing", 4000);
+    }
     // Telefon profilda bo'lmasa — bir marta so'raymiz, keyin davom etamiz
     if (!S.me || !S.me.phone) return openPhoneSheet(startCheckout);
     S.delivery = null;
@@ -2490,22 +2502,47 @@
     });
   }
 
-  /** Yakuniy qadam: buyurtmani serverga yuboradi. */
+  /** Yakuniy qadam: buyurtmani yuboradi.
+   *
+   *  =================================================================
+   *  NEGA WORKER BIRINCHI (va nega ilgari buyurtma berib bo'lmasdi)
+   *  =================================================================
+   *  Do'kon katalogi FIREBASE'dan o'qiladi (`catalog/products`) — admin
+   *  paneli ham aynan shu yerga yozadi. Ya'ni buyurtmani ham SHU manbaga
+   *  qarab tekshiradigan yo'l bilan yuborish kerak.
+   *
+   *  Cloudflare Worker aynan shunday ishlaydi: narx va qoldiqni
+   *  `catalog/products` dan O'ZI o'qiydi, tekshiradi, `pending_orders` ga
+   *  yozadi, qoldiqni kamaytiradi va adminga Telegram xabarini yuboradi.
+   *
+   *  `/api/orders` (Render) esa SQLite'ga qaraydi. Mini app admin panelida
+   *  qo'shilgan tovarning id'si 900000 dan boshlanadi (`fb.js: ID_BASE`)
+   *  va SQLite'da UMUMAN YO'Q. Natijada:
+   *
+   *      create_order_from_items -> get_product(900001) -> None
+   *      -> problems=[{reason: "not_found"}] -> 409 order_failed
+   *      -> mijozga: «Ba'zi mahsulotlar yetarli emas. Savatchani yangilang»
+   *
+   *  Mijoz tovarni ko'radi, savatga qo'shadi — lekin buyurtma bermaydi va
+   *  xabar ham YOLG'ON sabab ko'rsatadi (qoldiq yetarli, tovar shunchaki
+   *  boshqa omborda). Savatni yangilash ham yordam bermaydi.
+   *
+   *  Shu sababli endi Worker BIRINCHI — Render bor yoki yo'q, farqi yo'q.
+   *  Worker sozlanmagan bo'lsa `/api/orders` zaxira sifatida ishlatiladi.
+   */
   function placeOrder(paymentLabel, openAdminChat) {
     if (!S.delivery) return toast("Yetkazib berish usulini tanlang");
     if (!S.cart.length) return toast("Savatcha bo'sh");
 
-    // ZAXIRA REJIM: Render o'chgan bo'lsa buyurtma Cloudflare Worker orqali
-    // qabul qilinadi. Worker uxlamaydi, summani KATALOGDAN o'zi hisoblaydi
-    // va adminga Telegram xabarini yuboradi. Ya'ni Avto_A1 dagi kabi —
-    // bot ishlamasa ham buyurtma keladi.
-    if (S.offline) {
-      if (!window.ZimmerOffline || !ZimmerOffline.workerReady()) {
-        return offlineBlocked("Buyurtma berish");
-      }
+    if (window.ZimmerOffline && ZimmerOffline.workerReady()) {
       return placeOrderViaWorker(paymentLabel, openAdminChat);
     }
+    if (S.offline) return offlineBlocked("Buyurtma berish");
+    return placeOrderViaApi(paymentLabel, openAdminChat);
+  }
 
+  /** Zaxira yo'l: Render `/api/orders` (SQLite bo'yicha tekshiradi). */
+  function placeOrderViaApi(paymentLabel, openAdminChat) {
     return withPhone(async () => {
       const btn = $("pay-done"); // naqdda bu tugma bo'lmaydi
       if (btn) {
@@ -2545,9 +2582,95 @@
           btn.disabled = false;
           btn.textContent = "✓ To'ladim";
         }
+        // 409 `order_failed` — sabab «qoldiq yetarli emas» deb yoziladi,
+        // lekin aslida tovar SQLite'da yo'q bo'lishi ham mumkin. Aniq
+        // aytamiz, aks holda mijoz savatni behuda yangilab o'tiradi.
+        if (err && err.problems && err.problems.length) {
+          const lost = err.problems.filter((p) => p.reason === "not_found").length;
+          if (lost) {
+            toast(
+              "❌ " + lost + " ta tovar serverda topilmadi. Savatdan olib tashlab qayta urinib ko'ring.",
+              5500
+            );
+            return;
+          }
+        }
         throw err;
       }
     });
+  }
+
+  /* ==================================================================
+     SAVATNI JONLI KATALOG BILAN MOSLASHTIRISH
+
+     Savat `localStorage["zimmer_cart"]` da nom/narx/qoldiq NUSXASI bilan
+     saqlanadi va `renderCart()` katalogga umuman qaramaydi. Shu sababli:
+
+       • admin tovarni o'chirsa — savatda turaveradi va buyurtma 409 bilan
+         yiqiladi (mijoz sababini tushunmaydi);
+       • narx o'zgarsa — savatda ESKI narx ko'rinadi va jami summa
+         serverdagi summaga mos kelmaydi;
+       • qoldiq kamaysa — «yetarli emas» xatosi faqat oxirida chiqadi.
+
+     Endi savat ochilganda va buyurtma berishdan oldin ro'yxat jonli
+     katalog bilan solishtiriladi.
+     ================================================================== */
+  function syncCartWithCatalog() {
+    const live = new Map();
+    (S.shopProducts || []).forEach((p) => live.set(String(p.id), p));
+    // Katalog hali yuklanmagan bo'lsa hech narsa qilmaymiz — aks holda
+    // butun savatni bo'shatib qo'yardik.
+    if (!live.size || !S.cart.length) return { removed: [], changed: [] };
+
+    const removed = [];
+    const changed = [];
+    const kept = [];
+
+    S.cart.forEach((item) => {
+      const p = live.get(String(item.id));
+      if (!p) {
+        removed.push(item.name || "Tovar");
+        return;
+      }
+      const stock = Number(p.stock) || 0;
+      if (stock <= 0) {
+        removed.push(p.name || item.name);
+        return;
+      }
+      const price = Number(p.price) || 0;
+      const next = {
+        id: p.id,
+        name: p.name || item.name,
+        price: price,
+        qty: item.qty,
+        stock: stock,
+        photo_url: p.photo_url || null,
+      };
+      if (next.qty > stock) {
+        next.qty = stock;
+        changed.push(next.name);
+      } else if (Number(item.price) !== price) {
+        changed.push(next.name);
+      }
+      kept.push(next);
+    });
+
+    if (removed.length || changed.length) {
+      S.cart = kept;
+      saveCart();
+    }
+    return { removed: removed, changed: changed };
+  }
+
+  /** Savat ochilganda: moslashtirib, o'zgarish bo'lsa mijozga aytamiz. */
+  function refreshCart() {
+    const out = syncCartWithCatalog();
+    renderCart();
+    if (out.removed.length) {
+      toast("⚠️ Sotuvdan chiqqan tovar savatdan olindi: " + out.removed.join(", "), 5000);
+    } else if (out.changed.length) {
+      toast("ℹ️ Narx/qoldiq yangilandi: " + out.changed.join(", "), 4000);
+    }
   }
 
   /* -------------------------------------------------------------- kabinet */
@@ -2597,7 +2720,11 @@
       // Bi-LED va navbat esa faqat serverda — ular uchun izoh ko'rsatiladi.
       renderBiledOrders([]);
       renderBookings([]);
-      renderOrders(offlineOrdersForView());
+      // Firebase'dan o'qiymiz — ilova qayta ochilganda ham yo'qolmaydi.
+      // Ilgari faqat XOTIRADAGI `S.offlineOrders` ishlatilardi, ya'ni
+      // ilovani yopib qaytsa mijoz buyurtmalarini ko'rmasdi.
+      const mine = await myPendingOrders();
+      renderOrders(mine.length ? mine : offlineOrdersForView());
       setOfflineNote(true);
       return;
     }
@@ -2607,20 +2734,69 @@
     setOfflineNote(false);
 
     try {
-      const [biled, bookings, orders] = await Promise.all([
+      /* BUYURTMALAR IKKI JOYDAN YIG'ILADI.
+
+         `/api/orders`  -> SQLite (Render). Bot bularni biladi.
+         `pending_orders` -> Worker qabul qilganlari. Bot ularni SQLite'ga
+                             faqat ishga tushganda ko'chiradi (2 daqiqada bir
+                             marta tekshiruv), ya'ni yangi buyurtma
+                             `/api/orders` da DARHOL ko'rinmaydi.
+
+         Ilgari profil faqat birinchisini o'qirdi. Natijada mijoz buyurtma
+         beradi, «qabul qilindi» xabarini ko'radi — keyin kabinetda uni
+         TOPMAYDI. Endi ikkisi birlashtiriladi va takrorlanmaydi. */
+      const [biled, bookings, orders, pending] = await Promise.all([
         api("/api/biled-orders"),
         api("/api/bookings"),
         api("/api/orders"),
+        myPendingOrders(),
       ]);
+      const shop = mergeOrders(orders, pending);
       renderBiledOrders(biled);
       renderBookings(bookings);
-      renderOrders(orders);
+      renderOrders(shop);
       // statistika: buyurtma (do'kon + bi-led), navbat
-      animateStat("pf-stat-orders", (orders.length || 0) + (biled.length || 0));
+      animateStat("pf-stat-orders", shop.length + (biled.length || 0));
       animateStat("pf-stat-bookings", bookings.length || 0);
     } catch (err) {
       onError(err);
     }
+  }
+
+  /** Firebase `pending_orders` dan MENING buyurtmalarim (Worker qabul
+   *  qilganlari). O'qish yiqilsa — jimgina bo'sh ro'yxat. */
+  async function myPendingOrders() {
+    try {
+      const uid = S.me && (S.me.user_id || S.me.id);
+      if (!uid || !window.ZimmerOffline || !ZimmerOffline.myOrders) return [];
+      return await ZimmerOffline.myOrders(uid);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** SQLite va Worker buyurtmalarini birlashtiradi (takrorsiz, yangisi tepada).
+   *
+   *  Takrorlanish shundan bo'ladi: bot Worker buyurtmasini SQLite'ga
+   *  ko'chirganda `pending_orders` yozuvida `sqlite_id` paydo bo'ladi va
+   *  o'sha buyurtma ikkala manbada turadi. Shu belgiga qarab ajratamiz. */
+  function mergeOrders(dbOrders, pendingOrders) {
+    const out = (dbOrders || []).slice();
+    const known = new Set(out.map((o) => String(o.id)));
+    (pendingOrders || []).forEach((p) => {
+      if (p.sqlite_id && known.has(String(p.sqlite_id))) return;
+      out.push(p);
+    });
+    // Yangisi tepada: SQLite `created_at` — matn, Worker `createdAt` — ms.
+    out.sort((a, b) => orderTime(b) - orderTime(a));
+    return out;
+  }
+
+  function orderTime(o) {
+    if (!o) return 0;
+    if (o.createdAt) return Number(o.createdAt) || 0;
+    const t = Date.parse(String(o.created_at || "").replace(" ", "T"));
+    return Number.isFinite(t) ? t : 0;
   }
 
   function renderBiledOrders(list) {
@@ -2680,43 +2856,100 @@
       Worker'da raqamli `id` yo'q (SQLite bermaydi) — o'rniga `ZM-XXXXXX` kod
       ishlatiladi va bot buyurtmani bazaga ko'chirganda raqam beriladi. */
   function offlineOrdersForView() {
-    const STATUS = {
-      new: "Yangi",
-      accepted: "Qabul qilindi",
-      shipped: "Yo'lda",
-      done: "Yetkazildi",
-      cancelled: "Bekor qilingan",
-    };
+    // Holat yozuvi `renderOrders` ichida yagona lug'atdan olinadi —
+    // shuning uchun bu yerda `status_label` yasamaymiz (ilgari bu yerda
+    // uchinchi xil lug'at bor edi: `shipped`, `done`).
     return (S.offlineOrders || []).map((o) => ({
       id: o.code || "—",
+      code: o.code || "",
+      total: o.total || 0,
       total_label: o.total_label || fmt(o.total),
       status: o.status || "new",
-      status_label: STATUS[o.status] || "Yangi",
       items: (o.items || []).map((i) => ({ name: i.name, qty: i.qty })),
       delivery_info: o.delivery_info || "",
       payment_method: o.payment_method || "",
     }));
   }
 
+  /* ==================================================================
+     BUYURTMA HOLATI — YAGONA LUG'AT
+
+     Ilgari bir xil narsa uch xil nomlanardi:
+        SQLite/Render : new  accepted  delivered  cancelled
+        Worker/panel  : new  accepted  delivering  done  cancelled
+        mijoz profili : new  accepted  shipped     done  cancelled
+     Ya'ni «yetkazildi» uchun `delivered` va `done` — ikki so'z. Panelda
+     qo'yilgan holat SQLite uchun notanish bo'lib qolardi.
+     Endi yagona beshta nom; eskilari shu yerda o'giriladi.
+     ================================================================== */
+  const ORDER_STATUS = {
+    new: { label: "Yangi", icon: "🆕" },
+    accepted: { label: "Qabul qilindi", icon: "✅" },
+    delivering: { label: "Yo'lda", icon: "🚚" },
+    delivered: { label: "Yetkazildi", icon: "🎉" },
+    cancelled: { label: "Bekor qilingan", icon: "✕" },
+  };
+
+  function normStatus(value) {
+    const s = String(value || "new").toLowerCase();
+    if (s === "done" || s === "delivered") return "delivered";
+    if (s === "shipped" || s === "delivering") return "delivering";
+    if (ORDER_STATUS[s]) return s;
+    return "new";
+  }
+
+  /** Holat «pill» belgisi — iOS uslubida (bo'yalgan fon + qisqa matn).
+   *
+   *  DIQQAT: serverdan kelgan `status_label` ATAYLAB ishlatilmaydi. U
+   *  «🚚 Yetkazildi» ko'rinishida emoji bilan keladi va pastdagi belgi
+   *  bilan qo'shilib IKKI emoji chiqarardi. Bundan tashqari server eski
+   *  nomlarni (`done`) xom qaytarishi mumkin. Shu sababli matn ham,
+   *  belgi ham SHU YERDAGI yagona lug'atdan olinadi. */
+  function statusPill(value) {
+    const key = normStatus(value);
+    const meta = ORDER_STATUS[key];
+    return `<span class="ord-pill is-${key}">${meta.icon} ${esc(meta.label)}</span>`;
+  }
+
+  /* ==================================================================
+     MENING BUYURTMALARIM (kabinet)
+
+     Dizayn soddalashtirildi: bitta kartochkada faqat kerakli narsa —
+     tepada kod va holat, o'rtada tovarlar, pastda jami. Ortiqcha emoji
+     va uzun manzil satrlari olib tashlandi (ular kartochkani buzardi).
+     ================================================================== */
   function renderOrders(list) {
     const box = $("my-orders");
     box.innerHTML = "";
     $("orders-empty").classList.toggle("hidden", list.length > 0);
+
     list.forEach((o) => {
-      const goods = o.items.map((i) => `${esc(i.name)} ×${i.qty}`).join(", ");
-      box.append(
-        el(
-          "div",
-          "card",
-          `<div class="row">
-             <b>#${o.id} · ${esc(o.total_label)}</b>
-             <span class="status ${esc(o.status)}">${esc(o.status_label)}</span>
-           </div>
-           <div class="item-sub">🛍 ${goods}</div>
-           ${o.delivery_info ? `<div class="item-sub">🚚 ${esc(o.delivery_info)}</div>` : ""}
-           ${o.payment_method ? `<div class="item-sub">💳 ${esc(o.payment_method)}</div>` : ""}`
+      const code = o.code || (o.id != null ? "#" + o.id : "—");
+      const goods = (o.items || [])
+        .map(
+          (i) =>
+            `<div class="ord-good"><span>${esc(i.name)}</span><i>×${Number(i.qty) || 1}</i></div>`
         )
+        .join("");
+
+      const meta = [];
+      if (o.delivery_info) meta.push(`<div class="ord-meta-row">🚚 ${esc(o.delivery_info)}</div>`);
+      if (o.payment_method) meta.push(`<div class="ord-meta-row">💳 ${esc(o.payment_method)}</div>`);
+
+      const card = el(
+        "div",
+        "ord",
+        `<div class="ord-top">
+           <span class="ord-code">${esc(code)}</span>
+           ${statusPill(o.status)}
+         </div>
+         ${goods ? `<div class="ord-goods">${goods}</div>` : ""}
+         ${meta.length ? `<div class="ord-meta">${meta.join("")}</div>` : ""}
+         <div class="ord-foot">
+           <span>Jami</span><b>${esc(o.total_label || fmt(o.total || 0))}</b>
+         </div>`
       );
+      box.append(card);
     });
   }
 
@@ -4188,10 +4421,28 @@
           btn.disabled = false;
           btn.textContent = "✓ To'ladim";
         }
-        // Qoldiq yetmasa Worker `problems` qaytaradi — aniq aytamiz
+        /* Worker `problems` qaytaradi — SABABNI aniq aytamiz va savatni
+           tuzatamiz. Ilgari hamma holat uchun «Yetarli emas» yozilardi,
+           hatto tovar katalogdan o'chirilgan bo'lsa ham — mijoz savatni
+           behuda yangilab o'tirardi. */
         if (err && err.problems && err.problems.length) {
-          const names = err.problems.map((p) => p.name || "#" + p.product_id).join(", ");
-          toast(`❌ Yetarli emas: ${names}`, 5000);
+          const gone = err.problems.filter((p) => /topilmadi/i.test(p.reason || ""));
+          const short = err.problems.filter((p) => !/topilmadi/i.test(p.reason || ""));
+          // Katalogda yo'q tovarlarni savatdan olib tashlaymiz
+          if (gone.length) {
+            const ids = new Set(gone.map((p) => String(p.product_id)));
+            S.cart = S.cart.filter((i) => !ids.has(String(i.id)));
+            saveCart();
+            renderCart();
+          }
+          const label = (list) => list.map((p) => p.name || "#" + p.product_id).join(", ");
+          if (gone.length && short.length) {
+            toast(`❌ Sotuvda yo'q: ${label(gone)} · Qoldiq yetmadi: ${label(short)}`, 6000);
+          } else if (gone.length) {
+            toast(`❌ Sotuvda yo'q — savatdan olib tashladim: ${label(gone)}`, 6000);
+          } else {
+            toast(`❌ Qoldiq yetarli emas: ${label(short)}`, 5000);
+          }
           return;
         }
         toast(`❌ ${(err && err.message) || "Buyurtma yuborilmadi"}`, 5000);
