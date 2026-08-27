@@ -258,6 +258,16 @@ window.ZimmerShop = (function () {
       tile("shop-ord", "shop-hero-ord", KINDS.order.icon, KINDS.order.title, KINDS.order.sub, "shop-badge-order") +
       tile("shop-biled", "shop-hero-biled", KINDS.biled.icon, KINDS.biled.title, KINDS.biled.sub, "shop-badge-biled") +
       tile("shop-book", "shop-hero-book", KINDS.booking.icon, KINDS.booking.title, KINDS.booking.sub, "shop-badge-booking") +
+      "</div>" +
+      /* --- mijozlar va hisobot (Avto_A1 dagi kabi alohida guruh)
+         Ilgari panelda mijozlar bazasi UMUMAN yo'q edi: admin kim nima
+         sotib olganini faqat buyurtmalarni varaqlab topardi. Endi
+         «Mijozlar» — kim, qancha sarflagan, nechta xarid; «Statistika» —
+         tushum, o'rtacha chek va xit savdolar. */
+      '<div class="apx-sub">Mijozlar va hisobot</div>' +
+      '<div class="shop-hero shop-hero-2">' +
+      tile("shop-cust", "shop-hero-cust", "👥", "Mijozlar", "Foydalanuvchilar bazasi") +
+      tile("shop-stats", "shop-hero-stats", "📊", "Statistika", "Savdo va hisobot") +
       "</div>";
 
     const bind = (id, fn) => {
@@ -273,6 +283,18 @@ window.ZimmerShop = (function () {
     bind("shop-ord", openOrders);
     bind("shop-biled", openBiled);
     bind("shop-book", openBookings);
+
+    /* Mijozlar/statistika alohida modulda (admin-crm.js). Ochilganda
+       ZimmerShop o'z ko'rinishini bo'shatadi — topbar «orqaga» va
+       «yangilash» tugmalari CRM oynasiga ishlaydi. */
+    const goCrm = (fn) => () => {
+      const m = crm();
+      if (!m) return toast("Bo'lim yuklanmadi — ilovani yangilang");
+      S.view = null;
+      m[fn]();
+    };
+    bind("shop-cust", goCrm("openCustomers"));
+    bind("shop-stats", goCrm("openStats"));
 
     // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
     refreshBadges();
@@ -2068,13 +2090,25 @@ window.ZimmerShop = (function () {
   /* ==================================================================
      TASHQI INTERFEYS (app.js va admin.js ko'prigi)
      ================================================================== */
+  const crm = () => window.ZimmerCRM;
+
   function isActive() {
-    return S.view !== null;
+    return S.view !== null || (crm() && crm().isActive());
   }
   function close() {
     S.view = null;
+    if (crm()) crm().close();
   }
   function back() {
+    /* Mijozlar/statistika oynasi ochiq bo'lsa — avval CRM o'zining ichki
+       qadamini qaytaradi (mijoz tafsiloti -> ro'yxat). Ro'yxatning o'zida
+       turgan bo'lsa `false` qaytaradi va biz menyuga chiqamiz. */
+    if (crm() && crm().isActive()) {
+      if (crm().back()) return true;
+      crm().close();
+      renderMenu();
+      return true;
+    }
     if (S.view === "add" || S.view === "edit" || S.view === "inventory" || S.view === "orders") {
       renderMenu();
       return true;
@@ -2083,6 +2117,7 @@ window.ZimmerShop = (function () {
     return false;
   }
   function reload() {
+    if (crm() && crm().isActive()) return crm().reload();
     if (S.view === "inventory") return openInventory();
     // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim
     // do'kon buyurtmalariga qaytarib yuborardi).
@@ -2097,5 +2132,21 @@ window.ZimmerShop = (function () {
     reload: reload,
     isActive: isActive,
     close: close,
+
+    /* ---------------------------------------------------------------
+       CRM MODULI UCHUN (docs/js/admin-crm.js)
+
+       Mijozlar ro'yxati va statistika AYNI buyurtma quvurini ishlatadi.
+       Agar ular o'zining nusxasini yozsa, ertaga bu yerda holat nomi yoki
+       tugun o'zgarsa — hisobot jimgina noto'g'ri raqam ko'rsatardi. Shu
+       sababli quvur va lug'atlar shu yerdan BERILADI, ko'chirilmaydi.
+       --------------------------------------------------------------- */
+    loadKind: loadKind, // buyurtmalarni o'qish (order | biled | booking)
+    KINDS: KINDS, // holat lug'atlari va sarlavhalar
+    money: money, // "320 000 so'm"
+    timeLabel: timeLabel, // "Bugun 14:38" / "26.08 14:38"
+    orderCard: orderCard, // buyurtma kartochkasi (mijoz tafsilotida)
+    menu: renderMenu, // menyuga qaytish
+    setHead: setHead, // topbar sarlavhasi
   };
 })();
