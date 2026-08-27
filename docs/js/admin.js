@@ -1029,6 +1029,7 @@ window.ZimmerAdmin = (function () {
     S.item = null;
     AP.photo = AP.photo2 = AP.photo3 = null;
     APU.photo = APU.photo2 = APU.photo3 = "";
+    APROG.photo = APROG.photo2 = APROG.photo3 = null;
     loading();
 
     // Mos mashina uchun ro'yxat (Zimmer'da kategoriya emas — mashina)
@@ -1052,7 +1053,7 @@ window.ZimmerAdmin = (function () {
         <div class="ap-upload" id="ap-upload">
           <span class="ap-up-ic">⬆️</span>
           <div class="ap-up-t">Telefondan rasm yuklash</div>
-          <div class="ap-up-s">Bir vaqtda 3 tagacha tanlash mumkin</div>
+          <div class="ap-up-s">Rasm tanlang — avtomatik link olinadi</div>
           <input type="file" id="ap-files" accept="image/*" multiple>
         </div>
         <div class="ap-previews" id="ap-previews"></div>
@@ -1149,7 +1150,13 @@ window.ZimmerAdmin = (function () {
     body().append(bar);
 
     // ---- hodisalar
-    $("ap-files").onchange = (ev) => pickProductImages(ev.target.files);
+    $("ap-files").onchange = async (ev) => {
+      const files = ev.target.files;
+      // Bir xil faylni qayta tanlash mumkin bo'lsin (aks holda `onchange`
+      // ikkinchi marta ishlamaydi).
+      ev.target.value = "";
+      await pickProductImages(files);
+    };
     $("ap-upload").onclick = (ev) => {
       if (ev.target.id !== "ap-files") $("ap-files").click();
     };
@@ -1230,18 +1237,81 @@ window.ZimmerAdmin = (function () {
     renderApLive();
   }
 
-  /** Telefondan tanlangan rasmlar (1–3 ta) xotirada saqlanadi. */
-  function pickProductImages(files) {
+  /** Yuklash jarayoni: slot -> {pct, phase, error}. */
+  const APROG = { photo: null, photo2: null, photo3: null };
+  const AP_SLOTS = ["photo", "photo2", "photo3"];
+  const AP_INPUTS = ["ap-url1", "ap-url2", "ap-url3"];
+
+  /** Rasm tanlanganda DARHOL yuklaydi (Avto_A1 dagi kabi).
+   *
+   *  ILGARI QANDAY EDI: fayl xotirada ushlab turilardi va faqat «Saqlash»
+   *  bosilganda Render'ning `/api/admin/section/.../media` endpointiga
+   *  yuborilardi. Natijada:
+   *    • yuklash foizi ko'rinmasdi;
+   *    • havola maydoni bo'sh qolardi (admin rasm tushganini bilmasdi);
+   *    • rasm Render'ga bog'liq bo'lardi — u uxlasa rasm ko'rinmasdi.
+   *
+   *  ENDI: rasm tanlangan zahoti ImgBB'ga yuklanadi, foiz ko'rsatiladi va
+   *  qaytgan havola tegishli maydonga yoziladi. Saqlashda esa oddiy
+   *  `photo_url` sifatida ketadi — Render'ga rasm yuklash KERAK EMAS.
+   *
+   *  `ZimmerUpload` bo'lmasa (kalit sozlanmagan) — ESKI yo'l saqlanadi,
+   *  ya'ni funksiya yo'qolmaydi.
+   */
+  async function pickProductImages(files) {
     const list = Array.prototype.slice.call(files || []).slice(0, 3);
     if (!list.length) return;
-    const slots = ["photo", "photo2", "photo3"];
-    // Bo'sh joylarga navbat bilan joylashtiramiz
-    list.forEach((file) => {
-      const free = slots.find((s) => !AP[s]);
-      if (free) AP[free] = file;
-    });
+
+    const up = window.ZimmerUpload;
+    if (!up || !up.available()) {
+      // Zaxira yo'l: eskidek saqlashda Render'ga yuklanadi.
+      list.forEach((file) => {
+        const free = AP_SLOTS.find((s) => !AP[s] && !APU[s]);
+        if (free) AP[free] = file;
+      });
+      haptic("ok");
+      toast(`${list.length} ta rasm tanlandi — saqlaganda yuklanadi`);
+      renderApPreviews();
+      renderApLive();
+      return;
+    }
+
+    for (const file of list) {
+      const slot = AP_SLOTS.find((s) => !AP[s] && !APU[s] && !APROG[s]);
+      if (!slot) {
+        toast("Maksimum 3 ta rasm");
+        break;
+      }
+
+      // Fayl oldindan ko'rish uchun saqlanadi, foiz ham shu yerda.
+      AP[slot] = file;
+      APROG[slot] = { pct: 0, phase: "siqish", error: null };
+      renderApPreviews();
+
+      try {
+        const res = await up.uploadFile(file, (pct, phase) => {
+          APROG[slot] = { pct: pct, phase: phase, error: null };
+          renderApPreviews();
+        });
+
+        // Havola maydonga TUSHADI — Avto_A1 dagi kabi.
+        APU[slot] = res.url;
+        AP[slot] = null; // Render'ga qayta yuklash KERAK EMAS
+        APROG[slot] = null;
+        const input = $(AP_INPUTS[AP_SLOTS.indexOf(slot)]);
+        if (input) input.value = res.url;
+        haptic("light");
+      } catch (err) {
+        AP[slot] = null;
+        APROG[slot] = null;
+        const msg = (err && err.message) || "Rasm yuklanmadi";
+        toast(`⚠️ ${msg}`);
+      }
+      renderApPreviews();
+      renderApLive();
+    }
+
     haptic("ok");
-    toast(`${list.length} ta rasm tanlandi — saqlaganda yuklanadi`);
     renderApPreviews();
     renderApLive();
   }
@@ -1250,33 +1320,45 @@ window.ZimmerAdmin = (function () {
     const box = $("ap-previews");
     if (!box) return;
     box.innerHTML = "";
-    ["photo", "photo2", "photo3"].forEach((slot, i) => {
+    AP_SLOTS.forEach((slot, i) => {
       const file = AP[slot];
       const url = APU[slot];
-      if (!file && !url) return;
+      const prog = APROG[slot];
+      if (!file && !url && !prog) return;
+
       const cell = el("div", "ap-prev");
       if (file) {
         const img = el("img");
         img.src = URL.createObjectURL(file);
         img.onload = () => URL.revokeObjectURL(img.src);
         cell.append(img);
-      } else {
+      } else if (url) {
         const img = el("img");
         img.src = url;
         img.onerror = () => (img.style.display = "none");
         cell.append(img);
       }
-      const del = el("button", "ap-prev-del", "✕");
-      del.onclick = () => {
-        AP[slot] = null;
-        APU[slot] = "";
-        const input = $(["ap-url1", "ap-url2", "ap-url3"][i]);
-        if (input) input.value = "";
-        haptic("light");
-        renderApPreviews();
-        renderApLive();
-      };
-      cell.append(del);
+
+      // Yuklanish foizi — rasm ustida (Avto_A1 dagi kabi).
+      if (prog) {
+        const label =
+          prog.phase === "siqish" ? "siqilmoqda" : prog.pct + "%";
+        cell.append(el("span", "ap-prev-prog", label));
+      } else {
+        const del = el("button", "ap-prev-del", "✕");
+        del.onclick = () => {
+          AP[slot] = null;
+          APU[slot] = "";
+          APROG[slot] = null;
+          const input = $(AP_INPUTS[i]);
+          if (input) input.value = "";
+          haptic("light");
+          renderApPreviews();
+          renderApLive();
+        };
+        cell.append(del);
+      }
+
       if (slot === "photo") cell.append(el("span", "ap-prev-main", "Asosiy"));
       box.append(cell);
     });
@@ -1451,6 +1533,7 @@ window.ZimmerAdmin = (function () {
 
       AP.photo = AP.photo2 = AP.photo3 = null;
       APU.photo = APU.photo2 = APU.photo3 = "";
+      APROG.photo = APROG.photo2 = APROG.photo3 = null;
       haptic("ok");
       toast("Tovar qo'shildi ✅");
       openInventory();
