@@ -405,11 +405,13 @@
     // Ilgari bu yerda `offlineBlocked()` turardi — ya'ni Render uxlaganda
     // admin umuman hech narsa qila olmasdi. Endi tovar qo'shish, narx va
     // qoldiqni o'zgartirish hamda buyurtmalarni boshqarish ishlaydi.
+    // TOVAR boshqaruvi HAR DOIM `ZimmerShop` (brauzerdan to'g'ridan
+    // `catalog/products` ga — Avto_A1 modeli). Render bor yoki yo'q,
+    // farqi yo'q: yagona manba, yagona dizayn, chalkashlik yo'q.
     if (page === "admin") {
-      if (S.offline && window.ZimmerAdminOffline) {
-        window.ZimmerAdminOffline.open();
+      if (window.ZimmerShop) {
+        window.ZimmerShop.open();
       } else if (window.ZimmerAdmin) {
-        if (window.ZimmerAdminOffline) window.ZimmerAdminOffline.close();
         window.ZimmerAdmin.open();
       }
     }
@@ -430,9 +432,8 @@
     // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz.
     // Zaxira rejimda boshqa panel ishlayotgani uchun avval o'shani so'raymiz.
     if (S.page === "admin") {
-      const offPanel = window.ZimmerAdminOffline;
-      if (offPanel && offPanel.isActive()) {
-        if (offPanel.back()) return;
+      if (window.ZimmerShop && window.ZimmerShop.isActive()) {
+        if (window.ZimmerShop.back()) return;
       } else if (window.ZimmerAdmin && window.ZimmerAdmin.back()) {
         return;
       }

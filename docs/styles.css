@@ -3473,3 +3473,134 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+
+/* ==========================================================================
+   TOVAR BOSHQARUVI (admin-shop.js) — Avto_A1 dizayni, Zimmer ranglari
+   ========================================================================== */
+.adm-form { padding-bottom: 8px; }
+
+/* Menyu hero kartalari */
+.shop-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+.shop-hero-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+  padding: 20px 16px; border-radius: var(--r-lg); cursor: pointer; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+}
+.shop-hero-card:active { transform: scale(0.97); }
+.shop-hero-add { background: linear-gradient(160deg, var(--gold-soft), rgba(255,255,255,0.02)); border-color: var(--gold-glow); }
+.shop-hero-ic { font-size: 26px; }
+.shop-hero-tx b { display: block; font-size: 15px; font-weight: 800; }
+.shop-hero-tx i { display: block; font-size: 11.5px; color: var(--muted); font-style: normal; margin-top: 2px; }
+
+/* Bo'lim kartasi */
+.admin-form-group {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 18px 16px; margin-bottom: 14px;
+}
+.apx-head { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
+.apx-ic {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; font-size: 17px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.05); color: var(--gold);
+}
+.apx-tx b { display: block; font-size: 14.5px; font-weight: 800; color: var(--text); }
+.apx-tx span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.apx-sub { font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: 0.3px; margin: 14px 0 9px; }
+
+/* Inputlar */
+.admin-input {
+  width: 100%; box-sizing: border-box; padding: 15px 16px; margin-bottom: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 14px; font-size: 15px; font-weight: 500; outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.admin-input:last-child { margin-bottom: 0; }
+.admin-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.admin-input::placeholder { color: var(--dim); font-weight: 400; }
+
+/* Yuklash zonasi */
+.apx-upload {
+  display: block; position: relative; cursor: pointer; text-align: center;
+  border: 1.5px dashed var(--gold-glow); border-radius: 16px; padding: 24px 16px;
+  background: var(--gold-soft); margin-bottom: 14px;
+}
+.apx-upload:active { transform: scale(0.985); }
+.apx-up-ic { font-size: 30px; margin-bottom: 8px; }
+.apx-up-t { color: var(--text); font-weight: 700; font-size: 14.5px; }
+.apx-up-s { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+
+/* Flash chegirma bloki */
+.apx-flash { background: rgba(255,45,58,0.05); border: 1px solid rgba(255,45,58,0.22); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+
+/* Eskiz va yuklash foizi */
+.shop-thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.img-thumb-wrap { position: relative; width: 78px; height: 78px; border-radius: 13px; overflow: hidden; border: 1px solid var(--line); }
+.img-thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-main-badge { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5px; font-weight: 800; padding: 2px; color: #1a1205; background: var(--gold); }
+.img-del { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 11px; cursor: pointer; }
+.up-prog { width: 78px; height: 78px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
+.up-prog .up-pct { font-size: 12px; font-weight: 800; color: var(--gold); z-index: 2; }
+.up-prog .up-bar { position: absolute; bottom: 0; left: 0; height: 4px; background: var(--gold); transition: width 0.2s; }
+
+/* Jonli ko'rinish */
+.live-preview-box .lp-card { display: flex; align-items: center; gap: 12px; background: var(--surface-2); border: 1px solid var(--gold-glow); border-radius: 16px; padding: 12px; }
+.lp-card img, .lp-noimg { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex-shrink: 0; background: var(--surface-3); }
+.lp-noimg { display: flex; align-items: center; justify-content: center; font-size: 26px; }
+.lp-name { font-weight: 800; color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lp-code { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.lp-price { color: var(--gold); font-weight: 800; font-size: 14px; margin-top: 4px; }
+.lp-off { color: var(--red); font-size: 11px; font-weight: 800; margin-left: 4px; }
+.lp-empty { text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--line); border-radius: 16px; padding: 18px; }
+
+/* Kategoriya / mashina chiplari */
+.shop-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-chip {
+  display: inline-block; background: var(--surface-2); border: 1px solid var(--line);
+  padding: 9px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  color: var(--text); cursor: pointer; transition: transform 0.15s, background 0.2s, border-color 0.2s;
+}
+.cat-chip:active { transform: scale(0.93); }
+.cat-chip.selected { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); font-weight: 800; }
+
+/* Footer tugmalari */
+.shop-footer { display: flex; flex-direction: column; gap: 10px; padding: 16px 0 6px; }
+.shop-del-btn { color: var(--red); border-color: rgba(255,45,58,0.4) !important; }
+
+/* Ombor: summary */
+.inv2-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 14px; }
+.inv2-stat { display: flex; flex-direction: column; align-items: center; padding: 12px 6px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.inv2-stat b { font-size: 19px; font-weight: 800; color: var(--text); line-height: 1; }
+.inv2-stat span { font-size: 10px; font-weight: 600; color: var(--muted); margin-top: 5px; }
+.inv2-stat-low b { color: var(--amber); }
+.inv2-stat-out b { color: var(--red); }
+
+/* Ombor: filtr */
+.shop-filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+.shop-fchip.selected { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
+
+/* Ombor: ommaviy amallar */
+.shop-bulk { background: var(--surface-2); border: 1px solid var(--gold-glow); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.shop-bulk-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.shop-bulk-top b { color: var(--gold); font-size: 12px; }
+.shop-bulk-top span { color: var(--muted); font-size: 11px; cursor: pointer; text-decoration: underline; }
+.shop-bulk-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Ombor: qatorlar */
+.shop-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.shop-item.shop-sel { background: var(--gold-soft); border-color: var(--gold); }
+.shop-check { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--gold); }
+.adm-thumb { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--surface-3); }
+.adm-thumb-empty { width: 46px; height: 46px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: var(--surface-3); flex-shrink: 0; }
+.shop-item-mid { flex: 1; min-width: 0; }
+.shop-item-mid b { display: block; font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shop-item-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.shop-item-act { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.inv-code { font-size: 10px; color: var(--muted); background: rgba(140,140,150,0.16); padding: 2px 7px; border-radius: 6px; margin-left: 6px; }
+.inv-flag { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px; margin-left: 6px; }
+.inv-flag-low { color: #b9740a; background: rgba(255,159,10,0.18); }
+.inv-flag-out { color: #d63b30; background: rgba(255,69,58,0.16); }
+.inv-input { width: 52px; height: 36px; text-align: center; border-radius: 11px; font-size: 14px; font-weight: 700; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); outline: none; }
+.inv-input:focus { border-color: var(--gold); }
+.inv-btn { padding: 9px 13px; border-radius: 11px; border: none; background: var(--gold); color: #1a1205; font-weight: 800; cursor: pointer; }
+.inv-btn:active { transform: scale(0.93); }
