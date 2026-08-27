@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=48">
+  <link rel="stylesheet" href="styles.css?v=49">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -196,6 +196,37 @@
       <button class="btn btn-primary" id="order-submit">Rasmiylashtirish →</button>
     </div>
   </div>
+</section>
+
+<!-- ==========================================================================
+     RASMIYLASHTIRISH — ALOHIDA TO'LIQ EKRANLI OYNA (uch qadam)
+
+     NEGA ALOHIDA BO'LIM
+     Ilgari bu oqim pastdan chiqadigan panelda (`#sheet`) edi: ism/telefon,
+     yetkazib berish va to'lov bitta 88vh balandlikdagi oynachaga sig'ardi.
+     Muammolari:
+       * uzun forma (BTS filiallari, xarita, karta rekvizitlari) ichida
+         IKKI QATLAM skroll bo'lib qolardi — panel ham, sahifa ham surilardi;
+       * qadamlar orasida qaytish YO'Q edi: «orqaga» panelni butunlay yopib,
+         tanlangan manzil va usul yo'qolardi;
+       * mijoz qaysi qadamda turganini va nechta qadam qolganini ko'rmasdi.
+
+     Endi bu `#home` / `#cart` kabi to'liq ekranli ALOHIDA bo'lim: tepada
+     sarlavha va qadam ko'rsatkichi, «‹» bir qadam orqaga, «✕» savatga
+     qaytaradi. Pastdagi suzuvchi navbar yashiriladi — oyna to'liq ekran.
+     ========================================================================== -->
+<section id="checkout" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="co-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="co-title">Rasmiylashtirish</div>
+      <div class="topbar-sub" id="co-sub">1-qadam / 3</div>
+    </div>
+    <button class="icon-btn ghost" id="co-close" aria-label="Savatga qaytish">✕</button>
+  </header>
+  <!-- Qadam ko'rsatkichi (bajarilganiga qaytish uchun bosiladi) -->
+  <div class="co-rail" id="co-steps"></div>
+  <div class="pad" id="co-body"></div>
 </section>
 
 <!-- ==================== KABINET ==================== -->
@@ -412,26 +443,26 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=48"></script>
+<script src="config.js?v=49"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=48"></script>
+<script src="js/fb.js?v=49"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=48"></script>
-<script src="js/offline.js?v=48"></script>
-<script src="js/headlight.js?v=48"></script>
-<script src="js/cars.js?v=48"></script>
+<script src="js/upload.js?v=49"></script>
+<script src="js/offline.js?v=49"></script>
+<script src="js/headlight.js?v=49"></script>
+<script src="js/cars.js?v=49"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=48"></script>
+<script src="js/bts.js?v=49"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=48"></script>
+<script src="js/admin.js?v=49"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=48"></script>
+<script src="js/admin-shop.js?v=49"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=48"></script>
-<script src="js/app.js?v=48"></script>
+<script src="js/admin-crm.js?v=49"></script>
+<script src="js/app.js?v=49"></script>
 </body>
 </html>

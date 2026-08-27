@@ -4605,3 +4605,157 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .crm-cust-tel:active,
   .crm-search-x:active { transform: none; }
 }
+
+
+/* ==========================================================================
+   RASMIYLASHTIRISH OYNASI (#checkout)
+
+   Ilgari bu oqim pastdan chiqadigan `#sheet` panelida edi (max-height: 88vh).
+   Endi to'liq ekranli alohida bo'lim: tepada qadam ko'rsatkichi, pastda
+   navbar yo'q. `.dlv-*`, `.pay-*`, `.bank-*`, `.field`, `.step-sub` klasslari
+   O'ZGARMAGAN — ular panelga bog'liq emas edi, shuning uchun forma ko'rinishi
+   xuddi avvalgidek qoladi, faqat endi bitta qatlam skroll bo'ladi.
+
+   Qoidalar (fayl boshidagi kelishuv): blur va backdrop-filter YO'Q,
+   animatsiyalar bir martalik, prefers-reduced-motion hurmat qilinadi.
+   ========================================================================== */
+
+/* Navbar bu oynada yashiringan — pastdagi bo'sh joy kamaytiriladi */
+#checkout { padding-bottom: calc(28px + var(--safe-b)); }
+
+/* --------------------------------------------------- qadam ko'rsatkichi */
+.co-rail {
+  display: flex;
+  align-items: flex-start;
+  padding: 15px 16px 6px;
+}
+.co-node {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-family: inherit;
+  cursor: default;
+}
+.co-node.is-done { cursor: pointer; }
+.co-node.is-done:active { transform: scale(0.95); }
+
+/* Nuqtalarni bog'lovchi chiziq. O'tilgan yo'l yashil bo'ladi — mijoz
+   qancha qadam qolganini bir qarashda ko'radi. */
+.co-node::before,
+.co-node::after {
+  content: "";
+  position: absolute;
+  top: 15px;
+  height: 2px;
+  background: var(--line-2);
+}
+.co-node::before { left: 0; right: 50%; margin-right: 19px; }
+.co-node::after { left: 50%; right: 0; margin-left: 19px; }
+.co-node:first-child::before,
+.co-node:last-child::after { display: none; }
+.co-node.is-done::before,
+.co-node.is-done::after,
+.co-node.is-now::before { background: var(--green); }
+
+.co-node i {
+  position: relative;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  font-style: normal;
+  font-size: 14px;
+}
+.co-node span {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+/* joriy qadam — qizil, yumshoq halqa bilan (box-shadow, blur emas) */
+.co-node.is-now i {
+  background: var(--red-grad);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 45, 58, 0.14);
+}
+.co-node.is-now span { color: var(--text); }
+/* bajarilgan qadam — yashil, bosiladi */
+.co-node.is-done i {
+  background: rgba(47, 212, 95, 0.14);
+  border-color: rgba(47, 212, 95, 0.4);
+  color: var(--green);
+}
+.co-node.is-done span { color: var(--muted); }
+
+/* ------------------------------------------------------ savat xulosasi */
+.co-sum {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 14px;
+  margin: 12px 0 16px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  animation: coIn 0.32s var(--silk) both;
+}
+.co-sum-ic { flex: none; font-size: 20px; }
+.co-sum-tx { flex: 1; min-width: 0; }
+.co-sum-tx b { display: block; font-size: 13.5px; font-weight: 700; }
+.co-sum-tx i {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.co-sum em {
+  flex: none;
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------- to'lov qadamidagi yetkazib berish eslatmasi */
+.co-recap {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 13px;
+  margin: 12px 0 14px;
+  border-radius: var(--r-md);
+  background: rgba(47, 212, 95, 0.07);
+  border: 1px solid rgba(47, 212, 95, 0.22);
+  font-size: 12px;
+  line-height: 1.45;
+  animation: coIn 0.32s var(--silk) both;
+}
+.co-recap span { flex: none; font-size: 15px; line-height: 1.2; }
+/* `summary` ichida xarita havolasi yangi qatordan keladi */
+.co-recap b { font-weight: 600; color: #cfe9d6; white-space: pre-line; }
+
+/* Qadamning asosiy tugmasi */
+.co-cta { margin-top: 16px; }
+
+@keyframes coIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .co-sum,
+  .co-recap { animation: none; }
+  .co-node.is-done:active { transform: none; }
+}
