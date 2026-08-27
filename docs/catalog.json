@@ -51,71 +51,12 @@
    "count": 1,
    "items": [
     {
-     "id": 1,
-     "heading": "Fara qanday ochiladi?",
-     "body": "Fara ehtiyotkorlik bilan pechda ochiladi, ichi tozalanadi, linza markazlab o'rnatiladi va qayta germetizatsiya qilinadi. Butun jarayon 2-3 soat.",
+     "id": 6,
+     "heading": "Bi led",
+     "body": "",
      "emoji": "🔧",
-     "color_from": "#ff6b3d",
-     "color_to": "#3a0f00",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    }
-   ]
-  },
-  {
-   "key": "mijozlar",
-   "title": "Mijozlar",
-   "emoji": "💬",
-   "color_from": "#e01020",
-   "color_to": "#2a0006",
-   "count": 1,
-   "items": [
-    {
-     "id": 4,
-     "heading": "Gentra egasi, Toshkent",
-     "body": "«Aozoom A5+ o'rnatdim. Kechasi yo'lni ko'rish butunlay boshqacha bo'ldi, ochki ham juda chiroyli chiqdi.»",
-     "emoji": "💬",
-     "color_from": "#e01020",
-     "color_to": "#2a0006",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    }
-   ]
-  },
-  {
-   "key": "natijalar",
-   "title": "Natijalar",
-   "emoji": "🏆",
-   "color_from": "#ff4b3e",
-   "color_to": "#1a0508",
-   "count": 2,
-   "items": [
-    {
-     "id": 2,
-     "heading": "Kechasi farq juda katta",
-     "body": "Bi-LED yorug'ligi aniq chegara bilan tushadi — qarshi haydovchini qamashtirmaydi, lekin yo'l kunduzdek ko'rinadi.",
-     "emoji": "✨",
-     "color_from": "#ff4b3e",
-     "color_to": "#1a0508",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    },
-    {
-     "id": 3,
-     "heading": "Bajarilgan ishlar",
-     "body": "Mijozlarimiz mashinalarida bajarilgan ishlar. Videoni bot orqali yuklaysiz: /admin -> Stories -> Video.",
-     "emoji": "🏆",
-     "color_from": "#ff4b3e",
-     "color_to": "#1a0508",
+     "color_from": "#ff3b30",
+     "color_to": "#7a0010",
      "photo_url": null,
      "photo_external": false,
      "video_url": null,
@@ -130,12 +71,38 @@
    "emoji": "🛡",
    "color_from": "#c1121f",
    "color_to": "#101215",
-   "count": 1,
+   "count": 3,
    "items": [
     {
-     "id": 5,
-     "heading": "1 yil kafolat",
-     "body": "Barcha linzalarga kafolat beriladi. Muammo chiqsa — bepul tekshirib, kerak bo'lsa almashtiramiz.",
+     "id": 7,
+     "heading": "Kafolat",
+     "body": "",
+     "emoji": "🛡",
+     "color_from": "#c1121f",
+     "color_to": "#101215",
+     "photo_url": null,
+     "photo_external": false,
+     "video_url": null,
+     "video_external": true,
+     "has_media": false
+    },
+    {
+     "id": 8,
+     "heading": "Kafolat",
+     "body": "",
+     "emoji": "🛡",
+     "color_from": "#c1121f",
+     "color_to": "#101215",
+     "photo_url": null,
+     "photo_external": false,
+     "video_url": null,
+     "video_external": true,
+     "has_media": false
+    },
+    {
+     "id": 10,
+     "heading": "Kafolat",
+     "body": "",
      "emoji": "🛡",
      "color_from": "#c1121f",
      "color_to": "#101215",
@@ -150,185 +117,118 @@
  ],
  "catalog": [
   {
-   "id": 3,
-   "name": "Fara uchun materiallar",
-   "icon": "🧰",
-   "products": [
-    {
-     "id": 9,
-     "name": "Nexia 2 fara shishasi",
-     "description": "Original o'lchamda, shaffof",
-     "price": 480000,
-     "old_price": null,
-     "badge": null,
-     "stock": 6,
-     "car_id": 2,
-     "price_label": "480 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    },
-    {
-     "id": 8,
-     "name": "Polirovka to'plami",
-     "description": "Pasta + doska, faralarni tiklash uchun",
-     "price": 150000,
-     "old_price": null,
-     "badge": null,
-     "stock": 15,
-     "car_id": null,
-     "price_label": "150 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    },
-    {
-     "id": 7,
-     "name": "Fara germetigi (qora)",
-     "description": "Issiqqa chidamli, 310 ml",
-     "price": 85000,
-     "old_price": null,
-     "badge": null,
-     "stock": 40,
-     "car_id": null,
-     "price_label": "85 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    }
-   ]
-  },
-  {
-   "id": 2,
-   "name": "DRL va lentalar",
-   "icon": "🔆",
-   "products": [
-    {
-     "id": 6,
-     "name": "Gentra DRL bamper lentasi",
-     "description": "Bamperga o'rnatiladigan to'plam",
-     "price": 260000,
-     "old_price": null,
-     "badge": null,
-     "stock": 8,
-     "car_id": 1,
-     "price_label": "260 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    },
-    {
-     "id": 5,
-     "name": "DRL lenta COB (2 dona)",
-     "description": "Kunduzgi yurish chirog'i, egiluvchan",
-     "price": 180000,
-     "old_price": 220000,
-     "badge": null,
-     "stock": 30,
-     "car_id": null,
-     "price_label": "180 000 so'm",
-     "old_price_label": "220 000 so'm",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    }
-   ]
-  },
-  {
    "id": 1,
    "name": "Lampalar",
    "icon": "💡",
    "products": [
     {
-     "id": 4,
-     "name": "Nexia 2 uchun H4 to'plami",
-     "description": "Nexia 2 fara korpusiga mos, uzaytirgich bilan",
-     "price": 390000,
-     "old_price": null,
-     "badge": "Mos keladi",
-     "stock": 12,
-     "car_id": 2,
-     "price_label": "390 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    },
-    {
-     "id": 3,
-     "name": "Gentra uchun H4 to'plami",
-     "description": "Gentra faralariga aynan mos, adapter bilan",
-     "price": 420000,
-     "old_price": null,
-     "badge": "Mos keladi",
-     "stock": 10,
-     "car_id": 1,
-     "price_label": "420 000 so'm",
-     "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false,
-     "images": []
-    },
-    {
-     "id": 2,
-     "name": "LED lampa H7 (juft)",
-     "description": "6000K, CANBUS bilan",
-     "price": 300000,
+     "id": 900004,
+     "name": "Hhh",
+     "description": "🛡 1 yil kafolat beriladi.",
+     "price": 2000,
      "old_price": null,
      "badge": null,
-     "stock": 18,
+     "stock": 9,
      "car_id": null,
-     "price_label": "300 000 so'm",
+     "price_label": "2 000 so'm",
      "old_price_label": null,
-     "photo_url": null,
-     "photo_external": false,
+     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
+     "photo_external": true,
      "video_url": null,
      "video_external": true,
-     "has_media": false,
-     "images": []
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
+     ]
     },
     {
-     "id": 1,
-     "name": "LED lampa H4 (juft)",
-     "description": "6000K, radiatorli sovutish, 12V",
-     "price": 320000,
-     "old_price": 380000,
-     "badge": "Chegirma",
-     "stock": 24,
+     "id": 900003,
+     "name": "2ttt",
+     "description": "Rr\n✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 120000,
+     "old_price": 1200000,
+     "badge": "Top",
+     "stock": 10,
      "car_id": null,
-     "price_label": "320 000 so'm",
-     "old_price_label": "380 000 so'm",
-     "photo_url": null,
-     "photo_external": false,
+     "price_label": "120 000 so'm",
+     "old_price_label": "1 200 000 so'm",
+     "photo_url": "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg",
+     "photo_external": true,
      "video_url": null,
      "video_external": true,
-     "has_media": false,
-     "images": []
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg"
+     ]
+    },
+    {
+     "id": 12,
+     "name": "Hhh",
+     "description": "🛡 1 yil kafolat beriladi.",
+     "price": 2000,
+     "old_price": null,
+     "badge": null,
+     "stock": 9,
+     "car_id": null,
+     "price_label": "2 000 so'm",
+     "old_price_label": null,
+     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
+     ]
+    },
+    {
+     "id": 11,
+     "name": "2ttt",
+     "description": "Rr\n✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 120000,
+     "old_price": 1200000,
+     "badge": "Top",
+     "stock": 10,
+     "car_id": 1,
+     "price_label": "120 000 so'm",
+     "old_price_label": "1 200 000 so'm",
+     "photo_url": "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "name": "Boshqa",
+   "icon": null,
+   "products": [
+    {
+     "id": 10,
+     "name": "Kor kade",
+     "description": "Daxshat\n🛡 1 yil kafolat beriladi.\n🚚 Toshkent bo'ylab yetkazib berish mavjud.\n🔧 O'rnatish xizmati mavjud.\n💡 Yorug'lik harorati 5500K — kunduzgi oq nur.",
+     "price": 94500,
+     "old_price": 150000,
+     "badge": "Eng zoʻri",
+     "stock": 8,
+     "car_id": null,
+     "price_label": "94 500 so'm",
+     "old_price_label": "150 000 so'm",
+     "photo_url": "https://i.ibb.co/N2x22Gzw/417a19d6b843.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/N2x22Gzw/417a19d6b843.jpg",
+      "https://i.ibb.co/RGf7GGnM/51540474e13b.jpg",
+      "https://i.ibb.co/3YRgPq93/6eeb809b5034.jpg"
+     ]
     }
    ]
   }
@@ -350,8 +250,24 @@
    "note": "Daewoo Nexia 2 (DOHC / SOHC)",
    "photo_url": null,
    "has_media": false
+  },
+  {
+   "id": 3,
+   "name": "Kobalt",
+   "years": "2013 2026",
+   "note": "Chevrolet. Ravon",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 4,
+   "name": "Lasseti",
+   "years": "2006 2013",
+   "note": "Chevrolet daewoo",
+   "photo_url": null,
+   "has_media": false
   }
  ],
- "_source": "seed",
+ "_source": "firebase",
  "_snapshot": true
 }
