@@ -61,6 +61,7 @@
     booking: { service: null, date: null },
     delivery: null, // {method, address, summary}
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
+    coStep: 1, // rasmiylashtirish oynasidagi qadam: 1 | 2 | 3
     pay: {}, // karta rekvizitlari (/api/config dan)
     // Zaxira rejim: server javob bermaydi, katalog Firebase'dan o'qilgan.
     // Bu holatda faqat KO'RISH mumkin — buyurtma/navbat bloklanadi.
@@ -245,6 +246,55 @@
     }
   }
 
+  /** Ism va telefonni saqlaydi va `S.me` ni yangilaydi.
+   *
+   *  IKKI joyda ishlatiladi: pastdan chiqadigan profil paneli
+   *  (`openPhoneSheet` — profilni tahrirlash va to'siq ekrani) hamda
+   *  rasmiylashtirish oynasining 1-qadami. Ilgari bu mantiq faqat panel
+   *  ichida edi; oyna uchun nusxa yozilsa, ertaga saqlash yo'li o'zgarganda
+   *  bittasi eskirib qolardi. */
+  async function persistContact(fullName, value) {
+    if (!S.me) S.me = {};
+    // Zaxira rejimda profil Worker orqali Firebase'ga yoziladi.
+    // Bot ko'tarilganda `sync.restore_users()` uni SQLite ga tiklaydi —
+    // ya'ni Render o'chgan paytda ro'yxatdan o'tgan mijoz YO'QOLMAYDI.
+    const res = S.offline
+      ? await saveProfileOffline(fullName, value)
+      : await api("/api/register", {
+          method: "POST",
+          body: { full_name: fullName, phone: value },
+        });
+    S.me.full_name = res.full_name;
+    S.me.phone = res.phone;
+    S.me.needs_phone = false;
+    if (S.offline) saveMe(S.me);
+    return res;
+  }
+
+  /** «📱 Telegram raqamimni yuborish» tugmasini ko'rsatilgan maydonga ulaydi. */
+  function wireRequestContact(btnId, inputId) {
+    const btn = $(btnId);
+    if (!btn) return;
+    btn.onclick = () => {
+      haptic();
+      if (tg && typeof tg.requestContact === "function") {
+        try {
+          tg.requestContact((granted, response) => {
+            if (!granted) return toast("Raqam ulashilmadi — qo'lda kiritishingiz mumkin");
+            const got = extractPhone(response);
+            if (!got) return toast("Raqamni qo'lda kiritib, davom etishni bosing");
+            const input = $(inputId);
+            if (input) input.value = got;
+            haptic("ok");
+            toast("Raqam olindi ✅");
+          });
+          return;
+        } catch (_) {}
+      }
+      toast("Telegram versiyasi qo'llamaydi — raqamni qo'lda kiriting");
+    };
+  }
+
   function openPhoneSheet(onSaved) {
     const name = (S.me && S.me.full_name) || "";
     const phone = (S.me && S.me.phone) || "";
@@ -263,26 +313,7 @@
          Saqlash va davom etish</button>`
     );
 
-    $("reg-contact").onclick = () => {
-      haptic();
-      if (tg && typeof tg.requestContact === "function") {
-        try {
-          tg.requestContact((granted, response) => {
-            if (!granted) return toast("Raqam ulashilmadi — qo'lda kiritishingiz mumkin");
-            const got = extractPhone(response);
-            if (got) {
-              $("reg-phone").value = got;
-              haptic("ok");
-              toast("Raqam olindi ✅");
-            } else {
-              toast("Raqamni qo'lda kiritib, Saqlashni bosing");
-            }
-          });
-          return;
-        } catch (_) {}
-      }
-      toast("Telegram versiyasi qo'llamaydi — raqamni qo'lda kiriting");
-    };
+    wireRequestContact("reg-contact", "reg-phone");
 
     $("reg-save").onclick = async () => {
       const btn = $("reg-save");
@@ -294,19 +325,7 @@
       btn.disabled = true;
       btn.textContent = "Saqlanmoqda...";
       try {
-        // Zaxira rejimda profil Worker orqali Firebase'ga yoziladi.
-        // Bot ko'tarilganda `sync.restore_users()` uni SQLite ga tiklaydi —
-        // ya'ni Render o'chgan paytda ro'yxatdan o'tgan mijoz YO'QOLMAYDI.
-        const res = S.offline
-          ? await saveProfileOffline(fullName, value)
-          : await api("/api/register", {
-              method: "POST",
-              body: { full_name: fullName, phone: value },
-            });
-        S.me.full_name = res.full_name;
-        S.me.phone = res.phone;
-        S.me.needs_phone = false;
-        if (S.offline) saveMe(S.me);
+        await persistContact(fullName, value);
         haptic("ok");
         closeSheet();
         toast("Rahmat! Ma'lumotlar saqlandi ✅");
@@ -394,13 +413,19 @@
 
   /* ---------------------------------------------------------- navigatsiya */
   function show(page) {
-    ["splash", "gate", "flow", "home", "cart", "saved", "profile", "admin"].forEach((p) => {
-      const node = $(p);
-      if (node) node.classList.toggle("hidden", p !== page);
-    });
+    ["splash", "gate", "flow", "home", "cart", "saved", "profile", "admin", "checkout"].forEach(
+      (p) => {
+        const node = $(p);
+        if (node) node.classList.toggle("hidden", p !== page);
+      }
+    );
     S.page = page;
 
-    // konfiguratorda o'zining sticky CTA'si bor — navbar yashiriladi
+    // Konfiguratorda o'zining sticky CTA'si bor — navbar yashiriladi.
+    // Rasmiylashtirish oynasi ham navbarsiz: u to'liq ekranli oyna va
+    // o'zining «‹ orqaga» hamda «✕ yopish» tugmalari bor. Navbar tursa,
+    // mijoz oqim o'rtasida boshqa bo'limga sakrab, tanlagan manzilini
+    // yo'qotardi.
     const navVisible = ["home", "cart", "saved", "profile", "admin"].includes(page) && S.me;
     $("nav").classList.toggle("hidden", !navVisible);
     document
@@ -413,6 +438,7 @@
       refreshCart();
       animateCartTotal(); // jami summa 0 dan count-up bo'ladi
     }
+    if (page === "checkout") renderCheckout();
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
     // Boshqaruv paneli: ONLINE bo'lsa to'liq panel (`admin.js`, Render),
@@ -439,7 +465,8 @@
   function syncBackButton() {
     if (!tg || !tg.BackButton) return;
     const need =
-      (S.page === "flow" && S.step > 1) || ["cart", "saved", "profile"].includes(S.page);
+      (S.page === "flow" && S.step > 1) ||
+      ["cart", "saved", "profile", "checkout"].includes(S.page);
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
   }
@@ -453,6 +480,14 @@
       } else if (window.ZimmerAdmin && window.ZimmerAdmin.back()) {
         return;
       }
+    }
+    /* Rasmiylashtirish oynasi ko'p qadamli: «orqaga» avval QADAM bo'yicha
+       qaytaradi va faqat birinchi qadamda savatga chiqaradi. Ilgari (pastdan
+       chiqadigan panelda) orqaga bosilishi butun oqimni yopib, tanlangan
+       manzil va usulni yo'qotardi. */
+    if (S.page === "checkout") {
+      if (S.coStep > 1) return coGo(S.coStep - 1);
+      return show("cart");
     }
     if (S.page === "flow" && S.step > 1) return setStep(S.step - 1);
     if (S.page !== "home") return show("home");
@@ -2163,7 +2198,7 @@
 
   const dcity = () => (S.pay && S.pay.city) || "Toshkent";
 
-  /** "Rasmiylashtirish" tugmasi: avval yetkazib berish usulini so'raymiz. */
+  /** "Rasmiylashtirish" tugmasi: to'liq ekranli oynani ochadi. */
   function startCheckout() {
     if (!S.cart.length) return toast("Savatcha bo'sh");
     // Oxirgi tekshiruv: savatdagi tovar hali sotuvdami, narxi o'zgarmadimi.
@@ -2176,18 +2211,142 @@
       renderCart();
       return toast("ℹ️ Narx yangilandi — tekshirib, qaytadan bosing", 4000);
     }
-    // Telefon profilda bo'lmasa — bir marta so'raymiz, keyin davom etamiz
-    if (!S.me || !S.me.phone) return openPhoneSheet(startCheckout);
+    /* Telefonni bu yerda TEKSHIRMAYMIZ — u endi oynaning 1-qadami.
+       Ilgari `openPhoneSheet(startCheckout)` chaqirilardi va mijoz raqamini
+       oqim ichida ko'rib-o'zgartira olmasdi. */
     S.delivery = null;
     S.dlvMethod = null;
+    S.coStep = 1;
     haptic();
-    openDeliverySheet();
+    show("checkout");
   }
 
-  /* --------------------------------------------------------- yetkazib berish */
-  function openDeliverySheet() {
-    openSheet(
-      "🚚 Yetkazib berish",
+  /* ==================================================================
+     RASMIYLASHTIRISH OYNASI — UCH QADAM
+
+         1) Ma'lumot   2) Yetkazib berish   3) To'lov
+
+     Har qadam `#co-body` ichiga chiziladi, tepadagi ko'rsatkich
+     (`#co-steps`) qaysi qadamda turganini bildiradi. BAJARILGAN qadamga
+     bosib qaytish mumkin; oldinga sakrab o'tish mumkin emas — har qadam
+     o'zining tasdiqlashi bilan o'tadi (manzilsiz to'lovga o'tib bo'lmaydi).
+     ================================================================== */
+
+  const CO_STEPS = [
+    { n: 1, icon: "👤", label: "Ma'lumot", title: "Ma'lumotlaringiz" },
+    { n: 2, icon: "🚚", label: "Yetkazish", title: "Yetkazib berish" },
+    { n: 3, icon: "💳", label: "To'lov", title: "To'lov" },
+  ];
+
+  /** Qadamga o'tadi va oynani qayta chizadi. */
+  function coGo(step) {
+    S.coStep = Math.min(Math.max(Number(step) || 1, 1), CO_STEPS.length);
+    renderCheckout();
+  }
+
+  /** Savat xulosasi — har qadamda tepada turadi, shunda mijoz nima uchun
+   *  qancha to'layotganini ko'zdan qochirmaydi. */
+  function coSummary() {
+    const count = S.cart.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    return (
+      '<div class="co-sum">' +
+      '<span class="co-sum-ic">🧺</span>' +
+      '<span class="co-sum-tx"><b>' +
+      count +
+      " ta mahsulot</b><i>Savatchadagi buyurtma</i></span>" +
+      "<em>" +
+      esc(fmt(cartSum())) +
+      "</em>" +
+      "</div>"
+    );
+  }
+
+  function renderCheckout() {
+    /* Savat bo'shab qolsa (buyurtma yuborildi yoki oxirgi tovar o'chirildi)
+       bu oynada turishning ma'nosi yo'q — savatga qaytaramiz. */
+    if (!S.cart.length) return show("cart");
+
+    const step = CO_STEPS[S.coStep - 1] || CO_STEPS[0];
+    $("co-title").textContent = step.title;
+    $("co-sub").textContent = step.n + "-qadam / " + CO_STEPS.length;
+
+    // ---- qadam ko'rsatkichi
+    $("co-steps").innerHTML = CO_STEPS.map((s) => {
+      const state = s.n < S.coStep ? " is-done" : s.n === S.coStep ? " is-now" : "";
+      return (
+        '<button class="co-node' + state + '" data-step="' + s.n + '">' +
+        "<i>" + (s.n < S.coStep ? "✓" : s.icon) + "</i>" +
+        "<span>" + esc(s.label) + "</span></button>"
+      );
+    }).join("");
+    document.querySelectorAll("#co-steps .co-node").forEach((node) => {
+      node.onclick = () => {
+        const n = parseInt(node.dataset.step, 10);
+        if (!n || n >= S.coStep) return; // faqat orqaga
+        haptic("light");
+        coGo(n);
+      };
+    });
+
+    if (S.coStep === 2) coStepDelivery();
+    else if (S.coStep === 3) coStepPayment();
+    else coStepContact();
+
+    window.scrollTo({ top: 0 });
+  }
+
+  /* ----------------------------------------------- 1-qadam: ma'lumotlar */
+  function coStepContact() {
+    const me = S.me || (S.me = {});
+    const name = me.full_name || "";
+    const phone = me.phone || "";
+
+    $("co-body").innerHTML =
+      coSummary() +
+      `<p class="step-sub">Buyurtma kim uchun va qaysi raqamga? Bir marta
+        kiritasiz — keyingi buyurtmalarda tayyor turadi.</p>
+       <label class="field"><span>👤 Ism va familiya</span>
+         <input id="co-name" value="${esc(name)}" placeholder="Anvarjon Axtamov"></label>
+       <label class="field"><span>📞 Telefon</span>
+         <input id="co-phone" type="tel" inputmode="tel" value="${esc(phone)}"
+                placeholder="+998901234567"></label>
+       <button class="btn btn-ghost" id="co-contact">📱 Telegram raqamimni yuborish</button>
+       <button class="btn btn-primary co-cta" id="co-next-1">Davom etish →</button>`;
+
+    wireRequestContact("co-contact", "co-phone");
+
+    $("co-next-1").onclick = async () => {
+      const btn = $("co-next-1");
+      const fullName = ($("co-name").value || "").trim();
+      const value = ($("co-phone").value || "").trim();
+      if (fullName.length < 2) return toast("Ismingizni kiriting");
+      if (value.replace(/\D/g, "").length < 9) return toast("Telefon raqamni to'liq kiriting");
+
+      // Hech narsa o'zgarmasa serverni bezovta qilmaymiz — darhol o'tamiz.
+      if (me.full_name === fullName && me.phone === value) {
+        haptic();
+        return coGo(2);
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Saqlanmoqda...";
+      try {
+        await persistContact(fullName, value);
+        haptic("ok");
+        renderPhoneWarn();
+        coGo(2);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Davom etish →";
+        onError(err);
+      }
+    };
+  }
+
+  /* ------------------------------------------ 2-qadam: yetkazib berish */
+  function coStepDelivery() {
+    $("co-body").innerHTML =
+      coSummary() +
       `<p class="step-sub">Buyurtmani qanday qabul qilmoqchisiz?</p>
        <div class="dlv-methods">
          <button class="dlv-card" id="dlv-courier">
@@ -2224,8 +2383,7 @@
          <div class="bts-info hidden" id="bts-info"></div>
        </div>
 
-       <button class="btn btn-primary" id="dlv-continue">To'lovga o'tish →</button>`
-    );
+       <button class="btn btn-primary co-cta" id="dlv-continue">To'lovga o'tish →</button>`;
 
     const B = window.BTS_BRANCHES || {};
     const regSel = $("bts-region");
@@ -2243,6 +2401,23 @@
     $("bts-district").onchange = btsDistrictChange;
     $("bts-branch").onchange = btsBranchChange;
     $("dlv-continue").onclick = confirmDelivery;
+
+    /* To'lov qadamidan orqaga qaytilsa — tanlangan usul va yozilgan manzil
+       joyida qoladi. Ilgari pastdan chiqadigan panel har ochilishida
+       toza chizilardi va mijoz manzilni QAYTA yozishga majbur bo'lardi. */
+    if (S.dlvMethod) {
+      pickDelivery(S.dlvMethod);
+      const box = $("dlv-address");
+      if (
+        box &&
+        S.dlvMethod === "courier" &&
+        S._dlvSelectedAddr === null &&
+        S.delivery &&
+        S.delivery.method === "courier"
+      ) {
+        box.value = S.delivery.address || "";
+      }
+    }
   }
 
   function pickDelivery(method) {
@@ -2356,15 +2531,23 @@
       };
     }
     haptic("medium");
-    openPaymentSheet();
+    coGo(3);
   }
 
-  /* ---------------------------------------------------------------- to'lov */
-  function openPaymentSheet() {
+  /* ------------------------------------------------- 3-qadam: to'lov */
+  function coStepPayment() {
     const sum = cartSum();
     const isBts = S.delivery && S.delivery.method === "bts";
-    openSheet(
-      "💳 To'lov",
+    $("co-body").innerHTML =
+      /* Tanlangan yetkazib berish usuli ko'rinib turadi — mijoz to'lash
+         oldidan qayerga kelishini yana bir bor tekshiradi. */
+      (S.delivery
+        ? '<div class="co-recap"><span>' +
+          (isBts ? "📦" : "🚖") +
+          "</span><b>" +
+          esc(S.delivery.summary || S.delivery.address || "") +
+          "</b></div>"
+        : "") +
       `<div class="pay-total">
          <div><small>To'lov summasi</small><b>${esc(fmt(sum))}</b></div>
          <span class="pay-total-ico">🛒</span>
@@ -2391,8 +2574,7 @@
              : ""
          }
        </div>
-       <div id="pay-detail" class="hidden"></div>`
-    );
+       <div id="pay-detail" class="hidden"></div>`;
     $("pay-card").onclick = () => showPayDetail("card");
     $("pay-app").onclick = () => showPayDetail("app");
     const cash = $("pay-cash");
@@ -2566,6 +2748,7 @@
         renderCart();
         S.delivery = null;
         S.dlvMethod = null;
+        S.coStep = 1; // rasmiylashtirish oynasi keyingi safar 1-qadamdan
         haptic("ok");
         closeSheet();
         burst();
@@ -3618,6 +3801,17 @@
   $("change-car").onclick = openCarSheet;
   $("order-submit").onclick = startCheckout;
 
+  /* Rasmiylashtirish oynasi: «‹» bir qadam orqaga (goBack o'zi hisoblaydi),
+     «✕» esa oqimni tashlab savatga qaytaradi. */
+  $("co-back").onclick = () => {
+    haptic();
+    goBack();
+  };
+  $("co-close").onclick = () => {
+    haptic();
+    show("cart");
+  };
+
   // Profil hub tugmalari
   $("pf-edit").onclick = () => openPhoneSheet(() => loadProfile());
   $("pf-contact").onclick = openContactSheet;
@@ -4382,6 +4576,7 @@
         renderCart();
         S.delivery = null;
         S.dlvMethod = null;
+        S.coStep = 1; // rasmiylashtirish oynasi keyingi safar 1-qadamdan
         haptic("ok");
         closeSheet();
         burst();
