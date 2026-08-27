@@ -45,6 +45,26 @@ window.ZIMMER_CONFIG = {
      ==================================================================== */
   WORKER_URL: "https://zimmer-worker.anvaraxtamov70.workers.dev",
 
+  /* ====================================================================
+     TELEFON GALEREYASIDAN RASM YUKLASH (ImgBB)
+
+     Admin panelda «Rasm yuklash» tugmasi ishlashi uchun shu kalit kerak.
+     Bepul olinadi: https://api.imgbb.com/ -> «Get API key» (ro'yxatdan
+     o'tish talab qilinadi, karta kerak emas, cheklovsiz bepul).
+
+     NEGA FIREBASE STORAGE EMAS: u 2026-yil 3-fevraldan pullik Blaze
+     tarifini talab qiladi (standart `*.appspot.com` bucket ham). Bepul
+     tarifda ishlamaydi.
+
+     Kalit bo'sh bo'lsa panel yiqilmaydi — «Rasm yuklash» tugmasi o'rniga
+     havola qo'yish maydoni ko'rsatiladi va nima qilish kerakligi aytiladi.
+
+     DIQQAT: bu kalit brauzerda ko'rinadi (Avto_A1 da ham shunday). Uni
+     bilgan odam sizning ImgBB akkauntingizga rasm yuklashi mumkin —
+     boshqa zarar yo'q, bazaga va do'konga ta'sir qilmaydi.
+     ==================================================================== */
+  IMGBB_KEY: "",
+
   // Zaxira rejimda narx yozuvlarini server'siz shakllantirish uchun
   // (`/api/config` javob bermaydi).
   CURRENCY: "so'm",
