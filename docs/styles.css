@@ -3904,3 +3904,704 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .ord-fchip.selected i { background: rgba(212, 168, 83, 0.22); color: var(--gold); }
 .ord-fchip:active { transform: scale(0.96); }
+
+
+/* ==========================================================================
+   MIJOZLAR BAZASI VA STATISTIKA (docs/js/admin-crm.js)
+
+   Avto_A1 dagi «Mijozlar Ro'yxati» va «Statistika» oynalarining Zimmer
+   qora-qizil temasidagi ko'rinishi. Gold aksent — pul va VIP uchun,
+   yashil — bugungi savdo, qizil — bekor qilingan.
+
+   ISHLASH QOIDALARI (fayl boshidagi kelishuvga muvofiq):
+     • `filter: blur()` va `backdrop-filter` YO'Q — yumshoq nur faqat
+       radial-gradient va box-shadow bilan;
+     • cheksiz animatsiya YO'Q — hamma kirish effektlari bir martalik;
+     • uzun ro'yxatlarda `content-visibility: auto` — ko'rinmayotgan
+       kartochkalar hisoblanmaydi (mijoz bazasi minglab bo'lishi mumkin);
+     • `prefers-reduced-motion` hurmat qilinadi (pastda).
+   ========================================================================== */
+
+/* ------------------------------------------------------- ogohlantirishlar */
+.crm-warn,
+.crm-alert {
+  border-radius: var(--r-md);
+  padding: 11px 13px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.crm-warn {
+  background: rgba(255, 176, 32, 0.09);
+  border: 1px solid rgba(255, 176, 32, 0.28);
+  color: #f5d9a4;
+}
+.crm-warn b { color: var(--amber); font-weight: 800; }
+.crm-alert {
+  background: linear-gradient(135deg, rgba(255, 75, 62, 0.16), rgba(138, 10, 20, 0.05));
+  border: 1px solid rgba(255, 45, 58, 0.32);
+  color: #ffd9d9;
+}
+.crm-alert b { color: #fff; font-weight: 800; }
+
+/* ------------------------------------------------ asosiy raqam (tushum) */
+.crm-hero {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  text-align: center;
+  padding: 22px 18px 20px;
+  margin-bottom: 10px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--gold-glow);
+  box-shadow: var(--shadow-card);
+  animation: crmIn 0.42s var(--silk) both;
+}
+/* Yumshoq gold nur — blur emas, oddiy radial-gradient (GPU uchun bepul). */
+.crm-hero::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  left: 50%;
+  width: 260px;
+  height: 260px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(212, 168, 83, 0.16), transparent 68%);
+  pointer-events: none;
+}
+.crm-hero-lb {
+  position: relative;
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.crm-hero b {
+  position: relative;
+  display: block;
+  margin-top: 9px;
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.crm-hero i {
+  position: relative;
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--dim);
+}
+
+/* ----------------------------------------------------- KPI kartochkalari */
+.crm-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.crm-kpi {
+  display: block;
+  text-align: center;
+  padding: 15px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  animation: crmIn 0.4s var(--silk) both;
+}
+.crm-kpi:nth-child(2) { animation-delay: 0.05s; }
+.crm-kpi-ic { display: block; font-size: 21px; line-height: 1; }
+.crm-kpi-lb {
+  display: block;
+  margin-top: 7px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.crm-kpi b {
+  display: block;
+  margin-top: 5px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.crm-kpi.is-green b { color: var(--green); }
+.crm-kpi.is-gold b { color: var(--gold); }
+.crm-kpi.is-green { border-color: rgba(47, 212, 95, 0.22); }
+.crm-kpi.is-gold { border-color: rgba(212, 168, 83, 0.22); }
+
+/* --------------------------------------------------- bitta qatorli raqam */
+.crm-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 9px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.crm-strip span { color: var(--muted); }
+.crm-strip span i { font-style: normal; color: var(--dim); font-size: 11px; }
+.crm-strip b {
+  flex: none;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.crm-strip b.is-gold { color: var(--gold); }
+.crm-strip b.is-red { color: var(--red); }
+
+/* ------------------------------------------------ bo'limlar kesimi (3 tur) */
+.crm-split {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 13px;
+  margin-bottom: 8px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.crm-split-ic {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 16px;
+}
+.crm-split-tx { flex: 1; min-width: 0; }
+.crm-split-tx b {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crm-split-tx i {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+}
+.crm-split em {
+  flex: none;
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------- davr tanlash (segment) */
+.crm-seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 11px;
+}
+.crm-seg-b {
+  padding: 9px 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.crm-seg-b.on {
+  background: var(--gold-soft);
+  border-color: var(--gold-glow);
+  color: var(--gold);
+}
+.crm-seg-b:active { transform: scale(0.97); }
+
+/* ------------------------------------------------------------- grafik */
+.crm-chart {
+  padding: 14px;
+  margin-bottom: 6px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.crm-chart-empty {
+  text-align: center;
+  padding: 22px 8px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+/* Tanlangan / eng yaxshi davr raqami — grafik ustida turadi */
+.crm-chart-read {
+  text-align: center;
+  padding-bottom: 13px;
+  margin-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.crm-chart-read b {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.crm-chart-read em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.crm-chart-read span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.crm-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 128px;
+}
+.crm-bar {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.crm-bar i {
+  display: block;
+  width: 100%;
+  height: var(--h, 0%);
+  min-height: 2px;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, rgba(212, 168, 83, 0.75), rgba(212, 168, 83, 0.14));
+  transform-origin: bottom;
+  animation: crmBar 0.5s var(--silk) both;
+}
+.crm-bar span {
+  display: block;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--dim);
+  letter-spacing: -0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Eng yaxshi davr — to'liq gold va yumshoq nur */
+.crm-bar.is-best i {
+  background: linear-gradient(180deg, var(--gold), rgba(212, 168, 83, 0.3));
+  box-shadow: 0 0 12px rgba(212, 168, 83, 0.4);
+}
+.crm-bar.is-best span { color: var(--gold); font-weight: 700; }
+/* Admin bosgan ustun — qizil aksent, gold bilan aralashmaydi */
+.crm-bar.on i {
+  background: linear-gradient(180deg, var(--red), rgba(255, 45, 58, 0.25));
+  box-shadow: 0 0 12px var(--red-glow);
+}
+.crm-bar.on span { color: var(--red); font-weight: 700; }
+.crm-bar:active i { opacity: 0.75; }
+
+.crm-chart-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.crm-chart-foot b {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------- qidiruv */
+.crm-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 11px;
+}
+.crm-search-ic {
+  position: absolute;
+  left: 13px;
+  font-size: 14px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.crm-search-in {
+  width: 100%;
+  padding: 12px 40px 12px 38px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+.crm-search-in::placeholder { color: var(--dim); }
+.crm-search-in:focus {
+  outline: none;
+  border-color: var(--gold-glow);
+  background: var(--surface-3);
+}
+.crm-search-x {
+  position: absolute;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.crm-search-x:active { transform: scale(0.9); }
+
+/* --------------------------------------------------- yuqoridagi xulosa */
+.crm-sum {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.crm-sum-b {
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.crm-sum-b b {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.crm-sum-b span {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+.crm-sum-b.is-gold { border-color: rgba(212, 168, 83, 0.22); }
+.crm-sum-b.is-gold b { color: var(--gold); font-size: 11.5px; }
+
+/* ----------------------------------------------------------- saralash */
+.crm-sortbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.crm-sortbar::-webkit-scrollbar { display: none; }
+.crm-sortbar > span {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+.crm-sort {
+  flex: none;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.crm-sort.on {
+  background: var(--gold-soft);
+  border-color: var(--gold-glow);
+  color: var(--gold);
+}
+.crm-sort:active { transform: scale(0.96); }
+
+/* ------------------------------------------------- mijoz kartochkasi */
+.crm-cust {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px;
+  margin-bottom: 9px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  /* Minglab mijoz bo'lishi mumkin — ko'rinmayotgani hisoblanmaydi */
+  content-visibility: auto;
+  contain-intrinsic-size: 92px;
+  animation: crmIn 0.34s var(--silk) both;
+}
+.crm-cust:active { transform: scale(0.985); }
+.crm-cust.is-vip { border-color: rgba(212, 168, 83, 0.3); background: var(--surface-2); }
+.crm-cust.is-cold { opacity: 0.72; }
+
+.crm-ava {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 800;
+}
+.crm-cust.is-buyer .crm-ava {
+  background: linear-gradient(140deg, rgba(255, 75, 62, 0.2), rgba(138, 10, 20, 0.06));
+  color: #ff8f86;
+}
+.crm-cust.is-vip .crm-ava,
+.crm-profile.is-vip .crm-ava {
+  background: linear-gradient(140deg, rgba(212, 168, 83, 0.32), rgba(212, 168, 83, 0.07));
+  color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold-glow);
+}
+.crm-ava.big {
+  width: 68px;
+  height: 68px;
+  border-radius: 22px;
+  font-size: 27px;
+}
+.crm-ava-crown {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1;
+}
+.crm-ava.big .crm-ava-crown { top: -8px; right: -8px; font-size: 18px; }
+
+.crm-cust-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.crm-cust-mid > b {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crm-cust-sub {
+  font-size: 10.5px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crm-cust-sub.is-dim { opacity: 0.7; }
+.crm-cust-tel {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.crm-cust-tel:active { transform: scale(0.94); }
+.crm-cust-car { font-size: 11px; color: var(--muted); }
+
+.crm-cust-right {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 40%;
+}
+.crm-cust-right > b {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--gold);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.crm-tag {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.crm-tag.is-done { background: rgba(47, 212, 95, 0.13); color: var(--green); }
+.crm-tag.is-run { background: rgba(255, 176, 32, 0.13); color: var(--amber); }
+.crm-cust-when { font-size: 9.5px; color: var(--dim); white-space: nowrap; }
+
+/* ------------------------------------------- ro'yxat oxiri / bo'shligi */
+.crm-more,
+.crm-end {
+  text-align: center;
+  padding: 16px 0 28px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.crm-more { color: var(--gold); opacity: 0.75; cursor: pointer; }
+.crm-end { color: var(--dim); font-weight: 600; }
+
+.crm-empty {
+  text-align: center;
+  padding: 34px 20px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+}
+.crm-empty-ic { font-size: 38px; opacity: 0.5; margin-bottom: 10px; }
+.crm-empty b { display: block; font-size: 14px; font-weight: 700; }
+.crm-empty p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------- bitta mijoz tafsiloti */
+.crm-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 22px 18px 18px;
+  margin-bottom: 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  animation: crmIn 0.4s var(--silk) both;
+}
+.crm-profile.is-vip { border-color: rgba(212, 168, 83, 0.3); }
+.crm-profile > b {
+  margin-top: 13px;
+  font-size: 18px;
+  font-weight: 800;
+}
+.crm-profile-sub { margin-top: 4px; font-size: 11.5px; color: var(--dim); }
+.crm-vip-tag {
+  margin-top: 9px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--gold-soft);
+  border: 1px solid var(--gold-glow);
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+.crm-profile-row { margin-top: 8px; font-size: 12.5px; color: var(--text); }
+.crm-profile-row.is-dim { color: var(--dim); font-size: 11px; line-height: 1.45; }
+
+.crm-acts { display: flex; gap: 8px; margin-top: 15px; width: 100%; }
+.crm-act {
+  flex: 1;
+  padding: 11px 10px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.crm-act.is-primary { background: var(--red-grad); border-color: transparent; color: #fff; }
+.crm-act:active { transform: scale(0.97); }
+
+/* Guruh sarlavhasidagi soni: «🛍 Do'kon buyurtmalari 3» */
+.adm-list-title i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 1px 7px;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+/* ------------------------------------------- menyu plitkalari aksenti */
+.shop-hero-cust .shop-hero-ic { color: var(--amber); }
+.shop-hero-stats .shop-hero-ic { color: var(--green); }
+
+/* ------------------------------------------------------- animatsiyalar */
+@keyframes crmIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes crmBar {
+  from { transform: scaleY(0); opacity: 0.4; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crm-hero,
+  .crm-kpi,
+  .crm-cust,
+  .crm-profile,
+  .crm-bar i { animation: none; }
+  .crm-cust:active,
+  .crm-act:active,
+  .crm-sort:active,
+  .crm-seg-b:active,
+  .crm-cust-tel:active,
+  .crm-search-x:active { transform: none; }
+}
