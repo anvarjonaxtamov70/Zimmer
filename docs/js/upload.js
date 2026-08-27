@@ -51,6 +51,42 @@ window.ZimmerUpload = (function () {
     return e;
   }
 
+  /** Brauzerga bo'yash imkonini beradi.
+   *
+   *  `drawImage` + `toDataURL` — SINXRON va og'ir amallar (telefonda 8 MP
+   *  rasm uchun 300-800 ms). Ular asosiy oqimni bloklaydi, ya'ni ulardan
+   *  OLDIN qo'yilgan «siqilmoqda…» yozuvi ekranga chiqmay qoladi va admin
+   *  hech qanday belgi ko'rmaydi. Shu sababli har og'ir qadamdan avval
+   *  brauzerga bir kadr bo'yash uchun navbat beramiz. */
+  function nextFrame() {
+    return new Promise(function (resolve) {
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () {
+          setTimeout(resolve, 0);
+        });
+      } else {
+        setTimeout(resolve, 16);
+      }
+    });
+  }
+
+  /** Faylni base64 ga o'giradi — SIQMASDAN (Avto_A1 dagi asl yo'l).
+   *  Bu `canvas` yiqilganda ishlatiladigan zaxira. */
+  function rawBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var out = String(reader.result || "").split(",")[1] || "";
+        if (!out) return reject(err("encode", "Fayl o'qilmadi"));
+        resolve(out);
+      };
+      reader.onerror = function () {
+        reject(err("encode", "Fayl o'qilmadi"));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   /* ------------------------------------------------------------ siqish */
 
   /** Faylni `ImageBitmap` ga aylantiradi, EXIF burilishini QO'LLAB. */
@@ -84,41 +120,65 @@ window.ZimmerUpload = (function () {
   /**
    * Rasmni kichraytirib JPEG base64 qaytaradi (prefiksisiz).
    * Telefon rasmi 3-8 MB dan ~150-350 KB ga tushadi.
+   *
+   * SIQISH YIQILSA — YUKLASHNI TO'XTATMAYMIZ. Eski Android WebView'da
+   * `createImageBitmap` yo'q, xotira kam bo'lsa `toDataURL` bo'sh satr
+   * qaytaradi, ba'zi qurilmalarda katta canvas umuman yaratilmaydi.
+   * Ilgari bunday holatda butun yuklash «Rasm siqilmadi» deb bekor
+   * bo'lardi. Endi asl fayl (siqilmagan) yuboriladi — sekinroq, lekin
+   * ADMIN ishini bajaradi.
    */
   async function compress(file) {
     if (!file) throw err("no_file", "Fayl tanlanmadi");
-    if (!/^image\//.test(file.type || "")) {
-      throw err("not_image", "Bu rasm fayli emas");
+    // Ba'zi galereyalar `type` ni bo'sh beradi — kengaytmaga ham qaraymiz.
+    var looksImage =
+      /^image\//.test(file.type || "") ||
+      /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name || "");
+    if (!looksImage) throw err("not_image", "Bu rasm fayli emas");
+
+    try {
+      var bmp = await toBitmap(file);
+      var w = bmp.width || bmp.naturalWidth;
+      var h = bmp.height || bmp.naturalHeight;
+      if (!w || !h) throw err("decode", "Rasm o'lchami aniqlanmadi");
+
+      var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+      var tw = Math.max(1, Math.round(w * scale));
+      var th = Math.max(1, Math.round(h * scale));
+
+      // «siqilmoqda…» yozuvi ekranga chiqib olsin (pastdagi qadamlar sinxron)
+      await nextFrame();
+
+      var canvas = document.createElement("canvas");
+      canvas.width = tw;
+      canvas.height = th;
+      var ctx = canvas.getContext("2d");
+      if (!ctx) throw err("encode", "canvas ishlamadi");
+      // Shaffof PNG JPEG'da qora bo'lib chiqadi — oq fon qo'yamiz.
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, tw, th);
+      ctx.drawImage(bmp, 0, 0, tw, th);
+      if (bmp.close) bmp.close();
+
+      var dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+      var base64 = dataUrl.split(",")[1] || "";
+      if (!base64) throw err("encode", "Rasm siqilmadi");
+
+      // base64 hajmi ~ 4/3 * bayt
+      var bytes = Math.round((base64.length * 3) / 4);
+      if (bytes > MAX_BYTES) throw err("too_big", "Rasm juda katta");
+
+      return { base64: base64, bytes: bytes, width: tw, height: th, compressed: true };
+    } catch (e) {
+      // Fayl haqiqatan rasm emas / juda katta bo'lsa — zaxira yo'l ham
+      // yordam bermaydi, sababni oshkora qaytaramiz.
+      if (e && (e.code === "not_image" || e.code === "too_big")) throw e;
+
+      var raw = await rawBase64(file);
+      var rawBytes = Math.round((raw.length * 3) / 4);
+      if (rawBytes > MAX_BYTES) throw err("too_big", "Rasm juda katta (siqilmadi)");
+      return { base64: raw, bytes: rawBytes, width: 0, height: 0, compressed: false };
     }
-
-    var bmp = await toBitmap(file);
-    var w = bmp.width || bmp.naturalWidth;
-    var h = bmp.height || bmp.naturalHeight;
-    if (!w || !h) throw err("decode", "Rasm o'lchami aniqlanmadi");
-
-    var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
-    var tw = Math.max(1, Math.round(w * scale));
-    var th = Math.max(1, Math.round(h * scale));
-
-    var canvas = document.createElement("canvas");
-    canvas.width = tw;
-    canvas.height = th;
-    var ctx = canvas.getContext("2d");
-    // Shaffof PNG JPEG'da qora bo'lib chiqadi — oq fon qo'yamiz.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, tw, th);
-    ctx.drawImage(bmp, 0, 0, tw, th);
-    if (bmp.close) bmp.close();
-
-    var dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-    var base64 = dataUrl.split(",")[1] || "";
-    if (!base64) throw err("encode", "Rasm siqilmadi");
-
-    // base64 hajmi ~ 4/3 * bayt
-    var bytes = Math.round((base64.length * 3) / 4);
-    if (bytes > MAX_BYTES) throw err("too_big", "Rasm juda katta");
-
-    return { base64: base64, bytes: bytes, width: tw, height: th };
   }
 
   /* ------------------------------------------------------------ yuklash */
@@ -194,10 +254,19 @@ window.ZimmerUpload = (function () {
     var out = await compress(file);
     report(0, "yuklash");
     var url = await uploadBase64(out.base64, function (pct) {
-      report(pct, "yuklash");
+      // 100% ni faqat ImgBB javob bergandan keyin ko'rsatamiz: yuklab
+      // bo'lingan != qabul qilingan. Aks holda «100%» turib qolib,
+      // keyin ❌ chiqsa admin chalkashadi.
+      report(Math.min(99, pct), "yuklash");
     });
     report(100, "yuklash");
-    return { url: url, bytes: out.bytes, width: out.width, height: out.height };
+    return {
+      url: url,
+      bytes: out.bytes,
+      width: out.width,
+      height: out.height,
+      compressed: out.compressed !== false,
+    };
   }
 
   return {

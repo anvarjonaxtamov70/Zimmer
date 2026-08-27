@@ -69,11 +69,24 @@
   const fmt = (v) =>
     (Number(v) || 0).toLocaleString("ru-RU").replace(/,/g, " ") + " " + S.currency;
 
+  /** Tebranish. Telegram `impactOccurred` faqat light/medium/heavy/rigid/soft
+   *  ni biladi — boshqa so'z berilsa xato tashlaydi va tebranish YO'Q bo'ladi.
+   *
+   *  Kod bo'ylab `haptic("success")` va `haptic("error")` ham yozilgan
+   *  (admin-shop.js, app.js) — ular `impactOccurred("success")` ga tushib
+   *  jimgina yiqilardi, ya'ni tovar saqlanganda telefon tebranmasdi. Endi
+   *  ikkala nom ham tushunarli. */
   function haptic(kind) {
     try {
-      if (kind === "ok") tg.HapticFeedback.notificationOccurred("success");
-      else if (kind === "err") tg.HapticFeedback.notificationOccurred("error");
-      else tg.HapticFeedback.impactOccurred(kind || "light");
+      if (kind === "ok" || kind === "success") {
+        tg.HapticFeedback.notificationOccurred("success");
+      } else if (kind === "err" || kind === "error" || kind === "fail") {
+        tg.HapticFeedback.notificationOccurred("error");
+      } else if (kind === "warn" || kind === "warning") {
+        tg.HapticFeedback.notificationOccurred("warning");
+      } else {
+        tg.HapticFeedback.impactOccurred(kind || "light");
+      }
     } catch (_) {}
   }
 

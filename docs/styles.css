@@ -3529,19 +3529,90 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .apx-up-ic { font-size: 30px; margin-bottom: 8px; }
 .apx-up-t { color: var(--text); font-weight: 700; font-size: 14.5px; }
 .apx-up-s { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+/* Fayl input'i butun zonani QOPLAYDI (shaffof). `hidden` input + `label for`
+   ba'zi Telegram WebView'larida ochilmaydi — bosish to'g'ridan input'ga
+   tushsa esa har joyda ishlaydi. */
+.apx-upload input[type="file"] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; font-size: 0;
+}
 
 /* Flash chegirma bloki */
 .apx-flash { background: rgba(255,45,58,0.05); border: 1px solid rgba(255,45,58,0.22); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
 
-/* Eskiz va yuklash foizi */
-.shop-thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.img-thumb-wrap { position: relative; width: 78px; height: 78px; border-radius: 13px; overflow: hidden; border: 1px solid var(--line); }
+/* ==========================================================================
+   ESKIZ VA JONLI YUKLASH KO'RINISHI
+
+   Admin galereyadan rasm tanlagan ZAHOTI eskiz chiqadi (mahalliy
+   `blob:` havola — internet kutilmaydi), ustida qorong'i qatlam bilan
+   holat ko'rsatiladi:
+
+     .is-compress -> aylanuvchi halqa + «siqilmoqda»
+     .is-upload   -> foiz matni + pastda oltin chiziq
+     .is-done     -> ✅ chaqnaydi, so'ng (.is-clean) qatlam so'nadi
+     .is-error    -> qizil ramka + ❌ + «↻» tugmasi
+
+   Ilgari bu yerda faqat bo'sh kvadratcha («up-prog») bor edi: admin o'zi
+   tanlagan rasmni ko'rmasdi.
+   ========================================================================== */
+.shop-thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.img-thumb-wrap { position: relative; width: 78px; height: 78px; border-radius: 13px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
 .img-thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.img-main-badge { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5px; font-weight: 800; padding: 2px; color: #1a1205; background: var(--gold); }
-.img-del { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 11px; cursor: pointer; }
-.up-prog { width: 78px; height: 78px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
-.up-prog .up-pct { font-size: 12px; font-weight: 800; color: var(--gold); z-index: 2; }
-.up-prog .up-bar { position: absolute; bottom: 0; left: 0; height: 4px; background: var(--gold); transition: width 0.2s; }
+.img-main-badge { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5px; font-weight: 800; padding: 2px; color: #1a1205; background: var(--gold); display: none; }
+/* «Asosiy» belgisi faqat birinchi TAYYOR eskizda */
+.up-slot.is-main.is-done .img-main-badge { display: block; }
+.img-del { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 11px; line-height: 1; cursor: pointer; z-index: 4; padding: 0; }
+
+/* Buzuq havola: bo'sh kvadrat qolmasin — belgi chiqadi */
+.up-slot.up-broken img { opacity: 0; }
+.up-slot.up-broken::after {
+  content: "🖼"; position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; font-size: 22px; opacity: 0.35;
+}
+
+/* Holat qatlami */
+.up-slot .up-ov {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.58); backdrop-filter: blur(1px);
+  transition: opacity 0.35s;
+}
+.up-slot.is-clean .up-ov { opacity: 0; pointer-events: none; }
+.up-slot .up-pct { font-size: 11.5px; font-weight: 800; color: var(--gold); z-index: 3; text-align: center; line-height: 1.1; padding: 0 3px; }
+.up-slot .up-bar { position: absolute; bottom: 0; left: 0; width: 0; height: 4px; background: var(--gold); transition: width 0.25s; }
+
+/* Siqish fazasi — aylanuvchi halqa (foiz yo'q, davomiyligi bilinmaydi) */
+.up-slot .up-spin { display: none; }
+.up-slot.is-compress .up-spin {
+  display: block; position: absolute; width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.18); border-top-color: var(--gold);
+  animation: upspin 0.75s linear infinite;
+}
+.up-slot.is-compress .up-pct {
+  position: absolute; bottom: 7px; left: 0; right: 0;
+  font-size: 8.5px; color: #fff; opacity: 0.9;
+}
+@keyframes upspin { to { transform: rotate(360deg); } }
+
+.up-slot.is-done .up-pct { font-size: 20px; }
+.up-slot.is-error { border-color: var(--red); }
+.up-slot.is-error .up-ov { background: rgba(255,69,58,0.4); }
+.up-slot.is-error .up-pct { font-size: 18px; }
+
+/* Qayta urinish tugmasi — faqat xatoda */
+.up-retry {
+  position: absolute; bottom: 3px; left: 3px; z-index: 4; display: none;
+  border: none; border-radius: 8px; padding: 2px 7px; cursor: pointer;
+  background: var(--red); color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4;
+}
+.up-slot.is-error .up-retry { display: block; }
+
+/* Eskizlar ostidagi holat qatori */
+.up-status { font-size: 11.5px; font-weight: 600; margin-bottom: 12px; min-height: 0; }
+.up-status:empty { margin-bottom: 0; }
+.up-status.is-busy { color: var(--gold); }
+.up-status.is-ok { color: #30d158; }
+.up-status.is-bad { color: var(--red); }
 
 /* Jonli ko'rinish */
 .live-preview-box .lp-card { display: flex; align-items: center; gap: 12px; background: var(--surface-2); border: 1px solid var(--gold-glow); border-radius: 16px; padding: 12px; }
