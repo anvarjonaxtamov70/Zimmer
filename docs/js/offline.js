@@ -102,6 +102,10 @@
       if (!res.ok) throw new Error("catalog.json -> " + res.status);
       var data = await res.json();
       if (!data || !data.catalog || !data.catalog.length) throw new Error("bo'sh");
+      // Nusxa ham filtrlanadi: u kuniga bir marta yasaladi, ya'ni admin
+      // o'chirgan tovar ertagacha ichida qolib turishi mumkin.
+      pruneHome(data);
+      if (!data.catalog.length) throw new Error("bo'sh (hammasi o'chirilgan)");
       data._offline = true;
       _snapshot = data;
     } catch (err) {
@@ -128,13 +132,52 @@
     }
   }
 
+  /** Keshni O'CHIRADI. Admin tovar o'chirgan/qo'shgandan keyin chaqiriladi.
+   *
+   *  Ilgari `app.state.home = null` qilinardi — u faqat XOTIRADAGI nusxani
+   *  tozalardi. localStorage'dagi 30 kunlik kesh joyida qolardi va ilova
+   *  qayta ochilganda o'chirilgan tovar YANA ko'rinardi. */
+  function clearCache() {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch (_) {}
+  }
+
+  /** Tirik yozuvmi? (`rows()` dagi shart bilan bir xil) */
+  function isLive(p) {
+    return !!p && !p.deleted && p.is_active !== 0 && p.is_active !== false;
+  }
+
+  /** Kesh/statik nusxadagi katalogdan o'chirilgan tovarlarni olib tashlaydi.
+   *
+   *  Kesh — bu eski `/api/home` javobining aynan nusxasi. U server tomonda
+   *  allaqachon filtrlangan, LEKIN o'shandan keyin admin tovar o'chirgan
+   *  bo'lishi mumkin. Shu sababli har safar qaytarishdan oldin filtrlaymiz. */
+  function pruneHome(home) {
+    if (!home || !Array.isArray(home.catalog)) return home;
+    home.catalog = home.catalog
+      .map(function (group) {
+        var copy = {};
+        Object.keys(group).forEach(function (k) {
+          copy[k] = group[k];
+        });
+        copy.products = (group.products || []).filter(isLive);
+        return copy;
+      })
+      .filter(function (group) {
+        return group.products.length > 0;
+      });
+    return home;
+  }
+
   /** Keshdagi katalog (yoki null). Juda eski bo'lsa ishlatilmaydi. */
   function cached() {
     try {
       var raw = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
       if (!raw || !raw.home || !raw.home.catalog) return null;
       if (Date.now() - (raw.at || 0) > CACHE_MAX_AGE) return null;
-      var home = raw.home;
+      var home = pruneHome(raw.home);
+      if (!home.catalog.length) return null; // hammasi o'chirilgan — kesh foydasiz
       home._offline = true;
       home._cached = true;
       home._cachedAt = raw.at;
@@ -327,26 +370,67 @@
    * `/api/home` javobining zaxira nusxasi.
    * Katalog o'qilmasa null qaytaradi (chaqiruvchi asl xatoni ko'rsatadi).
    */
-  async function home() {
-    // Firebase sozlanmagan bo'lsa — to'g'ridan keshga
-    if (!available()) return (await cachedOrSnapshot());
+  /* ==================================================================
+     DIQQAT — O'CHIRILGAN TOVAR QAYTIB KELISHI (tuzatildi)
 
-    var products, categories, banners, stories;
+     Ilgari shu yerda quyidagi qator turardi:
+
+         if (!products.length) return await cachedOrSnapshot();
+
+     Ya'ni «Firebase'da tovar yo'q» -> keshga yoki `catalog.json` ga qayt.
+     Admin omborda HAMMA tovarni o'chirsa, `rows()` ularni filtrlaydi va
+     tirik tovar 0 bo'lib qoladi -> kod 30 kunlik keshni yoki repodagi
+     DEMO (seed) nusxani ko'rsatadi. Natijada admin hammasini o'chirgan,
+     lekin bosh menyuda tovarlar (yoki «LED lampa H4» kabi demo tovarlar)
+     turaveradi.
+
+     Endi uch holat AJRATILADI:
+
+       1. o'qish YIQILDI (401/403/internet)  -> kesh yoki statik nusxa
+          (mijoz to'siq ekranini ko'rmasin — bu zaxiraning asl maqsadi);
+       2. tugun UMUMAN yo'q (null)           -> kesh yoki statik nusxa
+          (baza hali to'ldirilmagan, birinchi o'rnatish);
+       3. tugun BOR, lekin tirik tovar 0     -> DO'KON BO'SH ko'rsatiladi.
+          Bu HAQIQAT: admin hammasini o'chirgan. Keshga qaytish — yolg'on.
+     ================================================================== */
+  async function home(opts) {
+    // `strict: true` — kesh va statik nusxaga QAYTMAYDI, faqat Firebase.
+    // Onlayn holatda shu rejim ishlatiladi: Firebase o'qilmasa `/api/home`
+    // ga o'tish kerak, eski keshni ko'rsatish emas.
+    var strict = !!(opts && opts.strict);
+    var fallback = function () {
+      return strict ? null : cachedOrSnapshot();
+    };
+
+    // Firebase sozlanmagan bo'lsa — to'g'ridan keshga
+    if (!available()) return await fallback();
+
+    var products, categories, banners, stories, rawProducts, rawCategories;
     try {
       // Mahsulot va kategoriya MAJBURIY — do'kon shulardan iborat.
       var pair = await Promise.all([readNode("products"), readNode("categories")]);
-      products = rows(pair[0]);
-      categories = rows(pair[1]);
+      rawProducts = pair[0];
+      rawCategories = pair[1];
     } catch (err) {
       // Eng ko'p uchraydigan sabab: `database.rules.json` hali Firebase
       // Console'ga qo'yilmagan, shuning uchun o'qish rad etiladi (401/403).
       console.error("[offline] Firebase katalogi o'qilmadi:", err);
-      return await cachedOrSnapshot();
+      return await fallback();
     }
 
+    // 2-holat: tugun umuman yo'q — baza hali to'ldirilmagan.
+    if (!rawProducts) {
+      console.warn("[offline] Firebase'da `catalog/products` tuguni yo'q — zaxiraga o'tilyapti.");
+      return await fallback();
+    }
+
+    products = rows(rawProducts);
+    categories = rows(rawCategories);
+
+    // 3-holat: tugun bor, lekin hammasi o'chirilgan/yashirilgan.
+    // Pastda `catalog: []` bilan davom etamiz — kesh/nusxaga QAYTMAYMIZ.
     if (!products.length) {
-      console.warn("[offline] Firebase'da mahsulot yo'q — keshga o'tilyapti.");
-      return await cachedOrSnapshot();
+      console.warn("[offline] Tirik tovar yo'q — do'kon BO'SH ko'rsatiladi (o'chirilgan).");
     }
 
     // Bannerlar va stories — ixtiyoriy, yiqilsa e'tibor bermaymiz.
@@ -992,6 +1076,8 @@
     mediaUrl: mediaUrl,
     save: save,
     cached: cached,
+    clearCache: clearCache,
+    isLive: isLive,
     hasCache: hasCache,
     hasAnyData: hasAnyData,
     snapshot: snapshot,

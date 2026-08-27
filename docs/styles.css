@@ -3537,8 +3537,61 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   opacity: 0; cursor: pointer; font-size: 0;
 }
 
-/* Flash chegirma bloki */
-.apx-flash { background: rgba(255,45,58,0.05); border: 1px solid rgba(255,45,58,0.22); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+/* ==========================================================================
+   AKSIYA BLOKI — «eski narx» yoziladi, chegirma o'zi hisoblanadi
+   ========================================================================== */
+.apx-sale { border-color: rgba(255,45,58,0.22) !important; background: rgba(255,45,58,0.04); }
+.apx-ic-red { color: var(--red) !important; background: rgba(255,45,58,0.10) !important; }
+.apx-ic-blue { color: #0a84ff !important; background: rgba(10,132,255,0.10) !important; }
+.apx-sale-note {
+  font-size: 11.5px; font-weight: 600; color: var(--muted);
+  margin: -4px 0 12px; min-height: 15px;
+}
+.apx-sale-note.is-ok { color: #30d158; }
+.apx-sale-note.is-warn { color: #ff9f0a; }
+
+/* ==========================================================================
+   TAVSIF OYNACHASI — chiroyli quti + belgi sanoqchi + tayyor shablonlar
+   ========================================================================== */
+.apx-desc-box {
+  position: relative; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--surface-2); overflow: hidden; margin-bottom: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.apx-desc-box:focus-within { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.apx-desc {
+  width: 100%; box-sizing: border-box; display: block; resize: none;
+  padding: 14px 15px 6px; min-height: 104px;
+  background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 14.5px; line-height: 1.5; font-family: inherit;
+}
+.apx-desc::placeholder { color: var(--dim); }
+.apx-desc-foot {
+  text-align: right; padding: 0 12px 8px;
+  font-size: 10.5px; font-weight: 700; color: var(--dim);
+}
+/* Tayyor matn chiplari */
+.apx-tpl { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.apx-tpl-chip {
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--text);
+  border-radius: 999px; padding: 7px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.apx-tpl-chip:active { transform: scale(0.96); border-color: var(--gold); }
+/* Ovozli kiritish tugmasi */
+.apx-voice {
+  width: 100%; padding: 12px; border-radius: 13px; cursor: pointer;
+  background: rgba(10,132,255,0.10); border: 1px solid rgba(10,132,255,0.30);
+  color: #0a84ff; font-size: 13.5px; font-weight: 700;
+}
+.apx-voice:active { transform: scale(0.985); }
+
+/* Jonli kartochkada eski narx va belgi */
+.lp-was { color: var(--muted); font-size: 11.5px; font-weight: 600; margin-left: 4px; }
+.lp-badge {
+  align-self: flex-start; flex-shrink: 0;
+  background: var(--gold); color: #1a1205; border-radius: 7px;
+  padding: 3px 7px; font-size: 9.5px; font-weight: 800;
+}
 
 /* ==========================================================================
    ESKIZ VA JONLI YUKLASH KO'RINISHI
@@ -3559,9 +3612,27 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .img-thumb-wrap { position: relative; width: 78px; height: 78px; border-radius: 13px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
 .img-thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .img-main-badge { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 8.5px; font-weight: 800; padding: 2px; color: #1a1205; background: var(--gold); display: none; }
-/* «Asosiy» belgisi faqat birinchi TAYYOR eskizda */
-.up-slot.is-main.is-done .img-main-badge { display: block; }
+/* «Asosiy» belgisi faqat BIRINCHI tayyor eskizda */
+.up-slot.is-main .img-main-badge { display: block; }
 .img-del { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 11px; line-height: 1; cursor: pointer; z-index: 4; padding: 0; }
+
+/* Rasm boshqaruv tugmalari (Avto_A1): ⭐ asosiy · ◀ ▶ tartib */
+.img-star {
+  position: absolute; top: 3px; left: 3px; z-index: 4;
+  width: 20px; height: 20px; padding: 0; border: none; border-radius: 50%;
+  background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; line-height: 1; cursor: pointer;
+}
+.img-star.on { background: var(--gold); color: #1a1205; }
+.img-move-row {
+  position: absolute; bottom: 3px; left: 0; right: 0; z-index: 4;
+  display: flex; justify-content: center; gap: 4px;
+}
+.img-move {
+  width: 20px; height: 18px; padding: 0; border: none; border-radius: 6px;
+  background: rgba(0,0,0,0.7); color: #fff; font-size: 9px; line-height: 1; cursor: pointer;
+}
+/* Tayyor eskizda «Asosiy» belgisi ◀▶ tugmalari bilan urishmasin */
+.up-slot.is-ready .img-main-badge { bottom: auto; top: 0; }
 
 /* Buzuq havola: bo'sh kvadrat qolmasin — belgi chiqadi */
 .up-slot.up-broken img { opacity: 0; }
