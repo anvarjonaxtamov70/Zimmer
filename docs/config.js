@@ -63,7 +63,10 @@ window.ZIMMER_CONFIG = {
      bilgan odam sizning ImgBB akkauntingizga rasm yuklashi mumkin —
      boshqa zarar yo'q, bazaga va do'konga ta'sir qilmaydi.
      ==================================================================== */
-  IMGBB_KEY: "",
+  // Bu kalit Avto_A1 loyihasida allaqachon ishlatilayotgan — ya'ni sizning
+  // o'z kalitingiz. Shu sababli qo'shimcha ro'yxatdan o'tish kerak emas.
+  // Xohlasangiz Zimmer uchun alohida kalit olib shu yerga qo'yasiz.
+  IMGBB_KEY: "956de2d2a33ae1bcc56d5ada6fd8788d",
 
   // Zaxira rejimda narx yozuvlarini server'siz shakllantirish uchun
   // (`/api/config` javob bermaydi).

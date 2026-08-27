@@ -195,16 +195,68 @@ window.ZimmerAdminOffline = (function () {
     S.photos = [];
     body().innerHTML =
       '<div class="adm-form">' +
+      photoBlock() +
       field("admo-name", "Tovar nomi", "text", "Masalan: Ochki L200", true) +
       field("admo-price", "Narxi (so'm)", "text", "320 000", true) +
       field("admo-stock", "Qoldiq (dona)", "text", "6", true) +
-      photoBlock() +
       areaField("admo-desc", "Tavsif") +
+      // Mijozga qanday ko'rinishini DARHOL ko'rsatamiz — rasm to'g'ri
+      // yuklanganini tekshirishning eng ishonchli yo'li.
+      '<div class="adm-group"><span>Mijozga qanday ko\'rinadi</span>' +
+      '<div id="admo-preview"></div></div>' +
       '<button class="btn btn-primary" id="admo-save">Saqlash</button>' +
       "</div>";
 
     bindPhotos();
+    ["admo-name", "admo-price", "admo-stock", "admo-photo"].forEach((id) => {
+      const elx = $(id);
+      if (elx) elx.oninput = livePreview;
+    });
+    livePreview();
     $("admo-save").onclick = saveProduct;
+  }
+
+  /** Do'kon kartochkasining AYNAN o'zi (`app.js: renderProducts` bilan bir
+   *  xil `.prod` klasslari). Shu sababli admin rasm va narx qanday
+   *  ko'rinishini saqlashdan OLDIN ko'radi. */
+  function livePreview() {
+    const box = $("admo-preview");
+    if (!box) return;
+
+    const name = ($("admo-name") && $("admo-name").value.trim()) || "";
+    const price = parseNum($("admo-price") && $("admo-price").value);
+    const stock = parseNum($("admo-stock") && $("admo-stock").value);
+    const photo = photoUrls()[0] || null;
+
+    if (!name && !price && !photo) {
+      box.innerHTML =
+        '<div class="adm-hint">Maydonlarni to\'ldiring — bu yerda mijozga ' +
+        "qanday ko'rinishi chiqadi.</div>";
+      return;
+    }
+
+    const main = String(name || "Tovar nomi").split("·")[0].trim();
+    const low = stock !== null && stock > 0 && stock <= 5;
+
+    box.innerHTML =
+      '<div class="prod" style="max-width:190px">' +
+      '<div class="prod-art' +
+      (photo ? "" : " empty") +
+      '">' +
+      (photo
+        ? '<img src="' + esc(photo) + '" alt="" loading="lazy">'
+        : '<span class="prod-art-ph">💡</span>') +
+      "</div>" +
+      '<div class="prod-body">' +
+      '<div class="prod-name">' +
+      esc(main) +
+      "</div>" +
+      (low ? '<div class="prod-meta"><span class="prod-low">📦 ' + stock + " ta qoldi</span></div>" : "") +
+      '<div class="prod-price">' +
+      esc(price ? money(price) : "— so'm") +
+      "</div>" +
+      (stock === 0 ? '<div class="adm-mini">Tugagan — mijoz buyurtma bermaydi</div>' : "") +
+      "</div></div>";
   }
 
   /* ------------------------------------------------------------ rasmlar */
@@ -326,8 +378,12 @@ window.ZimmerAdminOffline = (function () {
           haptic();
           S.photos.splice(i, 1);
           renderThumbs();
+          livePreview();
         };
     });
+
+    // Rasm o'zgardi — kartochka ko'rinishini ham yangilaymiz.
+    livePreview();
   }
 
   /** Yuklangan havolalar (xato va tugallanmaganlar tashlanadi). */
@@ -431,9 +487,24 @@ window.ZimmerAdminOffline = (function () {
       });
 
       haptic("success");
-      toast("✅ Tovar qo'shildi — do'konda ko'rinadi");
-      // Bosh sahifa keshi eskirdi: yangi tovar darhol chiqishi kerak.
+
+      // Bosh sahifa keshi eskirdi — yangi tovar darhol chiqishi kerak.
+      // `S.home = null` qo'yilsa `loadHome()` katalogni Firebase'dan
+      // QAYTA o'qiydi (`app.js`: nav bosilganda `if (!S.home) loadHome()`).
       if (app().state) app().state.home = null;
+
+      // Rasm haqiqatan joyiga tushganini ko'rsatish uchun to'g'ridan
+      // do'konga o'tishni taklif qilamiz — «rasm ko'rinmayapti» degan
+      // shubha qolmasin.
+      const seen = await ask("✅ Tovar qo'shildi.\n\nDo'konda ko'rasizmi?");
+      if (seen && app().show) {
+        app().show("home");
+        // Katalogni Firebase'dan QAYTA o'qiymiz — `show()` buni o'zi
+        // qilmaydi, shu sababli yangi tovar ko'rinmay qolardi.
+        if (app().loadHome) await app().loadHome();
+        return;
+      }
+      toast("✅ Saqlandi");
       openInventory();
     } catch (err) {
       // Xato matnini AYNAN ko'rsatamiz — "saqlanmadi" deb qo'yish foydasiz.
