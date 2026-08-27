@@ -6070,3 +6070,660 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .iv-close:active,
   .iv-th:active { transform: none; }
 }
+
+
+/* ==========================================================================
+   STORIES — INSTAGRAM MANTIQI
+
+   Bu blok fayl oxirida turadi va yuqoridagi eski `.story*` qoidalarini
+   ataylab qoplaydi.
+
+   QOIDALAR (fayl boshidagi kelishuv):
+     * `filter: blur()` ISHLATILMAYDI. Eski kodda `#story-video.loading`
+       da `blur(14px)` bor edi — u shu yerda BEKOR QILINADI va o'rniga
+       shaffoflik + kichik masshtab ishlatiladi;
+     * `backdrop-filter` ISHLATILMAYDI;
+     * YANGI cheksiz animatsiya QO'SHILMAYDI (mavjud `storySpin` dan
+       boshqasi yo'q);
+     * hamma effekt bir martalik — `transform` va `opacity`.
+   ========================================================================== */
+
+/* ==================================================== halqalar qatori */
+
+/* Instagram uslubidagi halqa: ko'rilmaganda rangli, ko'rilganda xira.
+   Rang doirasi brend rangida (gold -> qizil). */
+.story-ring {
+  background: conic-gradient(from 200deg, var(--gold), var(--red), #8a0a14, var(--gold));
+  padding: 2.5px;
+  transition: transform 0.18s var(--spring);
+}
+.story.seen .story-ring {
+  background: var(--line-2);
+}
+.story:active .story-ring { transform: scale(0.92); }
+
+/* Qator bosqichma-bosqich chiqadi (bir martalik) */
+.stories.enter > .story { animation: stRingIn 0.4s var(--silk) both; }
+.stories.enter > .story:nth-child(2) { animation-delay: 0.05s; }
+.stories.enter > .story:nth-child(3) { animation-delay: 0.1s; }
+.stories.enter > .story:nth-child(4) { animation-delay: 0.15s; }
+.stories.enter > .story:nth-child(5) { animation-delay: 0.2s; }
+.stories.enter > .story:nth-child(6) { animation-delay: 0.25s; }
+@keyframes stRingIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.9); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ======================================================= ko'ruvchi oyna */
+
+.story-view { z-index: 12500; }
+/* Ochilish / yopilish (ilgari oyna shartta paydo bo'lib, shartta yo'qolardi) */
+.story-view.opening { animation: stOpen 0.28s var(--silk); }
+.story-view.closing { animation: stClose 0.2s var(--snappy) forwards; }
+@keyframes stOpen {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes stClose {
+  from { opacity: 1; }
+  to   { opacity: 0; transform: scale(0.96); }
+}
+
+/* ---- progress segmentlari */
+.story-bars {
+  z-index: 12;
+  gap: 3px;
+  padding: calc(var(--safe-t) + 9px) 10px 0;
+}
+.story-bars i {
+  height: 2.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+}
+.story-bars i.done b { width: 100% !important; }
+.story-bars i b { background: #fff; border-radius: 999px; }
+
+/* ---- sarlavha: avatar + bo'lim + vaqt + tugmalar */
+.story-head {
+  position: absolute;
+  top: calc(var(--safe-t) + 18px);
+  left: 0;
+  right: 0;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px;
+}
+.story-ava {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 16px;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+}
+.story-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.story-who b {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.story-who i {
+  font-style: normal;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.story-ico {
+  width: 33px;
+  height: 33px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.story-ico:active { transform: scale(0.88); }
+.story-ico.danger { background: rgba(255, 45, 58, 0.32); }
+
+/* ---- media */
+/* `blur()` BEKOR QILINADI (fayl boshidagi qoida) — yuklanayotgan kadr
+   shaffoflik va kichik masshtab bilan bildiriladi. */
+#story-video.loading,
+#story-photo.loading {
+  filter: none;
+  opacity: 0.35;
+  transform: scale(1.02);
+}
+#story-video,
+#story-photo {
+  transition: opacity 0.3s var(--silk), transform 0.3s var(--silk);
+}
+/* Instagram kabi butun ekranni to'ldiradi */
+#story-video { object-fit: cover; }
+
+/* Bo'lim almashganda yon tomondan kirish (bir martalik) */
+.story-inner.slide-l { animation: stSlideL 0.3s var(--silk); }
+.story-inner.slide-r { animation: stSlideR 0.3s var(--silk); }
+@keyframes stSlideL {
+  from { opacity: 0.4; transform: translateX(22%) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes stSlideR {
+  from { opacity: 0.4; transform: translateX(-22%) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Matn bloki — pastdagi panel ustida turadi */
+.story-text {
+  position: relative;
+  z-index: 6;
+  padding-bottom: 8px;
+}
+
+/* Bosish zonalari: sarlavha va pastdagi panelni QOPLAMAYDI */
+.story-tap {
+  top: calc(var(--safe-t) + 62px);
+  bottom: 128px;
+  height: auto;
+  z-index: 5;
+}
+
+/* ---- ikki marta bosilganda uchadigan belgi */
+.story-heart {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  z-index: 14;
+  transform: translate(-50%, -50%) scale(0);
+  font-size: 84px;
+  opacity: 0;
+  pointer-events: none;
+}
+.story-heart.pop { animation: stHeart 0.85s var(--silk); }
+@keyframes stHeart {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+  25%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  55%  { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -130%) scale(0.85); }
+}
+
+/* ---- havola (CTA) */
+.story-cta {
+  position: absolute;
+  left: 50%;
+  bottom: 138px;
+  z-index: 13;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 78%;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #14151a;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.story-cta i { font-style: normal; font-size: 13px; }
+.story-cta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-cta:active { transform: translateX(-50%) scale(0.95); }
+
+/* ---- pastdagi panel: statistika + reaksiyalar + javob */
+.story-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 14;
+  padding: 10px 12px calc(12px + var(--safe-b));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+}
+
+/* Adminlar uchun: nechta kishi ko'rgani va reaksiyalar */
+.story-stats {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.story-stat {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.story-reacts {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 9px;
+}
+.story-react {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.16s var(--spring), background 0.2s;
+}
+.story-react:active { transform: scale(0.85); }
+.story-react.on {
+  background: rgba(255, 45, 58, 0.32);
+  transform: scale(1.1);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.45);
+}
+
+.story-reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#story-reply-in {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+}
+#story-reply-in::placeholder { color: rgba(255, 255, 255, 0.6); }
+#story-reply-in:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.16);
+}
+#story-reply-in:disabled { opacity: 0.6; }
+.story-send {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--red-grad);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255, 45, 58, 0.4);
+}
+.story-send:active { transform: scale(0.9); }
+.story-send:disabled { opacity: 0.55; }
+
+/* -------------------------------------------- harakatni kamaytirish */
+@media (prefers-reduced-motion: reduce) {
+  .stories.enter > .story,
+  .story-view.opening,
+  .story-view.closing,
+  .story-inner.slide-l,
+  .story-inner.slide-r,
+  .story-heart.pop { animation: none; }
+  .story:active .story-ring,
+  .story-ico:active,
+  .story-react:active,
+  .story-send:active,
+  .story-cta:active { transform: none; }
+  #story-video,
+  #story-photo { transition: none; }
+}
+
+
+/* ==========================================================================
+   STORIES BOSHQARUVI (docs/js/admin-stories.js)
+
+   Qoidalar: blur / backdrop-filter YO'Q, cheksiz animatsiya YO'Q,
+   effektlar bir martalik.
+   ========================================================================== */
+
+/* ---- yuqoridagi xulosa */
+.st-sum {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.st-sum-b {
+  text-align: center;
+  padding: 11px 6px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  animation: stIn 0.34s var(--silk) both;
+}
+.st-sum-b:nth-child(2) { animation-delay: 0.05s; }
+.st-sum-b:nth-child(3) { animation-delay: 0.1s; }
+.st-sum-b b {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.st-sum-b span { display: block; margin-top: 2px; font-size: 10px; color: var(--muted); }
+
+/* ---- «yangi story» tugmasi */
+.st-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 15px 16px;
+  margin-bottom: 10px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(150deg, var(--gold-soft), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--gold-glow);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: stIn 0.36s var(--silk) both;
+}
+.st-add span { font-size: 21px; line-height: 1; color: var(--gold); }
+.st-add b { font-size: 14.5px; font-weight: 800; margin-top: 4px; }
+.st-add i { font-style: normal; font-size: 11.5px; color: var(--muted); }
+.st-add:active { transform: scale(0.98); }
+
+/* ---- javoblar qutisi tugmasi */
+.st-inbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 15px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 75, 62, 0.3);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.st-inbox i {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.st-inbox:active { transform: scale(0.98); }
+
+/* ---- story kartochkasi */
+.st-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px;
+  margin-bottom: 9px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  content-visibility: auto;
+  contain-intrinsic-size: 96px;
+  animation: stIn 0.34s var(--silk) both;
+}
+.st-card.off { opacity: 0.6; }
+.st-thumb {
+  position: relative;
+  width: 54px;
+  height: 72px;
+  flex: none;
+  border-radius: 11px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+.st-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(10, 10, 12, 0.72);
+  color: #fff;
+  font-size: 7px;
+  font-style: normal;
+}
+.st-mid { flex: 1; min-width: 0; }
+.st-mid > b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.st-body {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.st-chip {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.st-chip.is-hot {
+  background: rgba(255, 45, 58, 0.16);
+  color: #ff8f86;
+  cursor: pointer;
+}
+.st-chip.is-off { background: rgba(255, 255, 255, 0.05); color: var(--dim); }
+.st-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.st-mini {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.st-mini:active { transform: scale(0.9); }
+/* Ko'z — yashirilganda sariq, o'chirish — qizil ishorasi bilan */
+.st-eye { color: var(--muted); }
+.st-card.off .st-eye { color: var(--amber); }
+.st-del { border-color: rgba(255, 45, 58, 0.28); }
+
+/* ---- bo'lim tanlash */
+.st-rings {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+.st-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 3px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.st-ring span { font-size: 17px; line-height: 1; }
+.st-ring i {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.15;
+}
+.st-ring.on {
+  background: linear-gradient(150deg, var(--rf), var(--rt));
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.st-ring.on i { color: #fff; }
+.st-ring:active { transform: scale(0.94); }
+
+/* ---- rasm tanlash va ko'rinish */
+.st-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 18px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  cursor: pointer;
+  text-align: center;
+}
+.st-pick span { font-size: 25px; line-height: 1; }
+.st-pick b { font-size: 13px; font-weight: 700; }
+.st-pick i { font-style: normal; font-size: 11px; color: var(--muted); }
+.st-pick:active { transform: scale(0.98); }
+.st-prev {
+  margin-top: 11px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  animation: stIn 0.3s var(--silk) both;
+}
+/* Story nisbati (9:16) — mijoz qanday ko'rishini shu yerda ko'rsatadi */
+.st-prev img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+/* ---- mijoz javobi */
+.st-msg {
+  padding: 12px 13px;
+  margin-bottom: 9px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  animation: stIn 0.32s var(--silk) both;
+}
+.st-msg-top { display: flex; align-items: baseline; gap: 8px; }
+.st-msg-top b { font-size: 13.5px; font-weight: 700; }
+.st-msg-top span { font-size: 10.5px; color: var(--dim); }
+/* Xabar QAYSI story'dan kelgani — eng muhim qism */
+.st-msg-src {
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--gold);
+  background: var(--gold-soft);
+  border-radius: 8px;
+  padding: 4px 8px;
+  display: inline-block;
+}
+.st-msg-tx {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-line;
+}
+.st-msg-bot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+}
+.st-msg-bot span { font-size: 10.5px; color: var(--dim); }
+.st-reply {
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--red-grad);
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.st-reply:active { transform: scale(0.94); }
+
+/* ---- bo'sh holat */
+.st-empty {
+  text-align: center;
+  padding: 32px 20px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+}
+.st-empty-ic { font-size: 38px; opacity: 0.5; margin-bottom: 10px; }
+.st-empty b { display: block; font-size: 14.5px; font-weight: 700; }
+.st-empty p { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+@keyframes stIn {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Menyu plitkasi aksenti */
+.shop-hero-story .shop-hero-ic { color: #c77dff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-sum-b, .st-add, .st-card, .st-msg, .st-prev { animation: none; }
+  .st-add:active, .st-inbox:active, .st-mini:active,
+  .st-ring:active, .st-pick:active, .st-reply:active { transform: none; }
+}

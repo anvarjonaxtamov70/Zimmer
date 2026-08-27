@@ -57,6 +57,27 @@
         ".write": true
       },
 
+      "stories_counter": {
+        ".read": true,
+        ".write": true
+      },
+
+      "story_views": {
+        ".read": true,
+        ".write": true
+      },
+
+      "story_reactions": {
+        ".read": true,
+        ".write": true
+      },
+
+      "story_replies": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["storyId", "createdAt", "imported"]
+      },
+
       "orders": { ".read": false, ".write": false },
       "products": { ".read": false, ".write": false },
       "admins": { ".read": false, ".write": false }

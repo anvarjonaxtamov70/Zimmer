@@ -478,6 +478,7 @@
        Telegram'ning «orqaga» tugmasi rasm ko'ruvchi ochiq turganda ham
        sahifani almashtirib yuborardi. */
     if (viewerOpen()) return closeViewer();
+    if (storyOpen()) return closeStory();
     if (currentProduct) return closeProductModal();
     // Admin panelning o'z ichki qatlamlari bor — avval unga imkon beramiz.
     // Zaxira rejimda boshqa panel ishlayotgani uchun avval o'shani so'raymiz.
@@ -1296,7 +1297,36 @@
     _empty: true,
   };
 
-  /* ------------------------------------------------------------- stories */
+  /* ==================================================================
+     STORIES — Instagram mantiqi
+
+     NIMA QO'SHILDI (ilgari YO'Q edi)
+       * sarlavha: avatar, bo'lim nomi va "qancha vaqt oldin";
+       * ochilish/yopilish animatsiyasi (ilgari oyna shunchaki paydo
+         bo'lardi — `.hidden` olib tashlanardi, tamom);
+       * bo'limlar orasida YON TOMONGA surish (ilgari faqat chegaraga
+         yetganda o'zi o'tardi);
+       * reaksiyalar (❤️ 🔥 👏 😍 😮) va ikki marta bosib "yoqtirish";
+       * "Xabar yozing" — javob adminga QAYSI story'dan kelganini
+         bildirib boradi (ilgari mijoz `t.me/admin` ga o'tib qo'lda
+         yozardi va admin nima haqida gap ketayotganini bilmasdi);
+       * ko'rishlar soni — adminga ko'rinadi;
+       * havola (CTA) — story'dan tovarga o'tish;
+       * ovoz holati eslab qolinadi.
+
+     KO'RISHLAR VA REAKSIYALAR QANDAY SAQLANADI
+     `story_views/{id}/u/{uid}` va `story_reactions/{id}/u/{uid}` —
+     kalit sifatida foydalanuvchi id si. Ya'ni sanoqchi emas, RO'YXAT:
+       * bir odam necha marta ko'rsa ham bir marta hisoblanadi (kalit
+         ustiga qayta yozilади) — sanoqchi bo'lsa "shishib" ketardi;
+       * reaksiyani almashtirish tabiiy ishlaydi (kalit qiymati o'zgaradi).
+     Bu tugunlar `catalog/stories` dan TASHQARIDA: `services/sync.py`
+     katalogni PUT bilan yozadi va ichki tugunlarni o'chirib yuborardi.
+     ================================================================== */
+
+  /** Instagram'dagi tez reaksiyalar. */
+  const STORY_REACTS = ["❤️", "🔥", "👏", "😍", "😮"];
+
   /** Ko'rilgan elementlar ro'yxati (id bo'yicha). */
   const seenList = () => {
     try {
@@ -1307,8 +1337,32 @@
     }
   };
 
-  /** HALQALAR (kategoriyalar): bitta doira ichida bir nechta element.
-      Hammasi ko'rilgan bo'lsa halqa xiralashadi (Avto_A1 kabi). */
+  const fbOk = () => !!(window.ZimmerFB && window.ZimmerFB.available());
+  const myUid = () =>
+    String((S.me && S.me.user_id) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "");
+
+  /** "hozir" / "5 daqiqa" / "3 soat" / "2 kun oldin". */
+  function storyAgo(ms) {
+    const t = Number(ms) || 0;
+    if (!t) return "";
+    const diff = Date.now() - t;
+    if (diff < 0) return "hozir";
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return "hozir";
+    if (min < 60) return min + " daqiqa oldin";
+    const hour = Math.floor(min / 60);
+    if (hour < 24) return hour + " soat oldin";
+    const day = Math.floor(hour / 24);
+    if (day < 7) return day + " kun oldin";
+    const week = Math.floor(day / 7);
+    if (week < 5) return week + " hafta oldin";
+    return Math.floor(day / 30) + " oy oldin";
+  }
+
+  /* ------------------------------------------------------- halqalar qatori */
+
+  /** HALQALAR (bo'limlar): bitta doira ichida bir nechta element.
+      Hammasi ko'rilgan bo'lsa halqa xiralashadi (Instagram kabi). */
   function renderStories() {
     S.rings = (S.home && S.home.stories) || [];
     const box = $("stories");
@@ -1334,23 +1388,41 @@
     });
     // Birorta ham story bo'lmasa — qator umuman ko'rinmaydi (toza ko'rinish)
     box.classList.toggle("hidden", !S.rings.length);
+    // Bosqichma-bosqich chiqish (bir martalik)
+    if (S.rings.length) {
+      box.classList.remove("enter");
+      void box.offsetWidth;
+      box.classList.add("enter");
+    }
   }
 
-  /** Halqani ochadi: ichidagi elementlar ketma-ket o'ynaydi. */
-  function openStory(ringIndex, itemIndex) {
+  /* ------------------------------------------------------------- ochish */
+
+  /** Halqani ochadi. `dir` — yon tomonga surish animatsiyasi yo'nalishi. */
+  function openStory(ringIndex, itemIndex, dir) {
     if (!S.rings.length) return;
     S.ringIndex = Math.max(0, Math.min(S.rings.length - 1, ringIndex));
     S.storyIndex = itemIndex || 0;
     S.stories = (S.rings[S.ringIndex] && S.rings[S.ringIndex].items) || [];
     if (!S.stories.length) return;
-    $("story-view").classList.remove("hidden");
+
+    const view = $("story-view");
+    const first = view.classList.contains("hidden");
+    view.classList.remove("hidden", "closing");
+    if (first) {
+      // Ochilish animatsiyasi: kichikdan kattaga (bir martalik)
+      view.classList.remove("opening");
+      void view.offsetWidth;
+      view.classList.add("opening");
+      document.body.style.overflow = "hidden";
+    }
     haptic();
-    paintStory();
+    paintStory(dir);
   }
 
   /* ---------------------------------------------------- story: progress (rAF)
-     Chiziq video DAVOMIYLIGIGA moslashadi (Avto_A1 mantiqi): rasm — 5s,
-     video — o'zining uzunligi. Bosib turilsa pauza qiladi. */
+     Chiziq video DAVOMIYLIGIGA moslashadi: rasm — 5s, video — o'zining
+     uzunligi. Bosib turilsa pauza qiladi. */
   function animateStoryProgress(fill, ms) {
     cancelAnimationFrame(S.storyRaf);
     S.storyDuration = ms;
@@ -1407,7 +1479,9 @@
     S.storyVideo = null;
   }
 
-  function paintStory() {
+  /* --------------------------------------------------------- chizish */
+
+  function paintStory(dir) {
     const story = S.stories[S.storyIndex];
     if (!story) return closeStory();
 
@@ -1448,8 +1522,10 @@
         <div class="story-spinner" id="story-spinner"></div>
         <div class="story-buffer show" id="story-buffer"><i></i></div>
         <div class="story-shade"></div>
-        <div class="story-h">${esc(story.heading || "")}</div>
-        <div class="story-b">${esc(story.body || "")}</div>`;
+        <div class="story-text">
+          <div class="story-h">${esc(story.heading || "")}</div>
+          <div class="story-b">${esc(story.body || "")}</div>
+        </div>`;
 
       const node = $("story-video");
       S.storyVideo = node;
@@ -1467,6 +1543,7 @@
             try {
               S.storyVideo.muted = true;
               S.storyMuted = true;
+              saveStoryMute();
               if (soundBtn) soundBtn.textContent = "🔇";
               S.storyVideo.play().catch(() => {});
             } catch (_) {}
@@ -1519,35 +1596,278 @@
         setTimeout(() => stepStory(1), 600);
       });
     } else {
-      const bg = photo ? `<img src="${esc(photo)}" alt="">` : "";
+      /* Rasm ham "suyak" bilan keladi: yuklanmaguncha bo'sh qora ekran
+         turmasin (ilgari shunday edi). */
+      const bg = photo ? `<img id="story-photo" class="loading" src="${esc(photo)}" alt="">` : "";
       inner.innerHTML = `
         <div class="story-bg" style="background:linear-gradient(160deg,${esc(
           story.color_from
         )},${esc(story.color_to)} 75%, #000)">${bg}</div>
+        ${photo ? '<div class="story-spinner" id="story-spinner"></div>' : ""}
         <div class="story-shade"></div>
         ${!bg ? `<div class="story-emoji">${esc(story.emoji)}</div>` : ""}
-        <div class="story-h">${esc(story.heading || "")}</div>
-        <div class="story-b">${esc(story.body || "")}</div>`;
+        <div class="story-text">
+          <div class="story-h">${esc(story.heading || "")}</div>
+          <div class="story-b">${esc(story.body || "")}</div>
+        </div>`;
+      const pic = $("story-photo");
+      if (pic) {
+        const done = () => {
+          pic.classList.remove("loading");
+          const sp = $("story-spinner");
+          if (sp) sp.style.display = "none";
+        };
+        pic.onload = done;
+        pic.onerror = done;
+        if (pic.complete && pic.naturalWidth) done();
+      }
       animateStoryProgress(fill, 5000);
     }
 
-    // Bo'lim nomi tepada ko'rinadi (qaysi halqada turganini bildiradi)
-    const ring = S.rings[S.ringIndex];
-    const badge = $("story-cat");
-    if (badge && ring) {
-      badge.innerHTML = `${esc(ring.emoji)} ${esc(ring.title)}${
-        S.stories.length > 1 ? ` · ${S.storyIndex + 1}/${S.stories.length}` : ""
-      }`;
-      badge.classList.remove("hidden");
+    // Yon tomonga o'tish animatsiyasi (bo'lim almashganda)
+    if (dir) {
+      inner.classList.remove("slide-l", "slide-r");
+      void inner.offsetWidth;
+      inner.classList.add(dir > 0 ? "slide-l" : "slide-r");
     }
+
+    paintStoryHead(story);
+    paintStoryCta(story);
+    paintStoryReacts(story);
 
     const seen = seenList();
     if (!seen.includes(story.id)) {
       seen.push(story.id);
       localStorage.setItem("zimmer_seen", JSON.stringify(seen.slice(-400)));
     }
+    countStoryView(story);
     preloadNextStory();
   }
+
+  /** Sarlavha: avatar, bo'lim nomi, "qancha vaqt oldin" va o'rni. */
+  function paintStoryHead(story) {
+    const ring = S.rings[S.ringIndex] || {};
+    const ava = $("story-ava");
+    if (ava) {
+      ava.textContent = ring.emoji || "📸";
+      ava.style.background = `linear-gradient(150deg,${ring.color_from || "#ff4b3e"},${
+        ring.color_to || "#1a0508"
+      })`;
+    }
+    const nameEl = $("story-who-name");
+    if (nameEl) {
+      nameEl.textContent =
+        (ring.title || "Zimmer") +
+        (S.stories.length > 1 ? " · " + (S.storyIndex + 1) + "/" + S.stories.length : "");
+    }
+    const timeEl = $("story-who-time");
+    if (timeEl) {
+      // Vaqt bulutdagi yozuvdan keladi (`updatedAt`/`createdAt`)
+      timeEl.textContent = storyAgo(story.updatedAt || story.createdAt);
+    }
+  }
+
+  /** Story'ga bog'langan havola: tovarga yoki tashqi manzilga o'tadi. */
+  function paintStoryCta(story) {
+    const btn = $("story-cta");
+    if (!btn) return;
+    const link = String(story.link || "").trim();
+    if (!link) return btn.classList.add("hidden");
+
+    const label = $("story-cta-tx");
+    const num = /^\d+$/.test(link) ? Number(link) : null;
+    const prod = num ? (S.shopProducts || []).find((p) => Number(p.id) === num) : null;
+    if (label) label.textContent = prod ? prod.name : "Batafsil ko'rish";
+    btn.classList.remove("hidden");
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      haptic("medium");
+      if (prod) {
+        closeStory();
+        return openProductModal(prod);
+      }
+      if (/^https?:\/\//i.test(link)) {
+        try {
+          tg.openLink(link);
+        } catch (_) {
+          window.open(link, "_blank");
+        }
+      }
+    };
+  }
+
+  /* --------------------------------------------- ko'rishlar va reaksiyalar */
+
+  /** Ko'rishni belgilaydi. Kalit — foydalanuvchi id si, shuning uchun bir
+   *  odam necha marta ko'rsa ham BIR marta hisoblanadi. */
+  function countStoryView(story) {
+    if (!fbOk() || !story || story.id == null) return;
+    const uid = myUid();
+    if (!uid) return;
+    // Bir sessiyada bir marta yozamiz — behuda so'rov ketmasin
+    S.storyCounted = S.storyCounted || {};
+    const key = story.id + ":" + uid;
+    if (S.storyCounted[key]) return;
+    S.storyCounted[key] = true;
+    window.ZimmerFB.patch("story_views/" + story.id + "/u", {
+      [uid]: window.ZimmerFB.serverTime(),
+    }).catch(() => {});
+  }
+
+  /** Reaksiya qatorini chizadi va joriy holatni bulutdan o'qiydi. */
+  function paintStoryReacts(story) {
+    const box = $("story-reacts");
+    if (!box) return;
+    const mine = (S.storyMyReact || {})[story.id] || "";
+
+    box.innerHTML = STORY_REACTS.map(
+      (e) =>
+        '<button class="story-react' +
+        (mine === e ? " on" : "") +
+        '" data-e="' +
+        e +
+        '">' +
+        e +
+        "</button>"
+    ).join("");
+    box.querySelectorAll(".story-react").forEach((b) => {
+      b.onclick = (ev) => {
+        ev.stopPropagation();
+        reactStory(b.dataset.e);
+      };
+    });
+
+    // Statistika: reaksiyalar hammaga, ko'rishlar soni faqat adminga
+    loadStoryMeta(story);
+  }
+
+  /** Bulutdan reaksiyalarni (va admin bo'lsa ko'rishlarni) o'qiydi. */
+  async function loadStoryMeta(story) {
+    if (!fbOk() || !story || story.id == null) return;
+    const id = story.id;
+    const isAdmin = !!(S.me && S.me.is_admin);
+    S.storyMyReact = S.storyMyReact || {};
+
+    try {
+      const reacts = await window.ZimmerFB.get("story_reactions/" + id + "/u");
+      if (S.storyIndex == null || !S.stories[S.storyIndex] || S.stories[S.storyIndex].id !== id) {
+        return; // boshqa story'ga o'tib ketilgan
+      }
+      const uid = myUid();
+      const tally = {};
+      let total = 0;
+      Object.keys(reacts || {}).forEach((k) => {
+        const e = reacts[k];
+        if (!e) return;
+        tally[e] = (tally[e] || 0) + 1;
+        total++;
+        if (k === uid) S.storyMyReact[id] = e;
+      });
+
+      // O'z reaksiyamni belgilaymiz
+      const mine = S.storyMyReact[id];
+      document.querySelectorAll("#story-reacts .story-react").forEach((b) => {
+        b.classList.toggle("on", b.dataset.e === mine);
+      });
+
+      if (!isAdmin) return;
+      const views = await window.ZimmerFB.get("story_views/" + id + "/u");
+      const seenBy = Object.keys(views || {}).length;
+      const stats = $("story-stats");
+      if (!stats) return;
+      const top = Object.keys(tally)
+        .sort((a, b) => tally[b] - tally[a])
+        .slice(0, 5)
+        .map((e) => e + " " + tally[e])
+        .join("  ");
+      stats.innerHTML =
+        '<span class="story-stat">👁 ' + seenBy + " ko'rdi</span>" +
+        (total ? '<span class="story-stat">' + top + "</span>" : "");
+      stats.classList.remove("hidden");
+    } catch (_) {
+      // Statistika ixtiyoriy — yiqilsa story ko'rinishiga ta'sir qilmaydi
+    }
+  }
+
+  /** Reaksiya qo'yadi yoki olib tashlaydi (bir odam — bitta reaksiya). */
+  function reactStory(emoji) {
+    const story = S.stories[S.storyIndex];
+    if (!story || story.id == null) return;
+    if (!fbOk()) return toast("Baza sozlanmagan");
+    const uid = myUid();
+    if (!uid) return;
+
+    S.storyMyReact = S.storyMyReact || {};
+    const was = S.storyMyReact[story.id];
+    const next = was === emoji ? null : emoji;
+    S.storyMyReact[story.id] = next || "";
+
+    // Ekranda darhol
+    document.querySelectorAll("#story-reacts .story-react").forEach((b) => {
+      b.classList.toggle("on", !!next && b.dataset.e === next);
+    });
+    haptic(next ? "ok" : "light");
+    if (next) flyHeart(next);
+
+    const path = "story_reactions/" + story.id + "/u/" + uid;
+    const p = next ? window.ZimmerFB.put(path, next) : window.ZimmerFB.remove(path);
+    p.then(() => loadStoryMeta(story)).catch(() => toast("Reaksiya saqlanmadi"));
+  }
+
+  /** Ikki marta bosilganda (yoki reaksiyada) uchib chiqadigan belgi. */
+  function flyHeart(emoji) {
+    const node = $("story-heart");
+    if (!node) return;
+    node.textContent = emoji || "❤️";
+    node.classList.remove("pop");
+    void node.offsetWidth;
+    node.classList.add("pop");
+  }
+
+  /* ------------------------------------------------------------- javob */
+
+  /** Story'ga javob yuboradi — adminga QAYSI story ekani bilan boradi. */
+  async function sendStoryReply() {
+    const input = $("story-reply-in");
+    const btn = $("story-send");
+    if (!input) return;
+    const text = (input.value || "").trim();
+    if (!text) return;
+
+    const story = S.stories[S.storyIndex];
+    const ring = S.rings[S.ringIndex] || {};
+    if (!story) return;
+
+    const off = window.ZimmerOffline;
+    if (!off || !off.storyReply || !off.workerReady || !off.workerReady()) {
+      return toast("Xabar yuborish sozlanmagan (WORKER_URL)");
+    }
+
+    if (btn) btn.disabled = true;
+    input.disabled = true;
+    try {
+      await off.storyReply({
+        story_id: String(story.id),
+        ring_key: String(ring.key || ""),
+        ring_title: String(ring.title || ""),
+        heading: String(story.heading || ""),
+        text: text,
+      });
+      input.value = "";
+      haptic("ok");
+      toast("✅ Xabar yuborildi");
+      flyHeart("💬");
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Xabar yuborilmadi");
+    } finally {
+      if (btn) btn.disabled = false;
+      input.disabled = false;
+      storyPause(false);
+    }
+  }
+
+  /* ----------------------------------------------------------- boshqarish */
 
   /** Bosib turilsa — pauza (video ham, chiziq ham to'xtaydi). */
   function storyPause(on) {
@@ -1562,17 +1882,24 @@
     }
   }
 
+  const saveStoryMute = () => {
+    try {
+      localStorage.setItem("zimmer_story_mute", S.storyMuted ? "1" : "0");
+    } catch (_) {}
+  };
+
   function toggleStorySound() {
     if (!S.storyVideo) return;
     S.storyMuted = !S.storyMuted;
     S.storyVideo.muted = S.storyMuted;
+    saveStoryMute(); // holat eslab qolinadi (ilgari har ochilishda ovozsiz edi)
     const btn = $("story-sound");
     if (btn) btn.textContent = S.storyMuted ? "🔇" : "🔊";
     if (!S.storyMuted) S.storyVideo.play().catch(() => {});
     haptic();
   }
 
-  /** 🗑 FAQAT ADMIN UCHUN: joriy storyni butunlay o'chirish (Avto_A1 kabi). */
+  /** 🗑 FAQAT ADMIN UCHUN: joriy storyni butunlay o'chirish. */
   function deleteCurrentStory() {
     const story = S.stories[S.storyIndex];
     if (!story || !story.id) return;
@@ -1584,14 +1911,30 @@
         return;
       }
       try {
-        await api(`/api/admin/section/sto/${story.id}`, { method: "DELETE" });
+        /* Ilgari faqat `/api/admin/...` (Render) ishlatilardi va server
+           uxlab yotganda o'chirish yiqilardi. Endi bulutdagi nusxa ham
+           belgilanadi — do'kon katalogi Firebase'dan o'qiladi. */
+        if (fbOk()) {
+          await window.ZimmerFB.patch("catalog/stories/" + story.id, {
+            deleted: true,
+            is_active: 0,
+            updatedAt: Date.now(),
+          });
+        }
+        try {
+          await api(`/api/admin/section/sto/${story.id}`, { method: "DELETE" });
+        } catch (_) {
+          // Render uxlab yotgan bo'lsa ham bulutda belgilandi — yetarli
+        }
         haptic("ok");
-        toast("Story bazadan o'chirildi!", 2600);
-        // Ro'yxatdan ham olib tashlaymiz va oynani yopamiz — qayta ochilganda yo'q
+        toast("Story o'chirildi", 2600);
         const ring = S.rings[S.ringIndex];
         if (ring) ring.items = (ring.items || []).filter((it) => it.id !== story.id);
         S.rings = S.rings.filter((r) => (r.items || []).length > 0);
         if (S.home) S.home.stories = S.rings;
+        if (window.ZimmerOffline && window.ZimmerOffline.clearCache) {
+          window.ZimmerOffline.clearCache();
+        }
         closeStory();
       } catch (err) {
         storyPause(false);
@@ -1639,7 +1982,7 @@
       // Shu bo'lim tugadi — keyingi bo'lim bor bo'lsa unga o'tamiz
       if (S.ringIndex + 1 < S.rings.length) {
         haptic("light");
-        return openStory(S.ringIndex + 1, 0);
+        return openStory(S.ringIndex + 1, 0, 1);
       }
       return closeStory();
     }
@@ -1650,7 +1993,7 @@
         const prev = S.rings[S.ringIndex - 1];
         const last = Math.max(0, ((prev && prev.items) || []).length - 1);
         haptic("light");
-        return openStory(S.ringIndex - 1, last);
+        return openStory(S.ringIndex - 1, last, -1);
       }
       return paintStory();
     }
@@ -1659,6 +2002,22 @@
     paintStory();
   }
 
+  /** Yon tomonga surish — BO'LIM almashadi (Instagram kabi). */
+  function swipeRing(delta) {
+    const to = S.ringIndex + delta;
+    if (to < 0 || to >= S.rings.length) {
+      // Chegara — ozgina "qarshilik" bilan bildiramiz
+      haptic("warning");
+      return;
+    }
+    openStory(to, 0, delta);
+  }
+
+  const storyOpen = () => {
+    const v = $("story-view");
+    return !!v && !v.classList.contains("hidden");
+  };
+
   function closeStory() {
     clearTimeout(S.storyTimer);
     cancelAnimationFrame(S.storyRaf);
@@ -1666,12 +2025,23 @@
     stopVideos();
     storyPause(false);
     const view = $("story-view");
-    view.classList.add("hidden");
-    view.style.transform = "";
-    view.style.opacity = "";
-    const badge = $("story-cat");
-    if (badge) badge.classList.add("hidden");
-    $("story-inner").innerHTML = "";
+    // Yopilish animatsiyasi (ilgari oyna shartta yo'qolardi)
+    view.classList.add("closing");
+    view.classList.remove("opening");
+    setTimeout(() => {
+      view.classList.add("hidden");
+      view.classList.remove("closing");
+      view.style.transform = "";
+      view.style.opacity = "";
+      $("story-inner").innerHTML = "";
+    }, 200);
+    const stats = $("story-stats");
+    if (stats) stats.classList.add("hidden");
+    const cta = $("story-cta");
+    if (cta) cta.classList.add("hidden");
+    const input = $("story-reply-in");
+    if (input) input.value = "";
+    document.body.style.overflow = "";
     renderStories(); // ko'rilgan halqalar xiralashadi
   }
 
@@ -4001,19 +4371,34 @@
   $("story-del").onclick = deleteCurrentStory;
 
   /* Pastga surib yopish (Avto_A1 kabi). Faqat transform/opacity — silliq. */
-  (function storySwipeClose() {
+  /* Surish ishoralari (Instagram kabi):
+       * pastga  -> yopadi (fon xiralashib boradi);
+       * yon tomonga -> BO'LIM almashadi (ilgari yon surish umuman
+         ishlamasdi, bo'limga faqat chegaraga yetganda o'tilardi). */
+  (function storySwipe() {
     const view = $("story-view");
     if (!view) return;
     let startY = 0;
+    let startX = 0;
     let deltaY = 0;
+    let deltaX = 0;
     let active = false;
+    let axis = ""; // "y" | "x" — yo'nalish bir marta tanlanadi
+
+    const isControl = (t) =>
+      !!(t && t.closest && t.closest(".story-foot, .story-head, .story-cta"));
 
     view.addEventListener(
       "touchstart",
       (e) => {
         if (view.classList.contains("hidden")) return;
+        // Pastdagi javob maydoni va tepadagi tugmalarda surish ishlamaydi
+        if (isControl(e.target)) return;
         startY = e.touches[0].clientY;
+        startX = e.touches[0].clientX;
         deltaY = 0;
+        deltaX = 0;
+        axis = "";
         active = true;
       },
       { passive: true }
@@ -4024,33 +4409,90 @@
       (e) => {
         if (!active) return;
         deltaY = e.touches[0].clientY - startY;
-        if (deltaY > 6) {
+        deltaX = e.touches[0].clientX - startX;
+        if (!axis && (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10)) {
+          axis = Math.abs(deltaX) > Math.abs(deltaY) ? "x" : "y";
+        }
+        if (axis === "y" && deltaY > 6) {
           view.style.transform = `translate3d(0, ${deltaY}px, 0)`;
           view.style.opacity = String(Math.max(0.35, 1 - deltaY / 420));
+        } else if (axis === "x") {
+          // Ozgina siljish — surilayotgani sezilsin (qarshilik bilan)
+          view.style.transform = `translate3d(${deltaX * 0.25}px, 0, 0)`;
         }
       },
       { passive: true }
     );
+
+    const spring = () => {
+      view.style.transition = "transform 0.22s var(--silk), opacity 0.22s";
+      view.style.transform = "";
+      view.style.opacity = "";
+      setTimeout(() => (view.style.transition = ""), 240);
+    };
 
     view.addEventListener(
       "touchend",
       () => {
         if (!active) return;
         active = false;
-        if (deltaY > 110) {
+        if (axis === "y" && deltaY > 110) {
           haptic("light");
-          closeStory();
-          return;
+          return closeStory();
         }
-        // Yetarli surilmadi — joyiga qaytadi
-        view.style.transition = "transform 0.22s var(--silk), opacity 0.22s";
-        view.style.transform = "";
-        view.style.opacity = "";
-        setTimeout(() => (view.style.transition = ""), 240);
+        if (axis === "x" && Math.abs(deltaX) > 60) {
+          spring();
+          return swipeRing(deltaX < 0 ? 1 : -1);
+        }
+        spring(); // yetarli surilmadi — joyiga qaytadi
       },
       { passive: true }
     );
   })();
+
+  /* Media ustida IKKI MARTA bosish -> ❤️ (Instagram kabi). Bosish zonalari
+     ustida ishlaydi, shuning uchun bir marta bosish oldinga/orqaga yurishga
+     xalaqit bermaydi — ikkinchi bosish 320 ms ichida kelsa "yoqtirish". */
+  (function storyDoubleTap() {
+    let last = 0;
+    ["story-prev", "story-next"].forEach((id) => {
+      const zone = $(id);
+      if (!zone) return;
+      zone.addEventListener(
+        "click",
+        () => {
+          const now = Date.now();
+          if (now - last < 320) {
+            last = 0;
+            reactStory("❤️");
+          } else last = now;
+        },
+        true // capture — zonaning o'z ishlovchisidan OLDIN
+      );
+    });
+  })();
+
+  /* Javob maydoni: yozayotganda story TO'XTAYDI (Instagram kabi) */
+  (function storyReplyBind() {
+    const form = $("story-reply");
+    const input = $("story-reply-in");
+    if (!form || !input) return;
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      sendStoryReply();
+    };
+    input.onfocus = () => storyPause(true);
+    input.onblur = () => {
+      if (!(input.value || "").trim()) storyPause(false);
+    };
+    // Maydonni bosish story'ni oldinga yurgizib yubormasin
+    form.onclick = (e) => e.stopPropagation();
+  })();
+
+  /* Ovoz holati eslab qolinadi (ilgari har ochilishda ovozsiz edi) */
+  try {
+    S.storyMuted = localStorage.getItem("zimmer_story_mute") !== "0";
+  } catch (_) {}
 
   // Bosib turilsa pauza (ikki tomonda ham) — Avto_A1 kabi
   ["story-prev", "story-next"].forEach((id) => {
