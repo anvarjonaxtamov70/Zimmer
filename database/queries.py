@@ -1320,6 +1320,9 @@ EDITABLE: dict[str, set[str]] = {
     "stories": {
         "category", "title", "emoji", "heading", "body", "color_from", "color_to",
         "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
+        # Havola bulutga ham yozilishi kerak, aks holda `_catalog_payload`
+        # uni tashlab ketadi va Mini App'dagi CTA tugmasi yo'qoladi.
+        "link",
     },
     "promos": {"title", "text", "discount", "until_date", "sort", "is_active"},
 }

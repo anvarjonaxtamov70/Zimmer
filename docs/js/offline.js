@@ -1096,6 +1096,60 @@
     return body;
   }
 
+  /** Mini App ichidan VIDEO (yoki rasm) yuklaydi.
+   *
+   *  NEGA WORKER ORQALI
+   *  `ZimmerUpload` (ImgBB) faqat RASM qabul qiladi, Render'dagi yuklash
+   *  esa server uxlaganda ishlamaydi. Brauzer Telegram'ga to'g'ridan
+   *  murojaat qila olmaydi — bot tokeni kerak va uni brauzerga berish
+   *  mumkin emas. Worker faylni bot orqali adminning o'z chatiga yuborib,
+   *  muddatsiz `file_id` ni qaytaradi.
+   *
+   *  `XMLHttpRequest` ishlatiladi (fetch emas): faqat u yuklash
+   *  foizini beradi — katta video yuklanayotganda admin qotib qolgan deb
+   *  o'ylamasligi kerak. */
+  function adminUpload(file, kind, onProgress) {
+    return new Promise(function (resolve, reject) {
+      if (!WORKER) return reject({ code: "no_worker", message: "WORKER_URL sozlanmagan" });
+      var data = initData();
+      if (!data) return reject({ code: "no_init_data", message: "Telegram imzosi yo'q" });
+      if (!file) return reject({ code: "no_file", message: "Fayl tanlanmagan" });
+
+      var form = new FormData();
+      form.append("initData", data);
+      form.append("kind", kind === "photo" ? "photo" : "video");
+      form.append("file", file, file.name || "upload");
+
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", WORKER + "/admin/upload");
+      xhr.timeout = 180000; // 3 daqiqa — mobil internetda katta video sekin ketadi
+
+      if (xhr.upload && typeof onProgress === "function") {
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+      xhr.onload = function () {
+        var body = null;
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch (_) {}
+        if (xhr.status >= 200 && xhr.status < 300 && body && body.ok === true) return resolve(body);
+        reject({
+          code: (body && body.error) || "http_" + xhr.status,
+          message: (body && (body.message || body.error)) || "Yuklanmadi",
+        });
+      };
+      xhr.onerror = function () {
+        reject({ code: "network", message: "Internetga ulanmadi" });
+      };
+      xhr.ontimeout = function () {
+        reject({ code: "timeout", message: "Yuklash juda uzoq davom etdi — kaltaroq video tanlang" });
+      };
+      xhr.send(form);
+    });
+  }
+
   /** Story'ga javob yuboradi (Instagram'dagi "Reply to story" kabi).
    *
    *  Worker imzoni tekshirib, adminning Telegram'iga QAYSI bo'lim va
@@ -1317,6 +1371,7 @@
     saveProfile: saveProfile,
     createOrder: createOrder,
     storyReply: storyReply,
+    adminUpload: adminUpload,
     /** Stories bo'limlari (admin paneli shu ro'yxatdan tanlaydi).
      *  `utils/stories.py: STORY_CATEGORIES` bilan bir xil bo'lishi SHART. */
     storyRings: function () {

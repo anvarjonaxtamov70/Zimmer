@@ -61,7 +61,7 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // berishga to'g'ri keladi).
 // Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
 // YANGI nusxa turganini tasdiqlashning eng oson yo'li.
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const FEATURES = [
   "order",
   "me",
@@ -80,7 +80,17 @@ const FEATURES = [
   // aniqlaydi va aniq aytadi.
   "admin_orders_merged",
   "admin_status_kind",
+  // 1.5.0 — story'ga javob va Mini App ichidan VIDEO yuklash
+  "story_reply",
+  "admin_upload",
 ];
+
+/** Mini App'dan yuklanadigan fayl chegarasi.
+ *  Telegram Bot API `sendVideo` uchun 50 MB beradi, lekin Worker'ning
+ *  xotirasi 128 MB — fayl kirish va chiqishda ikki marta buferlanadi.
+ *  Shu sababli 32 MB da to'xtaymiz va sababini AYTAMIZ (jimgina
+ *  yiqilgandan ko'ra). Kattaroq video botga tashlanadi. */
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -133,6 +143,8 @@ export default {
       if (path === "/admin/catalog") return handleAdminCatalog(request, env);
       if (path === "/admin/product") return handleAdminProduct(request, env);
       if (path === "/admin/edit") return handleAdminEdit(request, env);
+      // Mini App ichidan video/rasm yuklash (bot orqali file_id olinadi)
+      if (path === "/admin/upload") return handleAdminUpload(request, env);
       if (path === "/admin/orders") return handleAdminOrders(request, env);
       if (path === "/admin/order-status") return handleAdminOrderStatus(request, env);
 
@@ -1082,6 +1094,137 @@ async function notifyAdmins(env, c, text) {
 //    2. `story_replies` tuguniga — admin panelida story bo'yicha
 //       guruhlangan holda ko'rinadi va yo'qolmaydi.
 // =====================================================================
+// =====================================================================
+//  POST /admin/upload — MINI APP ICHIDAN VIDEO (va rasm) YUKLASH
+//
+//  MUAMMO
+//  Bot ichidan video yuklash ishlaydi (`handlers/stories.py`), Mini App
+//  ichidan esa MUTLAQO iloji yo'q edi:
+//    * `docs/js/upload.js` ImgBB'ga yuklaydi — u FAQAT rasm qabul qiladi;
+//    * `api/admin.py` dagi yuklash Render'da va u uxlab yotishi mumkin;
+//    * brauzer Telegram'ga to'g'ridan murojaat qila olmaydi, chunki bot
+//      tokeni kerak va uni brauzerga berish MUMKIN EMAS.
+//
+//  YECHIM
+//  Fayl Worker'ga keladi, Worker uni bot orqali ADMINNING O'Z chatiga
+//  yuboradi va Telegram qaytargan `file_id` ni oladi. Keyin video
+//  `GET /media?id=<file_id>` orqali ko'rsatiladi (bu proksi allaqachon
+//  bor va `Range` so'rovlarini qo'llaydi, ya'ni videoni orqaga-oldinga
+//  surish ham ishlaydi).
+//
+//  NEGA AYNAN TELEGRAM
+//  Yangi saqlash xizmati kerak emas, `file_id` muddatsiz yashaydi va
+//  bot ham AYNI shu usulni ishlatadi — ya'ni botdan va Mini App'dan
+//  qo'shilgan story bir xil ko'rinadi.
+//
+//  DIQQAT: bu yerda `requireAdmin()` ishlatilmaydi — u tanani JSON deb
+//  o'qiydi, bizda esa multipart fayl keladi. Shuning uchun imzo qo'lda
+//  tekshiriladi (mantiq bir xil: HMAC + ADMIN_IDS).
+// =====================================================================
+async function handleAdminUpload(request, env) {
+  const c = cfg(env);
+  if (!env.BOT_TOKEN) return json({ ok: false, error: "BOT_TOKEN sozlanmagan" }, 500);
+
+  let form;
+  try {
+    form = await request.formData();
+  } catch (_) {
+    return json({ ok: false, error: "Fayl yuborilmadi (multipart kerak)" }, 400);
+  }
+
+  const verified = await verifyInitData(form.get("initData"), env);
+  if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+  const uid = String(verified.user.id);
+  if (!c.admins.includes(uid)) {
+    return json({ ok: false, error: "forbidden", message: "Bu amal faqat admin uchun" }, 403);
+  }
+
+  const file = form.get("file");
+  if (!file || typeof file.arrayBuffer !== "function") {
+    return json({ ok: false, error: "Fayl topilmadi" }, 400);
+  }
+  const size = Number(file.size) || 0;
+  if (!size) return json({ ok: false, error: "Fayl bo'sh" }, 400);
+  if (size > MAX_UPLOAD_BYTES) {
+    const mb = Math.round(size / 1048576);
+    return json(
+      {
+        ok: false,
+        error: "too_big",
+        message:
+          `Fayl juda katta (${mb} MB). Chegara ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB — ` +
+          "kalta video tanlang yoki botga tashlang.",
+      },
+      413
+    );
+  }
+
+  const kind = String(form.get("kind") || "video").toLowerCase() === "photo" ? "photo" : "video";
+  const method = kind === "photo" ? "sendPhoto" : "sendVideo";
+  const field = kind === "photo" ? "photo" : "video";
+
+  const out = new FormData();
+  out.append("chat_id", uid); // adminning O'Z chati — fayl u yerda saqlanib turadi
+  out.append("disable_notification", "true");
+  out.append(
+    "caption",
+    kind === "photo" ? "🖼 Mini App: story rasmi" : "🎬 Mini App: story videosi"
+  );
+  out.append(field, file, file.name || (kind === "photo" ? "photo.jpg" : "video.mp4"));
+  if (kind === "video") out.append("supports_streaming", "true");
+
+  let data;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+      method: "POST",
+      body: out,
+    });
+    data = await res.json();
+  } catch (error) {
+    return json({ ok: false, error: "network", message: "Telegram'ga yuborilmadi" }, 502);
+  }
+
+  if (!data || !data.ok || !data.result) {
+    // Telegram sababni aytadi — uni YUTMAYMIZ, admin nima bo'lganini bilsin
+    const why = (data && (data.description || data.error_code)) || "noma'lum";
+    return json({ ok: false, error: "telegram", message: "Telegram rad etdi: " + why }, 502);
+  }
+
+  const r = data.result;
+  let fileId = null;
+  let thumbId = null;
+  let duration = 0;
+
+  if (kind === "photo") {
+    const photos = Array.isArray(r.photo) ? r.photo : [];
+    // Eng katta o'lcham oxirida turadi
+    fileId = photos.length ? photos[photos.length - 1].file_id : null;
+  } else {
+    const v = r.video || r.animation || r.document || null;
+    fileId = v ? v.file_id : null;
+    duration = (v && Number(v.duration)) || 0;
+    const th = v && (v.thumbnail || v.thumb);
+    thumbId = th ? th.file_id : null;
+  }
+
+  if (!fileId) return json({ ok: false, error: "Telegram file_id bermadi" }, 502);
+
+  /* `url` — darhol ko'rsatish uchun. Bazaga esa `file_id` yoziladi:
+     u muddatsiz, va Render ham (`/api/media/...`), Worker ham
+     (`/media?id=...`) shu id bo'yicha xizmat qiladi. */
+  const base = new URL(request.url).origin;
+  return json({
+    ok: true,
+    kind: kind,
+    file_id: fileId,
+    thumb_id: thumbId,
+    duration: duration,
+    size: size,
+    url: `${base}/media?id=${encodeURIComponent(fileId)}`,
+    thumb_url: thumbId ? `${base}/media?id=${encodeURIComponent(thumbId)}` : null,
+  });
+}
+
 async function handleStoryReply(request, env) {
   const c = cfg(env);
   const body = await readJson(request);
