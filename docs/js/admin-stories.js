@@ -39,6 +39,12 @@ window.ZimmerStories = (function () {
 
   const NODE = "catalog/stories";
 
+  /** Telegram `file_id` ni ko'rsatiladigan manzilga aylantiradi (Worker proksisi). */
+  const mediaUrl = (fileId) => {
+    const off = window.ZimmerOffline;
+    return fileId && off && off.mediaUrl ? off.mediaUrl(fileId) : null;
+  };
+
   const S = {
     view: null, // list | add | replies
     rows: [], // stories
@@ -47,6 +53,10 @@ window.ZimmerStories = (function () {
     replies: [], // hamma javoblar
     ring: null, // qo'shishda tanlangan bo'lim
     photo: "", // yuklangan rasm havolasi
+    // ---- video (Mini App ichidan yuklanadi)
+    videoId: "", // Telegram file_id — muddatsiz
+    videoUrl: "", // darhol ko'rsatish uchun Worker havolasi
+    posterId: "", // videoning muqovasi (Telegram thumbnail)
     busy: false,
     openId: null, // javoblar ko'rilayotgan story
   };
@@ -112,7 +122,9 @@ window.ZimmerStories = (function () {
           emoji: r.emoji || "",
           link: String(r.link || ""),
           photo_url: r.photo_url || null,
+          photo_id: r.photo_id || null,
           video_url: r.video_url || null,
+          video_id: r.video_id || null,
           is_active: r.is_active !== 0 && r.is_active !== false,
           sort: Number(r.sort) || 0,
           createdAt: Number(r.createdAt) || Number(r.updatedAt) || 0,
@@ -221,15 +233,18 @@ window.ZimmerStories = (function () {
       .map((e) => e + tally[e])
       .join(" ");
     const nReplies = repliesOf(r.id).length;
-    const pic = r.photo_url;
+    /* Muqova: tashqi havola bo'lmasa Telegram `file_id` dan olinadi
+       (video story'larda muqova aynan shunday saqlanadi). */
+    const pic = r.photo_url || mediaUrl(r.photo_id);
+    const hasVideo = !!(r.video_url || r.video_id);
 
     return (
       '<div class="st-card' + (r.is_active ? "" : " off") + '" id="st-card-' + id + '">' +
       '<div class="st-thumb">' +
       (pic
         ? '<img src="' + esc(pic) + '" alt="" loading="lazy">'
-        : '<span>' + esc(r.emoji || "📸") + "</span>") +
-      (r.video_url ? '<i class="st-play">▶</i>' : "") +
+        : '<span>' + esc(r.emoji || (hasVideo ? "🎬" : "📸")) + "</span>") +
+      (hasVideo ? '<i class="st-play">▶</i>' : "") +
       "</div>" +
       '<div class="st-mid">' +
       "<b>" + esc(r.heading || r.title || "Sarlavhasiz") + "</b>" +
@@ -314,17 +329,26 @@ window.ZimmerStories = (function () {
   function openAdd() {
     S.view = "add";
     S.photo = "";
+    S.videoId = "";
+    S.videoUrl = "";
+    S.posterId = "";
     S.ring = S.ring || rings()[0].key;
     setHead("Yangi story", "Rasm va sarlavha");
 
     body().innerHTML =
       '<div class="adm-form">' +
-      // ---- rasm
+      // ---- media: rasm YOKI video
       '<div class="admin-form-group">' +
-      '<div class="apx-sub" style="margin-top:0;">Rasm</div>' +
+      '<div class="apx-sub" style="margin-top:0;">Rasm yoki video</div>' +
+      '<div class="st-picks">' +
       '<div class="st-pick" id="st-pick"><span id="st-pick-ic">🖼</span>' +
-      '<b id="st-pick-tx">Rasm tanlash</b><i>Telefon galereyasidan</i></div>' +
+      '<b id="st-pick-tx">Rasm</b><i>Galereyadan</i></div>' +
+      '<div class="st-pick" id="st-pick-v"><span id="st-pick-v-ic">🎬</span>' +
+      '<b id="st-pick-v-tx">Video</b><i id="st-pick-v-sub">32 MB gacha</i></div>' +
+      "</div>" +
       '<input type="file" accept="image/*" id="st-file" class="hidden">' +
+      '<input type="file" accept="video/*" id="st-file-v" class="hidden">' +
+      '<div class="st-up hidden" id="st-up"><i id="st-up-bar"></i><span id="st-up-tx"></span></div>' +
       '<div class="st-prev hidden" id="st-prev"></div>' +
       '<label class="adm-field" style="margin-top:12px;"><span>Yoki rasm havolasi</span>' +
       '<input type="text" class="admin-input" id="st-url" placeholder="https://..."></label>' +
@@ -355,6 +379,11 @@ window.ZimmerStories = (function () {
     const file = $("st-file");
     if ($("st-pick")) $("st-pick").onclick = () => file && file.click();
     if (file) file.onchange = () => pickPhoto(file.files && file.files[0]);
+
+    const vfile = $("st-file-v");
+    if ($("st-pick-v")) $("st-pick-v").onclick = () => vfile && vfile.click();
+    if (vfile) vfile.onchange = () => pickVideo(vfile.files && vfile.files[0]);
+
     if ($("st-url"))
       $("st-url").oninput = () => {
         const v = ($("st-url").value || "").trim();
@@ -396,37 +425,118 @@ window.ZimmerStories = (function () {
     });
   }
 
-  function showPreview(url) {
+  function showPreview(url, isVideo) {
     const box = $("st-prev");
     if (!box) return;
-    box.innerHTML = '<img src="' + esc(url) + '" alt="">';
+    box.innerHTML = isVideo
+      ? '<video src="' + esc(url) + '" playsinline muted controls preload="metadata"></video>'
+      : '<img src="' + esc(url) + '" alt="">';
     box.classList.remove("hidden");
-    const tx = $("st-pick-tx");
-    if (tx) tx.textContent = "Rasmni almashtirish";
+  }
+
+  /** Yuklash foizini ko'rsatadi (0..100), `null` — yashiradi. */
+  function showProgress(pct, label) {
+    const box = $("st-up");
+    const bar = $("st-up-bar");
+    const tx = $("st-up-tx");
+    if (!box) return;
+    if (pct === null) return box.classList.add("hidden");
+    box.classList.remove("hidden");
+    if (bar) bar.style.width = Math.max(2, Math.min(100, pct)) + "%";
+    if (tx) tx.textContent = label || pct + "%";
   }
 
   async function pickPhoto(f) {
     if (!f) return;
-    if (!up() || !up().available()) {
-      return toast("Rasm yuklash sozlanmagan (IMGBB_KEY)");
-    }
     const tx = $("st-pick-tx");
     const ic = $("st-pick-ic");
+    const off = window.ZimmerOffline;
+
     if (tx) tx.textContent = "Yuklanmoqda...";
     if (ic) ic.textContent = "⏳";
+    showProgress(5, "Rasm yuklanmoqda...");
     try {
-      const res = await up().uploadFile(f);
-      const url = (res && (res.url || res.display_url)) || "";
+      let url = "";
+      if (up() && up().available()) {
+        // ImgBB: rasmni avval siqadi (tovar rasmlari bilan bir xil yo'l)
+        const res = await up().uploadFile(f);
+        url = (res && (res.url || res.display_url)) || "";
+      } else if (off && off.adminUpload && off.workerReady && off.workerReady()) {
+        // ImgBB sozlanmagan bo'lsa — Worker orqali (Telegram file_id)
+        const res = await off.adminUpload(f, "photo", (p) => showProgress(p));
+        url = (res && res.url) || "";
+        if (res && res.file_id) S.posterId = res.file_id;
+      } else {
+        throw { message: "Rasm yuklash sozlanmagan (IMGBB_KEY yoki WORKER_URL)" };
+      }
       if (!url) throw { message: "Havola qaytmadi" };
       S.photo = url;
-      showPreview(url);
+      S.videoId = "";
+      S.videoUrl = "";
+      showPreview(url, false);
+      showProgress(null);
+      if (tx) tx.textContent = "Rasm ✅";
       if (ic) ic.textContent = "✅";
       haptic("ok");
       toast("Rasm yuklandi");
     } catch (err) {
-      if (tx) tx.textContent = "Rasm tanlash";
+      showProgress(null);
+      if (tx) tx.textContent = "Rasm";
       if (ic) ic.textContent = "🖼";
       toast((err && err.message) || "Rasm yuklanmadi");
+    }
+  }
+
+  /** VIDEO yuklash — Mini App ichidan.
+   *
+   *  Ilgari bu MUTLAQO imkonsiz edi: ImgBB faqat rasm oladi, Render
+   *  uxlashi mumkin, brauzer esa Telegram'ga to'g'ridan murojaat qila
+   *  olmaydi (bot tokeni kerak). Endi Worker faylni bot orqali o'tkazib,
+   *  muddatsiz `file_id` beradi. */
+  async function pickVideo(f) {
+    if (!f) return;
+    const off = window.ZimmerOffline;
+    if (!off || !off.adminUpload || !off.workerReady || !off.workerReady()) {
+      return toast("Video yuklash uchun WORKER_URL sozlanishi kerak");
+    }
+
+    const MAX = 32 * 1024 * 1024; // Worker chegarasi bilan bir xil
+    if (f.size > MAX) {
+      const mb = Math.round(f.size / 1048576);
+      return toast(
+        "Video juda katta (" + mb + " MB). 32 MB gacha bo'lsin — kaltaroq tanlang.",
+        5000
+      );
+    }
+
+    const tx = $("st-pick-v-tx");
+    const ic = $("st-pick-v-ic");
+    if (tx) tx.textContent = "Yuklanmoqda...";
+    if (ic) ic.textContent = "⏳";
+    showProgress(2, "Video yuklanmoqda...");
+
+    try {
+      const res = await off.adminUpload(f, "video", (p) =>
+        showProgress(p, p < 100 ? "Yuklanmoqda " + p + "%" : "Telegram qayta ishlayapti...")
+      );
+      S.videoId = res.file_id || "";
+      S.videoUrl = res.url || "";
+      // Muqova (poster) — Telegram o'zi yasagan kichik rasm
+      if (res.thumb_id) S.posterId = res.thumb_id;
+      S.photo = ""; // video story: rasm havolasi kerak emas
+      if (S.videoUrl) showPreview(S.videoUrl, true);
+      showProgress(null);
+      if (tx) tx.textContent = "Video ✅";
+      if (ic) ic.textContent = "✅";
+      const sub = $("st-pick-v-sub");
+      if (sub && res.duration) sub.textContent = res.duration + " soniya";
+      haptic("ok");
+      toast("Video yuklandi");
+    } catch (err) {
+      showProgress(null);
+      if (tx) tx.textContent = "Video";
+      if (ic) ic.textContent = "🎬";
+      toast((err && err.message) || "Video yuklanmadi", 5000);
     }
   }
 
@@ -434,7 +544,8 @@ window.ZimmerStories = (function () {
     if (S.busy) return;
     const heading = ($("st-head").value || "").trim();
     if (heading.length < 2) return toast("Sarlavhani kiriting");
-    if (!S.photo) return toast("Rasm tanlang yoki havola kiriting");
+    // Rasm YOKI video bo'lishi kifoya (ilgari faqat rasm qabul qilinardi)
+    if (!S.photo && !S.videoId) return toast("Rasm yoki video tanlang");
 
     const ring = ringOf(S.ring);
     const bodyTx = ($("st-body").value || "").trim();
@@ -460,10 +571,15 @@ window.ZimmerStories = (function () {
         emoji: ring.emoji,
         color_from: ring.color_from,
         color_to: ring.color_to,
-        photo_url: S.photo,
-        photo_id: null,
+        /* Media: `*_url` — tashqi havola (ImgBB), `*_id` — Telegram
+           file_id. Video HAR DOIM `file_id` bo'lib yoziladi: u muddatsiz
+           va Render (`/api/media/...`) ham, Worker (`/media?id=...`) ham
+           shu id bo'yicha xizmat qiladi. Shu sababli botdan va Mini
+           App'dan qo'shilgan story bir xil ishlaydi. */
+        photo_url: S.photo || null,
+        photo_id: S.posterId || null,
         video_url: null,
-        video_id: null,
+        video_id: S.videoId || null,
         link: link || null,
         sort: 0,
         is_active: 1,
@@ -476,6 +592,9 @@ window.ZimmerStories = (function () {
       toast("✅ Story qo'shildi");
       freshen();
       S.photo = "";
+      S.videoId = "";
+      S.videoUrl = "";
+      S.posterId = "";
       await open();
     } catch (err) {
       toast((err && err.message) || "Saqlanmadi");

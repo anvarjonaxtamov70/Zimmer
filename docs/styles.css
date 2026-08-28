@@ -6620,6 +6620,12 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .st-ring:active { transform: scale(0.94); }
 
 /* ---- rasm tanlash va ko'rinish */
+/* Rasm va video yonma-yon */
+.st-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
 .st-pick {
   display: flex;
   flex-direction: column;
@@ -6632,6 +6638,36 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   cursor: pointer;
   text-align: center;
 }
+#st-pick-v { border-color: rgba(199, 125, 255, 0.4); }
+
+/* Yuklash foizi — katta video yuklanayotganda admin qotib qolgan deb
+   o'ylamasligi kerak */
+.st-up {
+  position: relative;
+  height: 26px;
+  margin-top: 11px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.st-up i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2%;
+  background: var(--red-grad);
+  transition: width 0.25s var(--silk);
+}
+.st-up span {
+  position: relative;
+  display: block;
+  line-height: 24px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
 .st-pick span { font-size: 25px; line-height: 1; }
 .st-pick b { font-size: 13px; font-weight: 700; }
 .st-pick i { font-style: normal; font-size: 11px; color: var(--muted); }
@@ -6643,12 +6679,14 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   background: var(--surface-2);
   animation: stIn 0.3s var(--silk) both;
 }
-/* Story nisbati (9:16) — mijoz qanday ko'rishini shu yerda ko'rsatadi */
-.st-prev img {
+/* Story nisbati — mijoz qanday ko'rishini shu yerda ko'rsatadi */
+.st-prev img,
+.st-prev video {
   display: block;
   width: 100%;
   max-height: 320px;
   object-fit: contain;
+  background: #000;
 }
 
 /* ---- mijoz javobi */

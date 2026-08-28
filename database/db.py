@@ -608,7 +608,9 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "banners": [*MEDIA_COLUMNS],
     # Stories endi KATEGORIYALARGA bo'linadi (Avto_A1 kabi): bitta halqa
     # ichida bir nechta video/rasm bo'ladi.
-    "stories": [*MEDIA_COLUMNS, ("category", "TEXT")],
+    # `link` — story'dan tovarga (yoki tashqi manzilga) o'tish havolasi.
+    # Mini App'da story ostida «Batafsil ko'rish» tugmasi bo'lib chiqadi.
+    "stories": [*MEDIA_COLUMNS, ("category", "TEXT"), ("link", "TEXT")],
 }
 
 
