@@ -1311,29 +1311,28 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
    Qora + qizil tema. Blur/filtr ishlatilmaydi.
    ========================================================================== */
 .dlv-methods { display: grid; gap: 10px; margin: 6px 0 14px; }
-.dlv-card, .pay-card {
+.dlv-card {
   display: flex; align-items: center; gap: 12px; width: 100%;
   background: var(--surface); border: 1.5px solid var(--line);
   border-radius: var(--r-md); padding: 14px; text-align: left; color: var(--text);
   transition: transform 0.15s var(--silk), border-color 0.2s, background 0.2s;
 }
-.dlv-card:active, .pay-card:active { transform: scale(0.985); }
+.dlv-card:active { transform: scale(0.985); }
 .dlv-card.on { border-color: var(--red); background: var(--red-soft); }
-.dlv-ico, .pay-ico {
+.dlv-ico {
   width: 46px; height: 46px; border-radius: 13px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; font-size: 22px;
   background: var(--surface-2);
 }
-.dlv-txt, .pay-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.dlv-txt b, .pay-txt b { font-size: 14.5px; font-weight: 700; }
-.dlv-txt small, .pay-txt small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.dlv-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dlv-txt b { font-size: 14.5px; font-weight: 700; }
+.dlv-txt small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
 .dlv-check {
   width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
   border: 2px solid var(--line-2); color: transparent;
   display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800;
 }
 .dlv-card.on .dlv-check { background: var(--red-grad); border-color: transparent; color: #fff; }
-.pay-go { color: var(--dim); font-size: 20px; flex-shrink: 0; }
 
 .dlv-note {
   margin: 12px 0 0; padding: 11px 13px; border-radius: var(--r-sm);
@@ -1368,9 +1367,23 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .map-picker-bar {
   padding: 14px 16px calc(14px + var(--safe-b));
-  background: var(--surface); display: flex; gap: 10px; align-items: center;
+  background: var(--surface); display: flex; gap: 10px; align-items: stretch;
+  border-top: 1px solid var(--line);
 }
-.map-picker-bar .btn-primary { flex: 1; }
+/* IKKI TUGMA BIR XIL O'LCHAMDA, YONMA-YON.
+   Ilgari faqat `.btn-primary` ga `flex: 1` berilgan edi — natijada
+   «Bekor» matn bo'yicha keng, «Tanlash» esa qolgan joyni egallab,
+   ikkisi butunlay boshqa o'lchamda ko'rinardi. Endi teng bo'linadi
+   va balandligi ham bir xil (`align-items: stretch` + min-height). */
+.map-picker-bar .btn {
+  flex: 1 1 0; min-width: 0; min-height: 50px;
+  display: flex; align-items: center; justify-content: center;
+}
+/* `flex-basis: 0` KONTENT qutisiga tegishli, chegara esa ustiga qo'shiladi.
+   `.btn-ghost` da 1px chegara bor, `.btn-primary` da yo'q — natijada
+   «Bekor» tugmasi aynan 2px keng bo'lib qolardi. Shaffof chegara ikkisini
+   tenglashtiradi (gradient fon chegara ostidan ko'rinadi, ya'ni sezilmaydi). */
+.map-picker-bar .btn-primary { border: 1px solid transparent; }
 .map-locate-hint {
   position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
   z-index: 1000; background: var(--surface);
@@ -1379,8 +1392,13 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   pointer-events: none; white-space: nowrap;
 }
+/* «Meni top» tugmasi pastdagi paneldan YUQORIDA turadi.
+   Ilgari `bottom: 76px` — bu panel balandligiga qo'lda moslashtirilgan
+   qiymat edi va xavfsiz zonani (`--safe-b`) hisobga olmasdi: iPhone'da
+   tugma panel ustiga chiqib qolardi. Endi panel balandligi + zaxira. */
 .map-locate-btn {
-  position: absolute; right: 16px; bottom: 76px; z-index: 1000;
+  position: absolute; right: 16px; z-index: 1000;
+  bottom: calc(102px + var(--safe-b));
   width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--surface);
   box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,45,58,0.25);
@@ -1477,68 +1495,248 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .dlv-map-btn:active { transform: scale(0.97); }
 
-/* ---- to'lov ---- */
-.pay-card { margin-bottom: 10px; }
-.pay-ico.blue { color: #4ba3ff; }
-.pay-ico.cyan { color: #2fd6e4; }
-.pay-ico.green { color: var(--green); }
+/* ==========================================================================
+   TO'LOV QADAMI (.pz-* = "pay zen")
 
-.pay-total {
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--red-soft); border: 1px solid rgba(255, 45, 58, 0.25);
-  border-radius: var(--r-md); padding: 14px 16px; margin-bottom: 16px;
-}
-.pay-total small {
-  display: block; font-size: 11px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;
-}
-.pay-total b { font-size: 22px; font-weight: 900; color: var(--red); }
-.pay-total-ico {
-  width: 42px; height: 42px; border-radius: 50%; background: rgba(255, 45, 58, 0.12);
-  display: flex; align-items: center; justify-content: center; font-size: 20px;
-}
+   Tamoyillar (fayl boshidagi qoidalar bilan birga):
+     • bitta ekran, bitta oqim, YAKKA yakuniy tugma;
+     • summa — eng katta element; qolgani unga ergashadi;
+     • tanlov iOS «grouped list» ko'rinishida: bitta idishda qatorlar,
+       orasida ingichka chiziq, chapda radio belgisi;
+     • `blur` ISHLATILMAYDI (telefonda skroll qotadi) — chuqurlik
+       gradient va soya bilan beriladi;
+     • animatsiyalar bir martalik va faqat transform/opacity.
 
-.pay-back {
-  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
-  padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 14px;
-}
+   Eski `.pay-*` va `.bank-*` klasslari OLIB TASHLANDI: ular faqat shu
+   qadamda ishlatilardi va endi ishlatilmaydi (o'lik CSS qolmasin).
+   ========================================================================== */
 
-.bank-card {
-  position: relative; border-radius: 18px; padding: 20px 18px 16px; overflow: hidden;
-  background: linear-gradient(135deg, #1c1013, #2a0a10 55%, #120c0e);
-  border: 1px solid rgba(255, 45, 58, 0.3);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  margin-bottom: 14px;
-}
-.bank-card::after {
-  content: ""; position: absolute; top: -40%; right: -20%; width: 60%; height: 160%;
-  background: radial-gradient(ellipse, rgba(255, 45, 58, 0.18), transparent 70%);
-}
-.bank-chip {
-  width: 38px; height: 28px; border-radius: 7px;
-  background: linear-gradient(135deg, #e9c96a, #a97e2a); margin-bottom: 18px;
-}
-.bank-num {
-  font-size: 20px; letter-spacing: 2px; font-weight: 700; cursor: pointer;
-  position: relative; word-spacing: 3px;
-}
-.bank-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 14px; }
-.bank-bottom span { font-size: 12.5px; letter-spacing: 1px; color: var(--muted); }
-.bank-bottom em { font-style: normal; font-weight: 800; font-size: 14px; color: #d9dee6; letter-spacing: 1px; }
-
-.pay-amount {
-  display: flex; justify-content: space-between; align-items: center;
+/* ---- yetkazib berish eslatmasi (bosiladi → 2-qadam) ---- */
+.pz-recap {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 12px 14px; margin: 12px 0 14px; text-align: left; cursor: pointer;
   background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 12px 14px; margin-bottom: 14px;
+  border-radius: var(--r-md); color: var(--text); font-family: inherit;
+  transition: transform 0.15s var(--silk), border-color 0.2s;
+  animation: coIn 0.32s var(--silk) both;
 }
-.pay-amount small { color: var(--muted); font-size: 12px; }
-.pay-amount b { color: var(--red); font-size: 17px; font-weight: 800; }
+.pz-recap:active { transform: scale(0.985); border-color: var(--line-2); }
+.pz-recap-ic { flex: none; font-size: 19px; line-height: 1; }
+.pz-recap-tx { flex: 1; min-width: 0; }
+.pz-recap-tx small {
+  display: block; font-size: 10.5px; font-weight: 700; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+.pz-recap-tx b {
+  display: block; margin-top: 2px; font-size: 13px; font-weight: 600;
+  color: #cfe9d6; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.pz-recap-go {
+  flex: none; font-size: 11px; font-weight: 700; color: var(--gold);
+  padding: 5px 9px; border-radius: 999px; background: var(--gold-soft);
+}
 
-.pay-steps { margin: 0 0 14px; padding-left: 20px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
-.pay-steps b { color: var(--text); }
-.pay-apps { display: flex; gap: 10px; margin-bottom: 12px; }
-.pay-apps .btn { flex: 1; }
-.pay-hint { text-align: center; font-size: 11px; color: var(--dim); margin: 12px 0 0; line-height: 1.5; }
+/* ---- SUMMA (ekranning asosiy elementi) ---- */
+.pz-hero {
+  position: relative; overflow: hidden;
+  padding: 20px 18px; margin-bottom: 20px; border-radius: 20px; text-align: center;
+  background: linear-gradient(160deg, var(--red-soft), rgba(0, 0, 0, 0.32));
+  border: 1px solid rgba(255, 45, 58, 0.22);
+  animation: coIn 0.34s var(--silk) both;
+}
+.pz-hero::after {
+  content: ""; position: absolute; top: -55%; left: 50%; width: 240px; height: 240px;
+  transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 45, 58, 0.13), transparent 70%);
+}
+.pz-hero small {
+  position: relative; display: block; font-size: 10.5px; font-weight: 800;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px;
+}
+.pz-hero b {
+  position: relative; display: block; margin: 7px 0 5px;
+  font-size: 30px; font-weight: 900; color: #fff; letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.pz-hero span {
+  position: relative; display: block; font-size: 11.5px; font-weight: 600; color: var(--muted);
+}
+
+/* ---- bo'lim sarlavhasi ---- */
+.pz-label {
+  font-size: 11px; font-weight: 800; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 9px 4px;
+}
+
+/* ---- usullar ro'yxati (grouped list) ---- */
+.pz-group {
+  border-radius: 18px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.pz-row {
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 15px 15px; text-align: left; cursor: pointer;
+  background: none; border: none; color: var(--text); font-family: inherit;
+  transition: background 0.18s;
+}
+/* Qatorlar orasidagi ingichka chiziq — chetlarga tegmaydi (iOS uslubi) */
+.pz-row + .pz-row { box-shadow: inset 0 1px 0 var(--line); }
+.pz-row:active { background: var(--surface-2); }
+.pz-row.is-on { background: rgba(255, 45, 58, 0.06); }
+
+.pz-radio {
+  flex: none; width: 21px; height: 21px; border-radius: 50%;
+  border: 2px solid var(--line-2); position: relative;
+  transition: border-color 0.2s;
+}
+.pz-row.is-on .pz-radio { border-color: var(--red); }
+.pz-radio::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%;
+  background: var(--red-grad); opacity: 0; transform: scale(0.4);
+  transition: opacity 0.2s var(--silk), transform 0.24s var(--spring);
+}
+.pz-row.is-on .pz-radio::after { opacity: 1; transform: scale(1); }
+
+.pz-ic {
+  flex: none; width: 40px; height: 40px; border-radius: 13px;
+  display: flex; align-items: center; justify-content: center; font-size: 19px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.pz-row.is-on .pz-ic { border-color: rgba(255, 45, 58, 0.3); }
+/* Usulga xos yumshoq tus — ro'yxat bir xil kulrang bo'lib qolmasin */
+.pz-ic-card { color: #4ba3ff; background: rgba(75, 163, 255, 0.10); }
+.pz-ic-app { color: #2fd6e4; background: rgba(47, 214, 228, 0.10); }
+.pz-ic-cash { color: var(--green); background: rgba(47, 212, 95, 0.10); }
+.pz-tx { flex: 1; min-width: 0; }
+.pz-tx b {
+  display: block; font-size: 14px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pz-tx small {
+  display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); font-weight: 600;
+}
+
+/* ---- tanlangan usulning tafsiloti (balandlik JS dan) ---- */
+.pz-panel {
+  overflow: hidden; max-height: 0;
+  transition: max-height 0.36s var(--silk);
+}
+.pz-panel-in { padding-top: 16px; }
+
+/* karta ko'rinishi */
+.pz-card {
+  position: relative; overflow: hidden;
+  border-radius: 18px; padding: 16px 17px 14px;
+  background: linear-gradient(135deg, #1d1114, #2b0a11 55%, #120c0e);
+  border: 1px solid rgba(255, 45, 58, 0.28);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.pz-card::after {
+  content: ""; position: absolute; top: -40%; right: -18%; width: 60%; height: 165%;
+  pointer-events: none;
+  background: radial-gradient(ellipse, rgba(255, 45, 58, 0.16), transparent 70%);
+}
+.pz-card-top {
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.pz-card-chip {
+  width: 36px; height: 27px; border-radius: 7px;
+  background: linear-gradient(135deg, #e9c96a, #a97e2a);
+}
+.pz-card-top em {
+  font-style: normal; font-weight: 800; font-size: 13px;
+  color: #d9dee6; letter-spacing: 1.2px;
+}
+.pz-card-num {
+  position: relative; cursor: pointer;
+  font-size: 21px; font-weight: 700; letter-spacing: 2px; word-spacing: 4px;
+  color: #fff;
+}
+.pz-card-num:active { opacity: 0.7; }
+.pz-card-foot {
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 14px;
+}
+.pz-card-foot span {
+  font-size: 12px; letter-spacing: 0.8px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pz-copy {
+  flex: none; cursor: pointer; font-family: inherit;
+  padding: 8px 13px; border-radius: 11px; font-size: 12px; font-weight: 700;
+  background: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff; transition: transform 0.14s var(--silk);
+}
+.pz-copy:active { transform: scale(0.93); }
+
+/* o'tkaziladigan summa */
+.pz-amount {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.pz-amount small { font-size: 12px; color: var(--muted); }
+.pz-amount b { font-size: 16px; font-weight: 800; color: var(--gold); }
+
+/* Payme / Click */
+.pz-apps { display: flex; gap: 9px; margin-top: 12px; }
+.pz-app {
+  flex: 1; min-height: 46px; border-radius: 13px; cursor: pointer; font-family: inherit;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--text);
+  font-size: 13.5px; font-weight: 700;
+  transition: transform 0.14s var(--silk);
+}
+.pz-app:active { transform: scale(0.97); }
+
+/* qadamlar */
+.pz-steps {
+  margin: 14px 0 0; padding-left: 22px;
+  color: var(--muted); font-size: 12.5px; line-height: 1.75;
+}
+.pz-steps b { color: var(--text); font-weight: 700; }
+.pz-steps li { padding-left: 2px; }
+
+/* naqd / ogohlantirish bloki */
+.pz-info {
+  padding: 14px 15px; border-radius: 15px;
+  background: rgba(47, 212, 95, 0.07); border: 1px solid rgba(47, 212, 95, 0.22);
+}
+.pz-info b { display: block; font-size: 19px; font-weight: 900; color: var(--green); }
+.pz-info small {
+  display: block; margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.55;
+}
+.pz-info.is-warn {
+  background: rgba(255, 176, 32, 0.07); border-color: rgba(255, 176, 32, 0.26);
+}
+.pz-info.is-warn b { font-size: 15px; color: var(--amber); }
+
+/* BTS izohi */
+.pz-note {
+  margin: 11px 0 0; padding: 11px 13px; border-radius: 13px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-size: 12px; color: var(--muted); line-height: 1.55;
+}
+
+/* ---- yakka yakuniy tugma ---- */
+.pz-cta-wrap { margin-top: 22px; }
+.pz-cta { width: 100%; min-height: 52px; font-size: 15.5px; }
+.pz-cta:disabled {
+  opacity: 0.45; background: var(--surface-3); color: var(--muted);
+  box-shadow: none; cursor: default;
+}
+.pz-cta-note {
+  margin: 11px 0 0; text-align: center;
+  font-size: 11.5px; color: var(--dim); line-height: 1.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pz-recap, .pz-hero { animation: none; }
+  .pz-panel, .pz-radio::after { transition: none; }
+  .pz-recap:active, .pz-copy:active, .pz-app:active { transform: none; }
+}
 
 
 /* ==========================================================================
@@ -1625,6 +1823,27 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
 }
 .cart-total-footer b { font-size: 22px; font-weight: 900; color: var(--red); }
+/* «Jami» yonidagi dona soni */
+.cart-total-footer i {
+  font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--dim);
+  padding: 2px 7px; margin-left: 4px; border-radius: 999px; background: var(--surface-2);
+}
+
+/* Dona narxi (qty > 1 bo'lganda) */
+.cart-unit { display: block; margin-top: 2px; font-size: 11px; color: var(--dim); font-weight: 600; }
+
+/* Qoldiq tugaganda «+» tugmasi o'chadi */
+.cart-controls button:disabled { opacity: 0.35; }
+.cart-controls button:disabled:active { background: none; color: inherit; transform: none; }
+
+/* Savatni bo'shatish — ro'yxat ostida, ko'zga tashlanmaydigan joyda */
+.cart-clear {
+  display: block; margin: 6px auto 2px; padding: 10px 16px; cursor: pointer;
+  background: none; border: 1px solid transparent; border-radius: 12px;
+  color: var(--dim); font-family: inherit; font-size: 12.5px; font-weight: 600;
+  transition: color 0.2s, border-color 0.2s;
+}
+.cart-clear:active { color: #ff6b61; border-color: rgba(255, 45, 58, 0.28); }
 
 .cart-trust { display: flex; gap: 8px; margin-bottom: 14px; }
 .ct-badge {
@@ -2661,12 +2880,12 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   text-shadow: 0 2px 12px rgba(255, 45, 58, 0.2);
 }
 
-/* #30 — Karta to'lov: chip shimmer effekt */
-.bank-chip {
+/* #30 — Karta to'lov: chip shimmer effekt (yangi `.pz-card-chip`) */
+.pz-card-chip {
   position: relative;
   overflow: hidden;
 }
-.bank-chip::after {
+.pz-card-chip::after {
   content: "";
   position: absolute; inset: 0;
   background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,0.3) 50%, transparent 60%);
@@ -2786,7 +3005,7 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .toast::after,
   .hello-skeleton::after,
   .progress i::after,
-  .bank-chip::after,
+  .pz-card-chip::after,
   .fx::after { animation: none; display: none; }
   .empty-state-pro .es-icon,
   .gate-icon { animation: none; }
@@ -3543,6 +3762,7 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .apx-sale { border-color: rgba(255,45,58,0.22) !important; background: rgba(255,45,58,0.04); }
 .apx-ic-red { color: var(--red) !important; background: rgba(255,45,58,0.10) !important; }
 .apx-ic-blue { color: #0a84ff !important; background: rgba(10,132,255,0.10) !important; }
+.apx-ic-gold { color: var(--gold) !important; background: var(--gold-soft) !important; }
 .apx-sale-note {
   font-size: 11.5px; font-weight: 600; color: var(--muted);
   margin: -4px 0 12px; min-height: 15px;
@@ -3577,6 +3797,13 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   border-radius: 999px; padding: 7px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;
 }
 .apx-tpl-chip:active { transform: scale(0.96); border-color: var(--gold); }
+/* Tanlangan chip (kafolat muddati) — admin nima qo'yganini darhol ko'radi */
+.apx-tpl-chip.selected {
+  background: var(--gold-soft); border-color: var(--gold-glow); color: var(--gold);
+  font-weight: 800;
+}
+/* «✕ Yo'q» — kafolatni olib tashlash */
+.apx-tpl-chip.is-clear { color: var(--muted); border-style: dashed; }
 /* Ovozli kiritish tugmasi */
 .apx-voice {
   width: 100%; padding: 12px; border-radius: 13px; cursor: pointer;
@@ -3693,6 +3920,8 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .lp-code { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .lp-price { color: var(--gold); font-weight: 800; font-size: 14px; margin-top: 4px; }
 .lp-off { color: var(--red); font-size: 11px; font-weight: 800; margin-left: 4px; }
+/* Kafolat — jonli ko'rinishda ham chiqadi, admin natijani darhol ko'radi */
+.lp-war { font-size: 11px; color: var(--green); font-weight: 700; margin-top: 3px; }
 .lp-empty { text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--line); border-radius: 16px; padding: 18px; }
 
 /* Kategoriya / mashina chiplari */
@@ -4612,7 +4841,7 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
    Ilgari bu oqim pastdan chiqadigan `#sheet` panelida edi (max-height: 88vh).
    Endi to'liq ekranli alohida bo'lim: tepada qadam ko'rsatkichi, pastda
-   navbar yo'q. `.dlv-*`, `.pay-*`, `.bank-*`, `.field`, `.step-sub` klasslari
+   navbar yo'q. `.dlv-*`, `.pz-*`, `.field`, `.step-sub` klasslari
    O'ZGARMAGAN — ular panelga bog'liq emas edi, shuning uchun forma ko'rinishi
    xuddi avvalgidek qoladi, faqat endi bitta qatlam skroll bo'ladi.
 

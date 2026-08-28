@@ -191,7 +191,7 @@ config = Config(
     .strip()
     .lstrip("@"),
     # Kuryer faqat shu shahar ichida ishlaydi (BTS pochta — boshqa hududlarga).
-    delivery_city=os.getenv("DELIVERY_CITY", "Toshkent").strip(),
+    delivery_city=os.getenv("DELIVERY_CITY", "Samarqand").strip(),
     # ---- Uyg'oq turish (self-ping) ----
     # Render `RENDER_EXTERNAL_URL` ni o'zi beradi; boshqa joyda qo'lda yozasiz.
     keep_alive_url=(os.getenv("KEEP_ALIVE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip(),

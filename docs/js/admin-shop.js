@@ -1383,7 +1383,7 @@ window.ZimmerShop = (function () {
   const DESC_TPL = [
     ["✅ Original", "✅ Original mahsulot, sifat kafolatlanadi."],
     ["🛡 Kafolat", "🛡 1 yil kafolat beriladi."],
-    ["🚚 Yetkazish", "🚚 Toshkent bo'ylab yetkazib berish mavjud."],
+    ["🚚 Yetkazish", "🚚 Samarqand bo'ylab yetkazib berish mavjud."],
     ["🔧 O'rnatish", "🔧 O'rnatish xizmati mavjud."],
     ["💡 5500K", "💡 Yorug'lik harorati 5500K — kunduzgi oq nur."],
   ];
@@ -1458,6 +1458,7 @@ window.ZimmerShop = (function () {
     const oldp = parseNum($("shop-old") && $("shop-old").value);
     const code = ($("shop-code") && $("shop-code").value.trim()) || "";
     const badge = ($("shop-badge") && $("shop-badge").value.trim()) || "";
+    const warranty = ($("shop-warranty") && $("shop-warranty").value.trim()) || "";
     // Yuklanayotgan rasm ham ko'rinadi — kartochka ImgBB javobini kutmaydi.
     const firstJob = (S.jobs || []).filter((j) => j.localUrl && !j.error)[0];
     const img = readImgUrls()[0] || (firstJob && firstJob.localUrl) || "";
@@ -1485,7 +1486,9 @@ window.ZimmerShop = (function () {
       esc(money(price || 0)) +
       (hasSale ? ' <s class="lp-was">' + esc(money(oldp)) + "</s>" : "") +
       (off ? ' <span class="lp-off">-' + off + "%</span>" : "") +
-      "</div></div>" +
+      "</div>" +
+      (warranty ? '<div class="lp-war">🛡 ' + esc(warranty) + " kafolat</div>" : "") +
+      "</div>" +
       (badge ? '<span class="lp-badge">' + esc(badge) + "</span>" : "") +
       "</div>";
   }
@@ -1581,6 +1584,8 @@ window.ZimmerShop = (function () {
       '<div class="apx-sale-note" id="shop-sale-note">Bo\'sh qoldirilsa — aksiya yo\'q.</div>' +
       '<input type="number" class="admin-input" id="shop-flash-h" placeholder="Necha soat (bo\'sh = muddatsiz)" step="0.5" min="0">' +
       "</div>" +
+      /* ---- kafolat ---- */
+      warrantyBlock() +
       /* ---- tavsif ---- */
       '<div class="admin-form-group"><div class="apx-head">' +
       '<div class="apx-ic apx-ic-blue">💬</div>' +
@@ -1598,11 +1603,80 @@ window.ZimmerShop = (function () {
     );
   }
 
+  /* ==================================================================
+     KAFOLAT MUDDATI — har tovar uchun ALOHIDA
+
+     NEGA KERAK
+     Ilgari do'kon kartochkasida «🛡 14 kun kafolat» degan QATTIQ matn
+     turardi — barcha tovarlar uchun bir xil va noto'g'ri. Linzaga 1 yil,
+     lampaga 3 oy, mayda ehtiyot qismga esa umuman kafolat bermaslik
+     mumkin. Endi muddatni admin har tovarga o'zi qo'yadi.
+
+     Chiplar — faqat tez tanlash uchun. Maydonga xohlagan matnni yozish
+     mumkin («19 kun», «2 yil 6 oy»), ya'ni ro'yxat cheklov emas.
+     Bo'sh qoldirilsa — kartochkada kafolat satri UMUMAN chiqmaydi.
+     ================================================================== */
+  const WARRANTY_TPL = ["1 yil", "6 oy", "3 oy", "1 oy", "14 kun", "7 kun"];
+
+  function warrantyBlock() {
+    return (
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">🛡</div>' +
+      '<div class="apx-tx"><b>Kafolat muddati</b>' +
+      "<span>Mijoz tovar kartochkasida ko'radi</span></div></div>" +
+      '<div class="apx-tpl" id="shop-war-tpl">' +
+      WARRANTY_TPL.map(
+        (w) =>
+          '<button type="button" class="apx-tpl-chip shop-war" data-war="' +
+          esc(w) + '">' + esc(w) + "</button>"
+      ).join("") +
+      '<button type="button" class="apx-tpl-chip is-clear" data-war="">✕ Yo\'q</button>' +
+      "</div>" +
+      '<input type="text" class="admin-input" id="shop-warranty" maxlength="40" ' +
+      "placeholder=\"Yoki o'zingiz yozing: 19 kun, 2 yil 6 oy...\">" +
+      '<div class="apx-sale-note" id="shop-war-note">' +
+      "Bo'sh qoldirilsa — kafolat ko'rsatilmaydi.</div>" +
+      "</div>"
+    );
+  }
+
+  /** Kafolat maydoni: chiplar, jonli izoh va tanlangan chipni belgilash. */
+  function bindWarranty() {
+    const input = $("shop-warranty");
+    const note = $("shop-war-note");
+    const chips = document.querySelectorAll("#shop-war-tpl .apx-tpl-chip");
+
+    const paint = () => {
+      const v = ((input && input.value) || "").trim();
+      if (note) {
+        note.textContent = v
+          ? "Kartochkada: 🛡 " + v + " kafolat"
+          : "Bo'sh qoldirilsa — kafolat ko'rsatilmaydi.";
+      }
+      // Qo'lda yozilgan muddat chiplardan biriga to'g'ri kelsa — u yonadi
+      chips.forEach((c) =>
+        c.classList.toggle("selected", !!v && (c.dataset.war || "") === v)
+      );
+      livePreview();
+    };
+
+    chips.forEach((chip) => {
+      chip.onclick = () => {
+        haptic();
+        if (input) input.value = chip.dataset.war || "";
+        paint();
+      };
+    });
+    if (input) input.oninput = paint;
+    paint();
+  }
+
   /** Add va Edit formalari uchun UMUMIY bog'lashlar. */
   function bindForm() {
     bindPhotos();
     bindChips();
     bindDesc();
+    bindWarranty();
     // Narx maydonlari: raqamlar ajratiladi + jonli kartochka yangilanadi
     bindMoney(["shop-price", "shop-old"], livePreview);
     ["shop-name", "shop-code", "shop-badge"].forEach((id) => {
@@ -1645,6 +1719,7 @@ window.ZimmerShop = (function () {
     const code = ($("shop-code").value || "").trim();
     const badge = ($("shop-badge") && $("shop-badge").value.trim()) || "";
     const desc = ($("shop-desc") && $("shop-desc").value.trim()) || "";
+    const warranty = ($("shop-warranty") && $("shop-warranty").value.trim()) || "";
     const photos = photoUrls();
     const oldp = parseNum($("shop-old") && $("shop-old").value);
     const flashH =
@@ -1695,6 +1770,11 @@ window.ZimmerShop = (function () {
       deleted: false,
       categoryName: S.catSel,
       carName: carName,
+      /* Kafolat muddati — erkin matn («1 yil», «3 oy», «19 kun»).
+         Bo'sh bo'lsa ATAYLAB `null` yoziladi (bo'sh matn emas): mijoz
+         tomonida `p.warranty` tekshiruvi bitta bo'lib qoladi va tahrirlashda
+         kafolatni O'CHIRISH ham ishlaydi (`patch` null bilan ustiga yozadi). */
+      warranty: warranty || null,
       updatedAt: Date.now(),
       source: "miniapp",
     };
@@ -2643,6 +2723,9 @@ window.ZimmerShop = (function () {
     if ($("shop-badge")) $("shop-badge").value = r.badge || "";
     $("shop-stock").value = Number(r.stock) || 0;
     if ($("shop-desc")) $("shop-desc").value = r.description || "";
+    // Kafolat maydoni `bindForm()` dan OLDIN to'ldiriladi — `bindWarranty()`
+    // izoh va tanlangan chipni shu qiymatga qarab chizadi.
+    if ($("shop-warranty")) $("shop-warranty").value = r.warranty || "";
 
     bindForm();
 
