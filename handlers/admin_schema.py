@@ -194,6 +194,16 @@ ENTITIES: dict[str, Entity] = {
             Field("name", "Nomi", required=True),
             Field("duration_min", "Davomiyligi (daqiqa)", "int", required=True),
             Field("price", "Narx", "money"),
+            # Kafolat MATN: "1 yil", "3 oy", "19 kun" — xohlagan muddat.
+            Field("warranty", "Kafolat muddati"),
+            Field("description", "Tavsif"),
+            # Mini App kartochkasining dizayni. Bo'sh bo'lsa nom bo'yicha
+            # o'zi tanlanadi, shuning uchun majburiy emas.
+            Field(
+                "theme",
+                "Dizayn (config/biled/polish/glass/clean/wheel/seat)",
+            ),
+            Field("sort", "Tartib", "int"),
         ),
         label=lambda r: f"{r['name']} · {r['duration_min']} daq · {fmt_price(r['price'])}",
         create=("name", "duration_min", "price"),

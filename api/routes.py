@@ -323,6 +323,10 @@ async def api_cars(request: web.Request) -> web.Response:
                 "slug": car["slug"],
                 "years": car["years"],
                 "note": car["note"],
+                # Rasm bo'lsa Mini App SVG siluet o'rniga uni ko'rsatadi.
+                # Ilgari media maydonlari berilmagani uchun bazaga qo'yilgan
+                # mashina rasmi umuman ishlatilmasdi.
+                **media_fields("cars", car),
             }
             for car in cars
         ]
@@ -588,6 +592,12 @@ async def api_services(request: web.Request) -> web.Response:
                 "duration_min": int(svc["duration_min"]),
                 "price": int(svc["price"]),
                 "price_label": fmt_price(svc["price"]),
+                # Mini App «Xizmatlar» bo'limi uchun: kafolat, tavsif va
+                # kartochka dizayni kaliti (`app.js: SERVICE_THEMES`).
+                "warranty": svc["warranty"],
+                "description": svc["description"],
+                "theme": svc["theme"],
+                "sort": int(svc["sort"] or 0),
             }
             for svc in services
         ]

@@ -755,9 +755,21 @@
           duration_min: Number(r.duration_min) || 0,
           price: Number(r.price) || 0,
           price_label: priceLabel(r.price),
+          /* «Xizmatlar» bo'limi uchun: kafolat, tavsif va kartochka
+             dizayni kaliti (`app.js: SERVICE_THEMES`). */
+          warranty: r.warranty || null,
+          description: r.description || null,
+          theme: r.theme || null,
+          sort: Number(r.sort) || 0,
         };
       });
       if (list.length) {
+        // Server `ORDER BY sort, id` beradi — bulut yo'li ham shunday
+        // tartiblanishi kerak, aks holda ikki manbada ro'yxat boshqacha
+        // ketma-ketlikda ko'rinardi.
+        list.sort(function (a, b) {
+          return (a.sort || 0) - (b.sort || 0) || (a.id || 0) - (b.id || 0);
+        });
         saveBlob(SERVICES_KEY, list);
         return list;
       }

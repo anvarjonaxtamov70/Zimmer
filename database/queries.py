@@ -121,7 +121,8 @@ async def get_services(active_only: bool = True) -> list[aiosqlite.Row]:
     sql = "SELECT * FROM services"
     if active_only:
         sql += " WHERE is_active = 1"
-    sql += " ORDER BY id"
+    # Tartibni admin `sort` bilan boshqaradi (Mini App shu tartibda chizadi).
+    sql += " ORDER BY sort, id"
     async with db.execute(sql) as cur:
         return await cur.fetchall()
 
@@ -1312,7 +1313,10 @@ EDITABLE: dict[str, set[str]] = {
         "photo2_id", "photo2_url", "photo3_id", "photo3_url",
     },
     "categories": {"name", "icon", "sort", "is_active"},
-    "services": {"name", "duration_min", "price", "is_active"},
+    "services": {
+        "name", "duration_min", "price", "warranty", "description",
+        "theme", "sort", "is_active",
+    },
     "banners": {
         "title", "subtitle", "tag", "color_from", "color_to", "car_id",
         "sort", "is_active", "photo_id", "photo_url", "video_id", "video_url",
