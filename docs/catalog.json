@@ -43,20 +43,20 @@
  ],
  "stories": [
   {
-   "key": "bugun",
-   "title": "Bugun",
-   "emoji": "⚡️",
-   "color_from": "#ff6b3d",
-   "color_to": "#3a0f00",
+   "key": "natijalar",
+   "title": "Natijalar",
+   "emoji": "🏆",
+   "color_from": "#ff4b3e",
+   "color_to": "#1a0508",
    "count": 1,
    "items": [
     {
-     "id": 6,
-     "heading": "Bi led",
-     "body": "",
-     "emoji": "🔧",
-     "color_from": "#ff3b30",
-     "color_to": "#7a0010",
+     "id": 8,
+     "heading": "Zoʻri",
+     "body": "Daxshatii",
+     "emoji": "🏆",
+     "color_from": "#ff4b3e",
+     "color_to": "#1a0508",
      "photo_url": null,
      "photo_external": false,
      "video_url": null,
@@ -71,41 +71,38 @@
    "emoji": "🛡",
    "color_from": "#c1121f",
    "color_to": "#101215",
-   "count": 3,
+   "count": 1,
+   "items": [
+    {
+     "id": 6,
+     "heading": "Kafolat",
+     "body": "",
+     "emoji": "🛡",
+     "color_from": "#c1121f",
+     "color_to": "#101215",
+     "photo_url": null,
+     "photo_external": false,
+     "video_url": null,
+     "video_external": true,
+     "has_media": false
+    }
+   ]
+  },
+  {
+   "key": "aloqa",
+   "title": "Aloqa",
+   "emoji": "📞",
+   "color_from": "#ff5f6d",
+   "color_to": "#20060a",
+   "count": 1,
    "items": [
     {
      "id": 7,
-     "heading": "Kafolat",
+     "heading": "Aloqa",
      "body": "",
-     "emoji": "🛡",
-     "color_from": "#c1121f",
-     "color_to": "#101215",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    },
-    {
-     "id": 8,
-     "heading": "Kafolat",
-     "body": "",
-     "emoji": "🛡",
-     "color_from": "#c1121f",
-     "color_to": "#101215",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    },
-    {
-     "id": 10,
-     "heading": "Kafolat",
-     "body": "",
-     "emoji": "🛡",
-     "color_from": "#c1121f",
-     "color_to": "#101215",
+     "emoji": "📞",
+     "color_from": "#ff5f6d",
+     "color_to": "#20060a",
      "photo_url": null,
      "photo_external": false,
      "video_url": null,
@@ -122,112 +119,43 @@
    "icon": "💡",
    "products": [
     {
-     "id": 900004,
-     "name": "Hhh",
-     "description": "🛡 1 yil kafolat beriladi.",
-     "price": 2000,
-     "old_price": null,
-     "badge": null,
-     "stock": 9,
-     "car_id": null,
-     "price_label": "2 000 so'm",
-     "old_price_label": null,
-     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
-     ]
-    },
-    {
-     "id": 900003,
-     "name": "2ttt",
-     "description": "Rr\n✅ Original mahsulot, sifat kafolatlanadi.",
-     "price": 120000,
-     "old_price": 1200000,
-     "badge": "Top",
-     "stock": 10,
-     "car_id": null,
-     "price_label": "120 000 so'm",
-     "old_price_label": "1 200 000 so'm",
-     "photo_url": "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg"
-     ]
-    },
-    {
-     "id": 12,
-     "name": "Hhh",
-     "description": "🛡 1 yil kafolat beriladi.",
-     "price": 2000,
-     "old_price": null,
-     "badge": null,
-     "stock": 9,
-     "car_id": null,
-     "price_label": "2 000 so'm",
-     "old_price_label": null,
-     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
-     ]
-    },
-    {
      "id": 11,
-     "name": "2ttt",
-     "description": "Rr\n✅ Original mahsulot, sifat kafolatlanadi.",
-     "price": 120000,
-     "old_price": 1200000,
-     "badge": "Top",
-     "stock": 10,
-     "car_id": 1,
-     "price_label": "120 000 so'm",
-     "old_price_label": "1 200 000 so'm",
-     "photo_url": "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg",
+     "name": "Zimmer r80",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 825000,
+     "old_price": 850000,
+     "badge": null,
+     "stock": 9,
+     "car_id": null,
+     "price_label": "825 000 so'm",
+     "old_price_label": "850 000 so'm",
+     "photo_url": "https://i.ibb.co/zh8mPjvW/b57e358ffc23.jpg",
      "photo_external": true,
      "video_url": null,
      "video_external": true,
      "has_media": true,
      "images": [
-      "https://i.ibb.co/27pGW91G/c67decb1c97a.jpg"
+      "https://i.ibb.co/zh8mPjvW/b57e358ffc23.jpg"
      ]
-    }
-   ]
-  },
-  {
-   "id": 4,
-   "name": "Boshqa",
-   "icon": null,
-   "products": [
+    },
     {
      "id": 10,
-     "name": "Kor kade",
-     "description": "Daxshat\n🛡 1 yil kafolat beriladi.\n🚚 Toshkent bo'ylab yetkazib berish mavjud.\n🔧 O'rnatish xizmati mavjud.\n💡 Yorug'lik harorati 5500K — kunduzgi oq nur.",
-     "price": 94500,
-     "old_price": 150000,
-     "badge": "Eng zoʻri",
-     "stock": 8,
+     "name": "Hhh",
+     "description": "🛡 1 yil kafolat beriladi.",
+     "price": 2200,
+     "old_price": null,
+     "badge": null,
+     "stock": 13,
      "car_id": null,
-     "price_label": "94 500 so'm",
-     "old_price_label": "150 000 so'm",
-     "photo_url": "https://i.ibb.co/N2x22Gzw/417a19d6b843.jpg",
+     "price_label": "2 200 so'm",
+     "old_price_label": null,
+     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
      "photo_external": true,
      "video_url": null,
      "video_external": true,
      "has_media": true,
      "images": [
-      "https://i.ibb.co/N2x22Gzw/417a19d6b843.jpg",
-      "https://i.ibb.co/RGf7GGnM/51540474e13b.jpg",
-      "https://i.ibb.co/3YRgPq93/6eeb809b5034.jpg"
+      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
      ]
     }
    ]
@@ -237,6 +165,14 @@
  "cars": [
   {
    "id": 1,
+   "name": "Damas",
+   "years": "1996 – hozir",
+   "note": "Chevrolet / Daewoo Damas",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 18,
    "name": "Gentra",
    "years": "2013 – 2024",
    "note": "Chevrolet / Ravon Gentra",
@@ -245,6 +181,14 @@
   },
   {
    "id": 2,
+   "name": "Labo",
+   "years": "1996 – hozir",
+   "note": "Chevrolet / Daewoo Labo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 9,
    "name": "Nexia 2",
    "years": "2008 – 2016",
    "note": "Daewoo Nexia 2 (DOHC / SOHC)",
@@ -253,6 +197,14 @@
   },
   {
    "id": 3,
+   "name": "Tico",
+   "years": "1996 – 2001",
+   "note": "Daewoo Tico",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 36,
    "name": "Kobalt",
    "years": "2013 2026",
    "note": "Chevrolet. Ravon",
@@ -261,9 +213,249 @@
   },
   {
    "id": 4,
+   "name": "Matiz",
+   "years": "2001 – 2015",
+   "note": "Daewoo / Chevrolet Matiz",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 37,
    "name": "Lasseti",
    "years": "2006 2013",
    "note": "Chevrolet daewoo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 5,
+   "name": "Spark",
+   "years": "2011 – 2015",
+   "note": "Chevrolet Spark (M300)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 6,
+   "name": "Spark 2",
+   "years": "2016 – 2022",
+   "note": "Chevrolet Spark (M400)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 7,
+   "name": "Ravon R2",
+   "years": "2016 – 2018",
+   "note": "Ravon R2 (Spark)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 8,
+   "name": "Nexia 1",
+   "years": "1996 – 2008",
+   "note": "Daewoo Nexia (SOHC / DOHC)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 10,
+   "name": "Nexia 3",
+   "years": "2016 – hozir",
+   "note": "Ravon Nexia R3 / Nexia 3",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 11,
+   "name": "Ravon R3",
+   "years": "2016 – 2018",
+   "note": "Ravon R3 (Nexia)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 12,
+   "name": "Espero",
+   "years": "1995 – 1999",
+   "note": "Daewoo Espero",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 13,
+   "name": "Nubira",
+   "years": "1999 – 2003",
+   "note": "Daewoo Nubira",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 14,
+   "name": "Leganza",
+   "years": "1997 – 2002",
+   "note": "Daewoo Leganza",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 15,
+   "name": "Magnus",
+   "years": "2003 – 2007",
+   "note": "Daewoo Magnus / Evanda",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 16,
+   "name": "Epica",
+   "years": "2007 – 2011",
+   "note": "Chevrolet Epica",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 17,
+   "name": "Lacetti",
+   "years": "2004 – 2018",
+   "note": "Chevrolet Lacetti",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 19,
+   "name": "Aveo",
+   "years": "2011 – 2015",
+   "note": "Chevrolet Aveo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 20,
+   "name": "Cobalt",
+   "years": "2013 – hozir",
+   "note": "Chevrolet / Ravon Cobalt",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 21,
+   "name": "Ravon R4",
+   "years": "2016 – 2020",
+   "note": "Ravon R4 (Cobalt)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 22,
+   "name": "Onix",
+   "years": "2019 – hozir",
+   "note": "Chevrolet Onix",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 23,
+   "name": "Monza",
+   "years": "2023 – hozir",
+   "note": "Chevrolet Monza",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 24,
+   "name": "Malibu",
+   "years": "2012 – 2016",
+   "note": "Chevrolet Malibu",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 25,
+   "name": "Malibu 2",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Malibu 2",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 26,
+   "name": "Malibu XL",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Malibu XL",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 27,
+   "name": "Orlando",
+   "years": "2011 – 2018",
+   "note": "Chevrolet Orlando (7 o'rin)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 28,
+   "name": "Tracker",
+   "years": "2013 – 2020",
+   "note": "Chevrolet Tracker 1",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 29,
+   "name": "Tracker 2",
+   "years": "2020 – hozir",
+   "note": "Chevrolet Tracker 2",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 30,
+   "name": "Captiva",
+   "years": "2007 – 2018",
+   "note": "Chevrolet Captiva",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 31,
+   "name": "Captiva 5",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Captiva 5",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 32,
+   "name": "Trailblazer",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Trailblazer",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 33,
+   "name": "Equinox",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Equinox",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 34,
+   "name": "Traverse",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Traverse (7 o'rin)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 35,
+   "name": "Tahoe",
+   "years": "2015 – hozir",
+   "note": "Chevrolet Tahoe",
    "photo_url": null,
    "has_media": false
   }
