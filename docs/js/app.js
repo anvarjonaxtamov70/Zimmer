@@ -68,6 +68,7 @@
        ro'yxat bergani va ichki zaxira ishlatilgani belgisi. */
     services: null,
     servicesFallback: false,
+    svcIndex: 0, // «Xizmatlar» da bosilgan plitka (alohida oyna uchun)
     pay: {}, // karta rekvizitlari (/api/config dan)
 
     /* ---- BUYURTMALARIM (uch bo'lim, uch oyna) ----
@@ -444,6 +445,8 @@
       "checkout",
       // Xizmatlar bo'limi (pastdagi navigatsiyada «🛠 Xizmatlar»)
       "services",
+      // Bitta xizmatning alohida oynasi (plitka bosilganda)
+      "service",
       // Kabinetning ichki oynalari: buyurtmalarim (uch bo'lim) va manzillarim.
       "orders",
       "addresses",
@@ -483,6 +486,7 @@
     if (page === "profile") loadProfile();
     if (page === "addresses") renderAddressPage();
     if (page === "services") renderServicesPage(false);
+    if (page === "service") renderServicePage();
     /* Bo'lim (`S.moKind`) `openMyOrders()` da o'rnatiladi va shundan keyin
        `show("orders")` chaqiriladi — chizish shu yerda, bitta joyda. */
     if (page === "orders") renderMyOrdersPage();
@@ -511,9 +515,10 @@
     if (!tg || !tg.BackButton) return;
     const need =
       (S.page === "flow" && S.step > 1) ||
-      ["cart", "saved", "profile", "checkout", "orders", "addresses", "services"].includes(
-        S.page
-      );
+      [
+        "cart", "saved", "profile", "checkout",
+        "orders", "addresses", "services", "service",
+      ].includes(S.page);
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
   }
@@ -542,7 +547,9 @@
       if (S.coStep > 1) return coGo(S.coStep - 1);
       return show("cart");
     }
-    // Xizmatlar bo'limi — bosh menyuning bir pog'onasi ostida
+    /* Bitta xizmat oynasi → xizmatlar ro'yxati (chiqish animatsiyasi
+       bilan), ro'yxat esa → bosh menyu. */
+    if (S.page === "service") return closeService();
     if (S.page === "services") return show("home");
     /* Kabinetning ichki oynalari har doim KABINETGA qaytadi (bosh sahifaga
        emas) — mijoz qaysi bo'limdan kelganini yo'qotmasin. Xarita va
@@ -5008,6 +5015,8 @@
       icon: "💡",
       layout: "hero",
       accent: "gold",
+      short: "Narxni hisoblash",
+      blockTitle: "Nimalarni tanlaysiz",
       tagline: "Linza, ochki va rangni tanlab narxni o'zingiz hisoblang",
       facts: [
         ["🔩", "Linza", "5 xil model"],
@@ -5019,6 +5028,8 @@
       icon: "🔧",
       layout: "tech",
       accent: "red",
+      short: "2 faraga linza",
+      blockTitle: "Ish tartibi",
       tagline: "Ikki faraga professional Bi-LED linza o'rnatish",
       steps: ["Farani ochamiz", "Linzani o'rnatamiz", "Germetiklaymiz"],
     },
@@ -5026,6 +5037,8 @@
       icon: "✨",
       layout: "shine",
       accent: "cyan",
+      short: "Shaffoflikni qaytarish",
+      blockTitle: "Natija",
       tagline: "Xiralashgan farani asl shaffofligiga qaytaramiz",
       before: "Xira, sarg'aygan",
       after: "Shaffof, yorqin",
@@ -5034,6 +5047,8 @@
       icon: "🪟",
       layout: "split",
       accent: "blue",
+      short: "Yangi original shisha",
+      blockTitle: "Nima almashtiriladi",
       tagline: "Yorilgan yoki singan fara shishasini yangisiga almashtirish",
       pair: ["Yorilgan shisha", "Yangi original shisha"],
     },
@@ -5041,6 +5056,8 @@
       icon: "🧼",
       layout: "bubble",
       accent: "teal",
+      short: "Chang, bug', namlik",
+      blockTitle: "Bosqichlar",
       tagline: "Fara ichidagi chang, bug' va namlikni to'liq tozalash",
       bullets: ["Farani ochib tozalash", "Namlikni quritish", "Qayta germetiklash"],
     },
@@ -5048,6 +5065,8 @@
       icon: "🕹",
       layout: "stitch",
       accent: "amber",
+      short: "O'lchov bo'yicha, qo'lda",
+      blockTitle: "Ip va material",
       tagline: "Rul g'ilofini o'lchov bo'yicha qo'lda tikamiz",
       threads: ["#d4a853", "#c1121f", "#2b2f38", "#e9e2d0"],
     },
@@ -5055,6 +5074,8 @@
       icon: "🪑",
       layout: "fabric",
       accent: "violet",
+      short: "To'liq komplekt",
+      blockTitle: "Materiallar",
       tagline: "O'rindiqlarga to'liq chexol — o'lchov bo'yicha tikiladi",
       materials: ["Ekoteri", "Alkantara", "Mato", "Kombinatsiya"],
     },
@@ -5148,12 +5169,22 @@
     return S.services;
   }
 
+  /* ------------------------------------------------- xizmatlar: PLITKALAR */
+
+  /** Xizmatlar bo'limi — TUGMA-PLITKALAR (admin panelidagi kabi).
+   *
+   *  Ilgari bu yerda har xizmat to'liq kartochka bo'lib chizilardi: bir
+   *  ekranga bittasi ham sig'masdi va ro'yxatni ko'rish uchun uzoq skroll
+   *  qilish kerak bo'lardi. Endi plitkalar ikki ustunda — hammasi bir
+   *  ko'rinishda, tafsilot esa ALOHIDA oynada (`#service`). */
   function renderServicesPage(force) {
     const box = $("sv-list");
     if (!box) return;
+
     if (!S.services || force) {
       box.innerHTML =
-        '<div class="sv-skel"></div><div class="sv-skel"></div><div class="sv-skel"></div>';
+        '<div class="svt-skel"></div><div class="svt-skel"></div>' +
+        '<div class="svt-skel"></div><div class="svt-skel"></div>';
       $("sv-sub").textContent = "Yuklanmoqda…";
       loadServices(force).then(
         () => renderServicesPage(false),
@@ -5164,32 +5195,137 @@
 
     const list = S.services || [];
     $("sv-sub").textContent = list.length + " ta xizmat";
-    box.innerHTML = list.map((s, i) => svcCard(s, i)).join("");
+    box.innerHTML = list.map((s, i) => svcTile(s, i)).join("");
 
     /* Xizmat hali sozlanmagan bo'lsa (server bo'sh ro'yxat berdi) —
        buni yashirmaymiz. Narxlar boshlang'ich ekanini aytamiz. */
     if (S.servicesFallback) {
       box.insertAdjacentHTML(
-        "beforeend",
+        "afterend",
         '<p class="sv-note">ℹ️ Narxlar boshlang\'ich ko\'rsatilgan. Aniq narx va ' +
-          "muddat uchun navbat olayotganda usta bilan tasdiqlanadi.</p>"
+          "muddat usta bilan tasdiqlanadi.</p>"
       );
     }
   }
 
-  /** Bitta xizmat kartochkasi — temaga qarab BOSHQA tuzilishda chiziladi. */
-  function svcCard(s, i) {
+  /** Bitta plitka. Temaning rangi PLITKADA ham saqlanadi — ro'yxat bir xil
+   *  kulrang kvadratlar bo'lib qolmasin. */
+  function svcTile(s, i) {
     const key = themeOf(s, i);
+    const t = SERVICE_THEMES[key] || SERVICE_THEMES.biled;
+    const isConfig = key === "config";
+    const price = isConfig ? "Hisoblash" : svcPrice(s);
+
+    return (
+      '<button class="svt sv-a-' + t.accent + (isConfig ? " is-hero" : "") +
+      '" data-svc="' + i + '" style="--d:' + Math.min(i, 8) * 55 + 'ms">' +
+      '<span class="svt-glow"></span>' +
+      '<span class="svt-ic">' + t.icon + "</span>" +
+      '<span class="svt-tx">' +
+      "<b>" + esc(s.name || "Xizmat") + "</b>" +
+      "<i>" + esc(t.short || t.tagline || "") + "</i>" +
+      "</span>" +
+      '<span class="svt-foot">' +
+      '<span class="svt-price">' + esc(price) + "</span>" +
+      '<span class="svt-go">›</span>' +
+      "</span>" +
+      "</button>"
+    );
+  }
+
+  /* --------------------------------------------- xizmatlar: ALOHIDA OYNA */
+
+  /** Plitka bosilganda: xizmatni eslab qolib alohida oynani ochadi. */
+  function openService(index) {
+    const list = S.services || [];
+    const s = list[Number(index)];
+    if (!s) return toast("Xizmat topilmadi — ro'yxatni yangilang");
+    haptic("light");
+    S.svcIndex = Number(index);
+    show("service");
+  }
+
+  /** Oynani YOPISH — chiqish animatsiyasi bilan.
+   *
+   *  `show()` ni darhol chaqirsak oyna bir zumda yo'qoladi va harakat
+   *  sezilmaydi. Shu sababli avval `.is-out` klassi qo'yiladi (CSS
+   *  pastga sirg'alib so'nadi), keyin sahifa almashadi. */
+  function closeService() {
+    const page = $("service");
+    if (!page || page.classList.contains("hidden")) return show("services");
+    page.classList.add("is-out");
+    clearTimeout(closeService._t);
+    closeService._t = setTimeout(() => {
+      page.classList.remove("is-out");
+      show("services");
+    }, 200);
+  }
+
+  function renderServicePage() {
+    const box = $("sd-body");
+    if (!box) return;
+    const s = (S.services || [])[S.svcIndex];
+    if (!s) {
+      box.innerHTML = "";
+      return show("services");
+    }
+
+    const key = themeOf(s, S.svcIndex);
     const t = SERVICE_THEMES[key] || SERVICE_THEMES.biled;
     const isConfig = key === "config";
     const dur = svcDuration(s.duration_min);
     const war = s.warranty || "";
     const desc = s.description || t.tagline || "";
 
-    /* --- temaga xos o'rta qism (aynan shu joy dizaynlarni ajratadi) --- */
-    let mid = "";
+    $("sd-title").textContent = t.icon + " " + (s.name || "Xizmat");
+    $("sd-sub").textContent = isConfig ? "Narxni o'zingiz hisoblang" : "Narx va navbat";
+
+    /* --- narx / kafolat / vaqt plitkalari --- */
+    const facts = [];
+    facts.push(
+      '<div class="sd-fact is-price"><i>💰</i><b>' +
+        esc(isConfig ? "Tanlovga qarab" : svcPrice(s)) +
+        "</b><small>Narx</small></div>"
+    );
+    if (war) facts.push('<div class="sd-fact is-war"><i>🛡</i><b>' + esc(war) + "</b><small>Kafolat</small></div>");
+    if (dur) facts.push('<div class="sd-fact"><i>⏱</i><b>' + esc(dur) + "</b><small>Davomiyligi</small></div>");
+
+    box.innerHTML =
+      /* --- sarlavha bloki: katta ikonka + tavsif --- */
+      '<div class="sd-hero sv-a-' + t.accent + " sd-l-" + t.layout + '">' +
+      '<div class="sd-hero-glow"></div>' +
+      '<div class="sd-ic">' + t.icon + "</div>" +
+      "<h2>" + esc(s.name || "Xizmat") + "</h2>" +
+      "<p>" + esc(desc) + "</p>" +
+      "</div>" +
+      /* --- xulosa plitkalari --- */
+      '<div class="sd-facts">' + facts.join("") + "</div>" +
+      /* --- temaga xos blok (dizaynlarni aynan shu joy ajratadi) --- */
+      '<div class="sd-block sv-a-' + t.accent + " sv-l-" + t.layout + '">' +
+      '<div class="sd-block-h">' + esc(t.blockTitle || "Xizmat haqida") + "</div>" +
+      svcThemeBlock(t) +
+      "</div>";
+
+    /* --- pastdagi yakka tugma --- */
+    const cta = $("sd-cta");
+    cta.textContent = isConfig ? "💡 Narxni hisoblash" : "🗓 Navbat olish";
+    cta.className = "btn btn-primary sd-cta sv-a-" + t.accent;
+    cta.onclick = () => {
+      if (isConfig) return openFlow();
+      openServiceBooking(s);
+    };
+
+    // Ochilish animatsiyasi har safar qaytadan ishga tushsin
+    const page = $("service");
+    page.classList.remove("is-in");
+    void page.offsetWidth;
+    page.classList.add("is-in");
+  }
+
+  /** Temaga xos ichki blok. Yetti tema — yetti xil tuzilish. */
+  function svcThemeBlock(t) {
     if (t.layout === "hero") {
-      mid =
+      return (
         '<div class="sv-hero-beam"></div>' +
         '<div class="sv-facts">' +
         (t.facts || [])
@@ -5199,23 +5335,29 @@
               "</b><small>" + esc(f[2]) + "</small></div>"
           )
           .join("") +
-        "</div>";
-    } else if (t.layout === "tech") {
-      mid =
+        "</div>"
+      );
+    }
+    if (t.layout === "tech") {
+      return (
         '<ol class="sv-steps">' +
         (t.steps || []).map((x) => "<li>" + esc(x) + "</li>").join("") +
-        "</ol>";
-    } else if (t.layout === "shine") {
-      mid =
+        "</ol>"
+      );
+    }
+    if (t.layout === "shine") {
+      return (
         '<div class="sv-ba">' +
         '<div class="sv-ba-col is-before"><small>Oldin</small><b>' +
         esc(t.before || "") + "</b></div>" +
         '<span class="sv-ba-arrow">→</span>' +
         '<div class="sv-ba-col is-after"><small>Keyin</small><b>' +
         esc(t.after || "") + "</b></div>" +
-        "</div>";
-    } else if (t.layout === "split") {
-      mid =
+        "</div>"
+      );
+    }
+    if (t.layout === "split") {
+      return (
         '<div class="sv-pair">' +
         (t.pair || [])
           .map(
@@ -5224,57 +5366,32 @@
               (k ? "🪟" : "💥") + " " + esc(x) + "</div>"
           )
           .join("") +
-        "</div>";
-    } else if (t.layout === "bubble") {
-      mid =
+        "</div>"
+      );
+    }
+    if (t.layout === "bubble") {
+      return (
         '<div class="sv-bubbles"><i></i><i></i><i></i></div>' +
         '<ul class="sv-bullets">' +
         (t.bullets || []).map((x) => "<li>" + esc(x) + "</li>").join("") +
-        "</ul>";
-    } else if (t.layout === "stitch") {
-      mid =
+        "</ul>"
+      );
+    }
+    if (t.layout === "stitch") {
+      return (
         '<div class="sv-thread"><span>Ip rangi:</span>' +
-        (t.threads || [])
-          .map((c) => '<i style="background:' + esc(c) + '"></i>')
-          .join("") +
-        "</div>";
-    } else if (t.layout === "fabric") {
-      mid =
+        (t.threads || []).map((c) => '<i style="background:' + esc(c) + '"></i>').join("") +
+        "</div>"
+      );
+    }
+    if (t.layout === "fabric") {
+      return (
         '<div class="sv-mats">' +
         (t.materials || []).map((x) => "<span>" + esc(x) + "</span>").join("") +
-        "</div>";
+        "</div>"
+      );
     }
-
-    /* --- pastdagi qator: narx / kafolat / vaqt --- */
-    const meta = [];
-    if (dur) meta.push('<span class="sv-m">⏱ ' + esc(dur) + "</span>");
-    if (war) meta.push('<span class="sv-m is-war">🛡 ' + esc(war) + "</span>");
-
-    const priceBlock = isConfig
-      ? '<div class="sv-price is-calc">Narx tanlovga qarab</div>'
-      : '<div class="sv-price">' + esc(svcPrice(s)) + "</div>";
-
-    const cta = isConfig
-      ? '<button class="sv-cta" data-svc="config">💡 Narxni hisoblash</button>'
-      : '<button class="sv-cta" data-svc="' + i + '">🗓 Navbat olish</button>';
-
-    return (
-      '<article class="sv-card sv-l-' + t.layout + " sv-a-" + t.accent +
-      '" style="--d:' + Math.min(i, 8) * 70 + 'ms">' +
-      '<div class="sv-glow"></div>' +
-      '<div class="sv-top">' +
-      '<span class="sv-ic">' + t.icon + "</span>" +
-      '<div class="sv-tx"><h3>' + esc(s.name || "Xizmat") + "</h3>" +
-      "<p>" + esc(desc) + "</p></div>" +
-      "</div>" +
-      mid +
-      '<div class="sv-foot">' +
-      priceBlock +
-      (meta.length ? '<div class="sv-metas">' + meta.join("") + "</div>" : "") +
-      "</div>" +
-      cta +
-      "</article>"
-    );
+    return "";
   }
 
   /* ==================================================================
@@ -5867,16 +5984,18 @@
   /* ---------------------------------------------------- XIZMATLAR bo'limi */
   /* Kartochkalar HAR chizishda qaytadan yasaladi, shuning uchun hodisa
      ota elementda tutiladi — bir marta bog'lanadi va abadiy ishlaydi. */
+  /* Plitkalar HAR chizishda qaytadan yasaladi — hodisa ota elementda
+     tutiladi. Plitka endi navbatni O'ZI ochmaydi: avval xizmatning
+     alohida oynasi ko'rinadi, navbat esa o'sha oynadagi tugmada. */
   $("sv-list").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-svc]");
     if (!btn) return;
-    const key = btn.dataset.svc;
-    // Konfigurator — navbat emas, alohida oyna (linza/ochki/rang tanlash)
-    if (key === "config") return openFlow();
-    const svc = (S.services || [])[Number(key)];
-    if (!svc) return toast("Xizmat topilmadi — ro'yxatni yangilang");
-    openServiceBooking(svc);
+    openService(btn.dataset.svc);
   });
+  $("sd-back").onclick = () => {
+    haptic();
+    closeService();
+  };
   $("sv-refresh").onclick = () => {
     haptic("light");
     renderServicesPage(true); // serverdan qaytadan o'qiladi

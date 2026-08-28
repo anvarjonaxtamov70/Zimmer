@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=57">
+  <link rel="stylesheet" href="styles.css?v=58">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -195,7 +195,33 @@
     <button class="icon-btn ghost" id="sv-refresh" aria-label="Yangilash">↻</button>
   </header>
   <div class="pad">
-    <div id="sv-list"></div>
+    <!-- Xizmatlar TUGMA-PLITKA ko'rinishida (admin panelidagi kabi).
+         Har biri bosilganda alohida oyna (`#service`) ochiladi. -->
+    <div class="svt-grid" id="sv-list"></div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     BITTA XIZMAT — ALOHIDA OYNA
+
+     Plitka bosilganda shu oyna ochiladi. Ichida xizmatning to'liq
+     ko'rinishi (temaga xos dizayn), narxi, kafolati, davomiyligi va
+     pastda yopishgan yakka tugma (navbat yoki konfigurator).
+
+     Navbar ATAYLAB yashiriladi: bu alohida oyna va pastda o'zining
+     tugmasi bor — ikki panel ustma-ust turishi siqiq ko'rinardi.
+     ========================================================================== -->
+<section id="service" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="sd-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="sd-title">Xizmat</div>
+      <div class="topbar-sub" id="sd-sub"></div>
+    </div>
+  </header>
+  <div class="pad" id="sd-body"></div>
+  <div class="sd-bar" id="sd-bar">
+    <button class="btn btn-primary sd-cta" id="sd-cta">🗓 Navbat olish</button>
   </div>
 </section>
 
@@ -672,28 +698,28 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=57"></script>
+<script src="config.js?v=58"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=57"></script>
+<script src="js/fb.js?v=58"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=57"></script>
-<script src="js/offline.js?v=57"></script>
-<script src="js/headlight.js?v=57"></script>
-<script src="js/cars.js?v=57"></script>
+<script src="js/upload.js?v=58"></script>
+<script src="js/offline.js?v=58"></script>
+<script src="js/headlight.js?v=58"></script>
+<script src="js/cars.js?v=58"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=57"></script>
+<script src="js/bts.js?v=58"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=57"></script>
+<script src="js/admin.js?v=58"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=57"></script>
+<script src="js/admin-shop.js?v=58"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=57"></script>
+<script src="js/admin-crm.js?v=58"></script>
 <!-- Stories boshqaruvi: qo'shish, ko'rishlar, reaksiyalar, mijoz javoblari -->
-<script src="js/admin-stories.js?v=57"></script>
-<script src="js/app.js?v=57"></script>
+<script src="js/admin-stories.js?v=58"></script>
+<script src="js/app.js?v=58"></script>
 </body>
 </html>
