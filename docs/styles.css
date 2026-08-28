@@ -7395,187 +7395,320 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .mo-tile:active, .mo-card:active, .ad-add:active,
   .ad-act:active, .mo-about-copy:active, .mo-search-x:active { transform: none; }
 }
-
 /* ==========================================================================
-   XIZMATLAR BO'LIMI (.sv-*)
+   XIZMATLAR — PLITKALAR (.svt-*) VA ALOHIDA OYNA (.sd-*)
 
-   Yetti xizmat — YETTI XIL kartochka. Bu shunchaki bezak emas: bir xil
-   kulrang qatorlarda mijoz xizmatlarni farqlamaydi va o'qimaydi ham.
-   Har temaning O'Z tuzilishi bor (`.sv-l-*` = layout) va O'Z rangi
-   (`.sv-a-*` = accent):
+   TUZILISHI IKKI QATLAMLI
+     1) «🛠 Xizmatlar» sahifasi — TUGMA-PLITKALAR (admin panelidagi kabi).
+        Hammasi bir ko'rinishda sig'adi, uzoq skroll qilish kerak emas.
+     2) Plitka bosilganda BITTA xizmatning alohida oynasi (`#service`) —
+        katta ikonka, tavsif, narx/kafolat/vaqt plitkalari, temaga xos
+        blok va pastda yopishgan yakka tugma.
 
-     hero   (konfigurator)  — nur dastasi + uch fakt plitkasi
-     tech   (Bi-LED)        — raqamli ish bosqichlari
-     shine  (polirovka)     — «oldin → keyin» ustunlari + yorug'lik yugurishi
-     split  (shisha)        — ikki panel: yorilgan / yangi
-     bubble (tozalash)      — pufakchalar + belgili ro'yxat
-     stitch (rul chexol)    — chok (dashed) chegara + ip ranglari
-     fabric (o'rindiq)      — material yorliqlari
+   Har temaning rangi IKKI qatlamda ham saqlanadi (`.sv-a-*` → CSS
+   o'zgaruvchilari), ya'ni plitkalar ham bir xil kulrang kvadratlar bo'lib
+   qolmaydi.
+
+   ANIMATSIYALAR (bosilganda / ochilganda / chiqilganda):
+     • plitkalar navbat bilan ko'tariladi (`svtIn`, `--d` kechikish);
+     • bosilganda ichkariga cho'kadi va SOYASI qisqaradi (`:active`);
+     • oyna pastdan sirg'alib chiqadi (`.is-in` → `sdIn`) va yopilganda
+       pastga sirg'alib so'nadi (`.is-out` → `sdOut`);
+     • oynadagi ikonka sakrab chiqadi (`sdPop`), bloklar navbat bilan
+       ko'tariladi (`sdRise`), pastdagi tugma pastdan chiqadi (`sdBar`).
 
    Fayl boshidagi qoidalar kuchda: `blur` YO'Q, animatsiyalar bir martalik
-   va faqat transform/opacity, chuqurlik gradient va soya bilan.
+   va faqat transform/opacity/box-shadow.
    ========================================================================== */
 
-/* ---- rang kalitlari: har tema o'z tusini shu o'zgaruvchilardan oladi ---- */
-.sv-card {
+/* ---- rang kalitlari: har tema o'z tusini shu o'zgaruvchilardan oladi ----
+
+   TARTIB MUHIM. Standart (zaxira) tus `.sv-a-*` dan OLDIN turishi kerak:
+   ikkisi ham bitta klass darajasida (0,1,0), ya'ni faylda KEYINGISI ustun
+   bo'ladi. Ilgari standart qiymatlar `.svt` ichida, ya'ni accent
+   klasslaridan KEYIN yozilgan edi — natijada yetti plitka ham bir xil
+   qizil bo'lib chiqardi. */
+.svt, .sd-hero, .sd-block, .sd-cta, .svt-skel {
   --sv: var(--red);
   --sv-soft: rgba(255, 45, 58, 0.10);
   --sv-line: rgba(255, 45, 58, 0.26);
+  --sv-sh: rgba(255, 45, 58, 0.22);
 }
-.sv-a-gold   { --sv: var(--gold);  --sv-soft: rgba(212, 168, 83, 0.10); --sv-line: rgba(212, 168, 83, 0.30); }
-.sv-a-red    { --sv: #ff5a4d;      --sv-soft: rgba(255, 90, 77, 0.10);  --sv-line: rgba(255, 90, 77, 0.28); }
-.sv-a-cyan   { --sv: #2fd6e4;      --sv-soft: rgba(47, 214, 228, 0.10); --sv-line: rgba(47, 214, 228, 0.26); }
-.sv-a-blue   { --sv: #4ba3ff;      --sv-soft: rgba(75, 163, 255, 0.10); --sv-line: rgba(75, 163, 255, 0.26); }
-.sv-a-teal   { --sv: #2fd45f;      --sv-soft: rgba(47, 212, 95, 0.10);  --sv-line: rgba(47, 212, 95, 0.26); }
-.sv-a-amber  { --sv: #ffb020;      --sv-soft: rgba(255, 176, 32, 0.10); --sv-line: rgba(255, 176, 32, 0.28); }
-.sv-a-violet { --sv: #c77dff;      --sv-soft: rgba(199, 125, 255, 0.11); --sv-line: rgba(199, 125, 255, 0.28); }
+.sv-a-gold   { --sv: var(--gold);  --sv-soft: rgba(212, 168, 83, 0.10); --sv-line: rgba(212, 168, 83, 0.30); --sv-sh: rgba(212, 168, 83, 0.22); }
+.sv-a-red    { --sv: #ff5a4d;      --sv-soft: rgba(255, 90, 77, 0.10);  --sv-line: rgba(255, 90, 77, 0.28);  --sv-sh: rgba(255, 90, 77, 0.22); }
+.sv-a-cyan   { --sv: #2fd6e4;      --sv-soft: rgba(47, 214, 228, 0.10); --sv-line: rgba(47, 214, 228, 0.26); --sv-sh: rgba(47, 214, 228, 0.20); }
+.sv-a-blue   { --sv: #4ba3ff;      --sv-soft: rgba(75, 163, 255, 0.10); --sv-line: rgba(75, 163, 255, 0.26); --sv-sh: rgba(75, 163, 255, 0.20); }
+.sv-a-teal   { --sv: #2fd45f;      --sv-soft: rgba(47, 212, 95, 0.10);  --sv-line: rgba(47, 212, 95, 0.26);  --sv-sh: rgba(47, 212, 95, 0.20); }
+.sv-a-amber  { --sv: #ffb020;      --sv-soft: rgba(255, 176, 32, 0.10); --sv-line: rgba(255, 176, 32, 0.28); --sv-sh: rgba(255, 176, 32, 0.20); }
+.sv-a-violet { --sv: #c77dff;      --sv-soft: rgba(199, 125, 255, 0.11); --sv-line: rgba(199, 125, 255, 0.28); --sv-sh: rgba(199, 125, 255, 0.22); }
 
-/* ---- umumiy asos ---- */
-.sv-card {
+/* ==========================================================================
+   1) PLITKALAR
+   ========================================================================== */
+.svt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+
+.svt {
   position: relative; overflow: hidden;
-  padding: 16px 16px 14px; margin-bottom: 13px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
-  animation: svIn 0.44s var(--silk) both;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  min-height: 148px; padding: 16px 15px 14px;
+  text-align: left; cursor: pointer; font-family: inherit;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-lg); color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  transition: transform 0.16s var(--silk), box-shadow 0.2s, border-color 0.2s;
+  animation: svtIn 0.44s var(--spring) both;
   animation-delay: var(--d, 0ms);
 }
-/* Yumshoq nur — GPU uchun deyarli bepul (radial-gradient, blur emas) */
-.sv-glow {
-  position: absolute; top: -55%; right: -14%;
-  width: 190px; height: 190px; pointer-events: none;
+/* Bosilganda: ichkariga cho'kadi va soyasi qisqaradi — barmoq ostida
+   plitka «bosilgani» seziladi. */
+.svt:active {
+  transform: scale(0.955) translateY(1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.34);
+  border-color: var(--sv-line);
+}
+/* Yumshoq nur (radial-gradient — GPU uchun deyarli bepul) */
+.svt-glow {
+  position: absolute; top: -48%; right: -22%;
+  width: 130px; height: 130px; pointer-events: none;
   background: radial-gradient(circle, var(--sv-soft), transparent 70%);
 }
-@keyframes svIn {
-  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+
+/* Konfigurator plitkasi — butun qatorni egallaydi (asosiy xizmat) */
+.svt.is-hero {
+  grid-column: 1 / -1;
+  min-height: 0; flex-direction: row; align-items: center; gap: 14px;
+  background: linear-gradient(150deg, var(--sv-soft), rgba(0, 0, 0, 0.3));
+  border-color: var(--sv-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--sv-line) inset;
+}
+.svt.is-hero .svt-ic { width: 52px; height: 52px; font-size: 25px; }
+.svt.is-hero .svt-tx { flex: 1; min-width: 0; }
+.svt.is-hero .svt-foot { width: auto; margin-top: 0; border-top: none; padding-top: 0; }
+
+.svt-ic {
+  position: relative; flex: none;
+  width: 44px; height: 44px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  background: var(--sv-soft); border: 1px solid var(--sv-line);
+}
+.svt-tx { position: relative; flex: 1; min-width: 0; }
+.svt-tx b {
+  display: block; font-size: 13.5px; font-weight: 800; color: #fff; line-height: 1.3;
+}
+.svt-tx i {
+  display: block; margin-top: 3px; font-style: normal;
+  font-size: 11px; color: var(--muted); font-weight: 600; line-height: 1.35;
+}
+.svt-foot {
+  position: relative; width: 100%; margin-top: auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding-top: 10px; border-top: 1px solid var(--line);
+}
+.svt-price {
+  font-size: 13px; font-weight: 900; color: var(--sv); letter-spacing: -0.2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.svt-go { flex: none; font-size: 18px; color: var(--dim); line-height: 1; }
+
+@keyframes svtIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
   to   { opacity: 1; transform: none; }
 }
 
-.sv-top { position: relative; display: flex; align-items: flex-start; gap: 13px; }
-.sv-ic {
-  flex: none; width: 48px; height: 48px; border-radius: 15px;
-  display: flex; align-items: center; justify-content: center; font-size: 23px;
+/* Yuklanish plitkalari */
+.svt-skel {
+  min-height: 148px; border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%);
+  background-size: 260% 100%;
+  animation: svSkel 1.25s ease-in-out infinite;
+}
+.svt-skel:first-child { grid-column: 1 / -1; min-height: 84px; }
+@keyframes svSkel {
+  from { background-position: 130% 0; }
+  to   { background-position: -30% 0; }
+}
+
+.sv-note {
+  margin: 14px 0 0; padding: 12px 14px; border-radius: 14px;
+  background: var(--surface); border: 1px dashed var(--line-2);
+  font-size: 12px; color: var(--muted); line-height: 1.55;
+}
+
+/* ==========================================================================
+   2) ALOHIDA OYNA (#service)
+   ========================================================================== */
+
+/* Kirish: pastdan sirg'alib chiqadi. `.is-in` klassi JS dan har ochilishda
+   qayta qo'yiladi, shuning uchun animatsiya har safar ishlaydi. */
+#service.is-in { animation: sdIn 0.4s var(--silk) both; }
+@keyframes sdIn {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: none; }
+}
+/* Chiqish: pastga sirg'alib so'nadi (JS 200 ms kutib sahifani almashtiradi) */
+#service.is-out { animation: sdOut 0.2s var(--snappy) both; }
+@keyframes sdOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(16px); }
+}
+/* Pastdagi yopishgan tugma joyi (navbar bu oynada yashiriladi) */
+#service { padding-bottom: calc(104px + var(--safe-b)); }
+
+/* ---- sarlavha bloki ---- */
+.sd-hero {
+  position: relative; overflow: hidden;
+  padding: 24px 18px 20px; margin: 12px 0 14px; border-radius: 22px; text-align: center;
+  background: linear-gradient(160deg, var(--sv-soft), rgba(0, 0, 0, 0.34));
+  border: 1px solid var(--sv-line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.34);
+  animation: sdRise 0.44s var(--silk) both;
+  animation-delay: 60ms;
+}
+.sd-hero-glow {
+  position: absolute; top: -50%; left: 50%; width: 240px; height: 240px;
+  transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(circle, var(--sv-soft), transparent 70%);
+}
+.sd-ic {
+  position: relative; width: 66px; height: 66px; margin: 0 auto 13px;
+  border-radius: 22px;
+  display: flex; align-items: center; justify-content: center; font-size: 31px;
   background: var(--sv-soft); border: 1px solid var(--sv-line);
+  box-shadow: 0 8px 22px var(--sv-sh);
+  animation: sdPop 0.5s var(--bounce) both;
+  animation-delay: 0.16s;
 }
-.sv-tx { flex: 1; min-width: 0; }
-.sv-tx h3 {
-  margin: 0; font-size: 16px; font-weight: 800; color: #fff; line-height: 1.25;
+@keyframes sdPop {
+  0%   { opacity: 0; transform: scale(0.5) translateY(8px); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
 }
-.sv-tx p {
-  margin: 5px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5;
+.sd-hero h2 {
+  position: relative; margin: 0; font-size: 20px; font-weight: 900; color: #fff;
+  line-height: 1.25; letter-spacing: -0.3px;
+}
+.sd-hero p {
+  position: relative; margin: 8px auto 0; max-width: 300px;
+  font-size: 13px; color: var(--muted); line-height: 1.55;
 }
 
-/* ---- pastdagi qator: narx + kafolat/vaqt ---- */
-.sv-foot {
-  position: relative; display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; flex-wrap: wrap;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+/* ---- narx / kafolat / vaqt plitkalari ---- */
+.sd-facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 9px; margin-bottom: 14px;
 }
-.sv-price { font-size: 19px; font-weight: 900; color: var(--sv); letter-spacing: -0.2px; }
-.sv-price.is-calc { font-size: 13.5px; font-weight: 700; color: var(--muted); }
-.sv-metas { display: flex; gap: 7px; flex-wrap: wrap; }
-.sv-m {
-  font-size: 11px; font-weight: 700; color: var(--muted);
-  padding: 5px 9px; border-radius: 999px;
-  background: var(--surface-2); border: 1px solid var(--line);
+.sd-fact {
+  text-align: center; padding: 13px 8px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--line);
+  animation: sdRise 0.42s var(--silk) both;
+  animation-delay: 0.14s;
 }
-.sv-m.is-war { color: var(--green); border-color: rgba(47, 212, 95, 0.28); }
+.sd-fact i { font-style: normal; font-size: 17px; display: block; }
+.sd-fact b {
+  display: block; margin-top: 5px; font-size: 13px; font-weight: 800; color: #fff;
+  line-height: 1.25;
+}
+.sd-fact small { display: block; margin-top: 2px; font-size: 9.5px; color: var(--muted); font-weight: 600; }
+.sd-fact.is-price b { color: var(--sv); }
+.sd-fact.is-war b { color: var(--green); }
 
-.sv-cta {
-  position: relative; width: 100%; min-height: 46px; margin-top: 13px;
-  border-radius: 14px; cursor: pointer; font-family: inherit;
-  font-size: 14.5px; font-weight: 800;
-  background: var(--sv-soft); border: 1px solid var(--sv-line); color: var(--sv);
-  transition: transform 0.15s var(--silk);
+/* ---- temaga xos blok ---- */
+.sd-block {
+  position: relative; overflow: hidden;
+  padding: 16px; border-radius: 20px;
+  background: var(--surface); border: 1px solid var(--line);
+  animation: sdRise 0.44s var(--silk) both;
+  animation-delay: 0.22s;
 }
-.sv-cta:active { transform: scale(0.98); }
+.sd-block-h {
+  font-size: 11px; font-weight: 800; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 13px;
+}
+@keyframes sdRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
 
-/* --------------------------------------------------------------------------
-   1) HERO — konfigurator. Eng katta kartochka: nur dastasi + uch fakt.
-   -------------------------------------------------------------------------- */
-.sv-l-hero {
-  padding: 20px 18px 16px;
-  background: linear-gradient(155deg, rgba(212, 168, 83, 0.10), rgba(0, 0, 0, 0.34));
-  border-color: var(--sv-line);
+/* ---- pastdagi yakka tugma ---- */
+.sd-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  padding: 12px 16px calc(12px + var(--safe-b));
+  background: var(--bg-2); border-top: 1px solid var(--line);
+  animation: sdBar 0.42s var(--silk) both;
+  animation-delay: 0.18s;
 }
-.sv-l-hero .sv-ic { width: 56px; height: 56px; font-size: 27px; border-radius: 18px; }
-.sv-l-hero .sv-tx h3 { font-size: 18.5px; }
-/* Faradan chiqayotgan nur — bir martalik yoyilish */
+#service.hidden ~ .sd-bar, .page.hidden .sd-bar { display: none; }
+@keyframes sdBar {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: none; }
+}
+.sd-cta {
+  width: 100%; min-height: 52px; font-size: 15.5px;
+  background: var(--sv, var(--red)); color: #100d0e;
+  box-shadow: 0 8px 24px var(--sv-sh, var(--red-glow));
+}
+.sd-cta:active { transform: scale(0.98); box-shadow: 0 3px 10px var(--sv-sh, var(--red-glow)); }
+
+/* ==========================================================================
+   3) TEMAGA XOS BLOKLAR — yetti xil tuzilish
+   ========================================================================== */
+
+/* --- hero: nur dastasi + uch fakt --- */
 .sv-hero-beam {
-  position: absolute; left: 12px; top: 30px;
+  position: absolute; left: 10px; top: 34px;
   width: 130px; height: 130px; pointer-events: none;
-  background: conic-gradient(from 155deg at 0% 0%,
-    rgba(212, 168, 83, 0.20), transparent 22%);
+  background: conic-gradient(from 155deg at 0% 0%, var(--sv-soft), transparent 22%);
   transform-origin: 0 0;
   animation: svBeam 1.1s var(--silk) both;
-  animation-delay: 0.2s;
+  animation-delay: 0.3s;
 }
 @keyframes svBeam {
   from { opacity: 0; transform: scale(0.4); }
   to   { opacity: 1; transform: scale(1); }
 }
 .sv-facts {
-  position: relative; display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 8px; margin-top: 15px;
+  position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
 }
 .sv-fact {
-  text-align: center; padding: 11px 6px; border-radius: 14px;
-  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line);
+  text-align: center; padding: 12px 6px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.26); border: 1px solid var(--line);
 }
 .sv-fact i { font-style: normal; font-size: 17px; display: block; }
 .sv-fact b { display: block; margin-top: 4px; font-size: 12px; font-weight: 800; color: #fff; }
 .sv-fact small { display: block; margin-top: 1px; font-size: 9.5px; color: var(--muted); }
-.sv-l-hero .sv-cta {
-  background: linear-gradient(135deg, #e9c96a, #b98a2c); border-color: transparent; color: #1a1206;
-  box-shadow: 0 6px 20px rgba(212, 168, 83, 0.28);
-}
 
-/* --------------------------------------------------------------------------
-   2) TECH — Bi-LED o'rnatish. Raqamli ish bosqichlari.
-   -------------------------------------------------------------------------- */
-.sv-l-tech { border-left: 3px solid var(--sv); }
-.sv-steps {
-  position: relative; counter-reset: sv; list-style: none;
-  margin: 14px 0 0; padding: 0;
-}
+/* --- tech: raqamli ish bosqichlari --- */
+.sd-block.sv-l-tech { border-left: 3px solid var(--sv); }
+.sv-steps { position: relative; counter-reset: sv; list-style: none; margin: 0; padding: 0; }
 .sv-steps li {
   counter-increment: sv; position: relative;
-  padding: 0 0 0 30px; margin-bottom: 9px;
-  font-size: 12.5px; color: var(--muted); line-height: 1.45;
+  padding: 0 0 0 32px; margin-bottom: 11px;
+  font-size: 13px; color: var(--muted); line-height: 1.45;
 }
 .sv-steps li:last-child { margin-bottom: 0; }
 .sv-steps li::before {
   content: counter(sv);
   position: absolute; left: 0; top: -1px;
-  width: 21px; height: 21px; border-radius: 50%;
+  width: 22px; height: 22px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 10.5px; font-weight: 800;
+  font-size: 11px; font-weight: 800;
   background: var(--sv-soft); border: 1px solid var(--sv-line); color: var(--sv);
 }
-/* Bosqichlarni bog'lovchi ingichka chiziq */
 .sv-steps li:not(:last-child)::after {
-  content: ""; position: absolute; left: 10px; top: 21px; bottom: -9px;
+  content: ""; position: absolute; left: 10.5px; top: 22px; bottom: -11px;
   width: 1px; background: var(--sv-line);
 }
 
-/* --------------------------------------------------------------------------
-   3) SHINE — polirovka. «Oldin → keyin» + yorug'lik yugurishi.
-   -------------------------------------------------------------------------- */
-.sv-l-shine .sv-ic { border-radius: 50%; }
-.sv-ba {
-  position: relative; display: flex; align-items: stretch; gap: 9px;
-  margin-top: 15px;
-}
-.sv-ba-col {
-  flex: 1; min-width: 0; padding: 11px 12px; border-radius: 14px;
-  border: 1px solid var(--line);
-}
+/* --- shine: «oldin → keyin» + yorug'lik yugurishi --- */
+.sv-ba { position: relative; display: flex; align-items: stretch; gap: 9px; }
+.sv-ba-col { flex: 1; min-width: 0; padding: 12px 13px; border-radius: 14px; border: 1px solid var(--line); }
 .sv-ba-col small {
   display: block; font-size: 9.5px; font-weight: 800; letter-spacing: 0.5px;
   text-transform: uppercase; color: var(--dim);
 }
-.sv-ba-col b { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 700; }
+.sv-ba-col b { display: block; margin-top: 5px; font-size: 13px; font-weight: 700; }
 .sv-ba-col.is-before { background: rgba(120, 110, 80, 0.12); }
 .sv-ba-col.is-before b { color: #b9ac86; }
-/* «Keyin» ustuni ustidan bir marta yorug'lik o'tadi — polirovka hissi */
 .sv-ba-col.is-after {
   position: relative; overflow: hidden;
   background: var(--sv-soft); border-color: var(--sv-line);
@@ -7586,114 +7719,114 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.22) 50%, transparent 65%);
   transform: translateX(-120%);
   animation: svSweep 1.5s var(--silk) both;
-  animation-delay: 0.45s;
+  animation-delay: 0.6s;
 }
-@keyframes svSweep {
-  to { transform: translateX(120%); }
-}
-.sv-ba-arrow { align-self: center; flex: none; color: var(--sv); font-size: 16px; font-weight: 800; }
+@keyframes svSweep { to { transform: translateX(120%); } }
+.sv-ba-arrow { align-self: center; flex: none; color: var(--sv); font-size: 17px; font-weight: 800; }
 
-/* --------------------------------------------------------------------------
-   4) SPLIT — fara shishasi. Ikki panel: yorilgan / yangi.
-   -------------------------------------------------------------------------- */
-.sv-l-split { background: linear-gradient(180deg, rgba(75, 163, 255, 0.05), transparent 60%), var(--surface); }
-.sv-pair { position: relative; display: grid; gap: 8px; margin-top: 15px; }
-.sv-pair-b {
-  padding: 11px 13px; border-radius: 13px;
-  font-size: 12.5px; font-weight: 700; line-height: 1.4;
-}
+/* --- split: ikki panel (yorilgan / yangi) --- */
+.sd-block.sv-l-split { background: linear-gradient(180deg, var(--sv-soft), transparent 60%), var(--surface); }
+.sv-pair { position: relative; display: grid; gap: 9px; }
+.sv-pair-b { padding: 12px 14px; border-radius: 14px; font-size: 13px; font-weight: 700; line-height: 1.4; }
 .sv-pair-b.is-old {
-  color: var(--muted); background: var(--surface-2);
-  border: 1px dashed var(--line-2);
+  color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line-2);
   text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.22);
 }
-.sv-pair-b.is-new {
-  color: var(--sv); background: var(--sv-soft); border: 1px solid var(--sv-line);
-}
+.sv-pair-b.is-new { color: var(--sv); background: var(--sv-soft); border: 1px solid var(--sv-line); }
 
-/* --------------------------------------------------------------------------
-   5) BUBBLE — fara ichini tozalash. Pufakchalar + belgili ro'yxat.
-   -------------------------------------------------------------------------- */
-.sv-l-bubble {
-  background: radial-gradient(120% 80% at 100% 0%, rgba(47, 212, 95, 0.09), transparent 60%), var(--surface);
+/* --- bubble: pufakchalar + belgili ro'yxat --- */
+.sd-block.sv-l-bubble {
+  background: radial-gradient(120% 80% at 100% 0%, var(--sv-soft), transparent 60%), var(--surface);
 }
-.sv-l-bubble .sv-ic { border-radius: 50% 50% 50% 16px; }
-.sv-bubbles { position: absolute; top: 12px; right: 14px; pointer-events: none; }
+.sv-bubbles { position: absolute; top: 14px; right: 16px; pointer-events: none; }
 .sv-bubbles i {
   position: absolute; display: block; border-radius: 50%;
   border: 1px solid var(--sv-line); background: var(--sv-soft);
 }
-.sv-bubbles i:nth-child(1) { width: 26px; height: 26px; right: 0; top: 0; }
-.sv-bubbles i:nth-child(2) { width: 15px; height: 15px; right: 30px; top: 16px; }
-.sv-bubbles i:nth-child(3) { width: 9px;  height: 9px;  right: 12px; top: 32px; }
-.sv-bullets { list-style: none; margin: 14px 0 0; padding: 0; }
+.sv-bubbles i:nth-child(1) { width: 28px; height: 28px; right: 0; top: 0; }
+.sv-bubbles i:nth-child(2) { width: 16px; height: 16px; right: 32px; top: 18px; }
+.sv-bubbles i:nth-child(3) { width: 10px; height: 10px; right: 13px; top: 35px; }
+.sv-bullets { list-style: none; margin: 0; padding: 0; }
 .sv-bullets li {
-  position: relative; padding-left: 22px; margin-bottom: 8px;
-  font-size: 12.5px; color: var(--muted); line-height: 1.45;
+  position: relative; padding-left: 24px; margin-bottom: 10px;
+  font-size: 13px; color: var(--muted); line-height: 1.45;
 }
 .sv-bullets li:last-child { margin-bottom: 0; }
 .sv-bullets li::before {
   content: "✓"; position: absolute; left: 0; top: 0;
-  font-size: 11px; font-weight: 900; color: var(--sv);
+  font-size: 12px; font-weight: 900; color: var(--sv);
 }
 
-/* --------------------------------------------------------------------------
-   6) STITCH — rul chexol. Chok chegara + ip ranglari.
-   -------------------------------------------------------------------------- */
-.sv-l-stitch {
+/* --- stitch: chok chegara + ip ranglari --- */
+.sd-block.sv-l-stitch {
   border-style: dashed; border-color: var(--sv-line); border-width: 1.5px;
-  background: linear-gradient(160deg, rgba(255, 176, 32, 0.06), transparent 55%), var(--surface);
+  background: linear-gradient(160deg, var(--sv-soft), transparent 55%), var(--surface);
 }
-.sv-l-stitch .sv-ic { border-radius: 50%; border-style: dashed; }
 .sv-thread {
-  position: relative; display: flex; align-items: center; gap: 8px;
-  margin-top: 15px; padding: 10px 12px; border-radius: 13px;
+  position: relative; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: 14px;
   background: rgba(0, 0, 0, 0.24); border: 1px dashed var(--line-2);
 }
-.sv-thread span { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.sv-thread span { font-size: 12px; font-weight: 700; color: var(--muted); }
 .sv-thread i {
-  width: 20px; height: 20px; border-radius: 50%; display: block; flex: none;
+  width: 22px; height: 22px; border-radius: 50%; display: block; flex: none;
   border: 2px solid rgba(255, 255, 255, 0.16);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-/* --------------------------------------------------------------------------
-   7) FABRIC — o'rindiq chexol. Material yorliqlari.
-   -------------------------------------------------------------------------- */
-.sv-l-fabric {
-  background: linear-gradient(150deg, rgba(199, 125, 255, 0.08), transparent 58%), var(--surface);
+/* --- fabric: material yorliqlari --- */
+.sd-block.sv-l-fabric {
+  background: linear-gradient(150deg, var(--sv-soft), transparent 58%), var(--surface);
   border-color: var(--sv-line);
 }
-.sv-l-fabric .sv-ic { border-radius: 14px 22px 14px 22px; }
-.sv-mats { position: relative; display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+.sv-mats { position: relative; display: flex; flex-wrap: wrap; gap: 8px; }
 .sv-mats span {
-  font-size: 11.5px; font-weight: 700; color: var(--sv);
-  padding: 7px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: var(--sv);
+  padding: 8px 13px; border-radius: 999px;
   background: var(--sv-soft); border: 1px solid var(--sv-line);
 }
 
-/* --------------------------------------------------------------------------
-   Yuklanish skeleti va izoh
-   -------------------------------------------------------------------------- */
-.sv-skel {
-  height: 172px; margin-bottom: 13px; border-radius: 20px;
-  border: 1px solid var(--line);
-  background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%);
-  background-size: 260% 100%;
-  animation: svSkel 1.25s ease-in-out infinite;
-}
-@keyframes svSkel {
-  from { background-position: 130% 0; }
-  to   { background-position: -30% 0; }
-}
-.sv-note {
-  margin: 4px 0 0; padding: 12px 14px; border-radius: 14px;
-  background: var(--surface); border: 1px dashed var(--line-2);
-  font-size: 12px; color: var(--muted); line-height: 1.55;
+@media (prefers-reduced-motion: reduce) {
+  .svt, .svt-skel, .sd-hero, .sd-ic, .sd-fact, .sd-block, .sd-bar,
+  .sv-hero-beam { animation: none; }
+  #service.is-in, #service.is-out { animation: none; }
+  .sv-ba-col.is-after::after { animation: none; display: none; }
+  .svt:active, .sd-cta:active { transform: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sv-card, .sv-hero-beam, .sv-skel { animation: none; }
-  .sv-ba-col.is-after::after { animation: none; display: none; }
-  .sv-cta:active { transform: none; }
-}
+
+/* ==========================================================================
+   4) OYNANING O'ZI ham temaga qarab boshqacha ko'rinadi
+
+   `sd-l-*` — sarlavha blokining shakli, `sd-block.sv-l-*` — ichki blokning
+   ko'rinishi. Yetti xizmat oynasi shu bilan bir-birini takrorlamaydi:
+   biror joyda ikonka dumaloq, boshqasida chok chegara, uchinchisida
+   assimetrik burchak.
+   ========================================================================== */
+
+/* Konfigurator — eng katta va «premium» oyna */
+.sd-hero.sd-l-hero { padding: 28px 18px 22px; }
+.sd-hero.sd-l-hero .sd-ic { width: 74px; height: 74px; font-size: 34px; border-radius: 26px; }
+.sd-hero.sd-l-hero h2 { font-size: 22px; }
+.sd-block.sv-l-hero { background: linear-gradient(160deg, var(--sv-soft), transparent 55%), var(--surface); }
+
+/* Bi-LED o'rnatish — chap qirrada rangli chiziq (texnik hissi) */
+.sd-hero.sd-l-tech { border-left: 3px solid var(--sv); text-align: left; }
+.sd-hero.sd-l-tech .sd-ic { margin-left: 0; }
+
+/* Polirovka — dumaloq ikonka (silliqlik hissi) */
+.sd-hero.sd-l-shine .sd-ic { border-radius: 50%; }
+.sd-block.sv-l-shine { background: radial-gradient(120% 90% at 0% 0%, var(--sv-soft), transparent 62%), var(--surface); }
+
+/* Shisha almashtirish — o'tkir burchakli ikonka (shisha qirrasi) */
+.sd-hero.sd-l-split .sd-ic { border-radius: 10px; }
+
+/* Fara ichini tozalash — pufakcha shakli */
+.sd-hero.sd-l-bubble .sd-ic { border-radius: 50% 50% 50% 18px; }
+
+/* Rul chexol — chok (dashed) chegara */
+.sd-hero.sd-l-stitch { border-style: dashed; border-width: 1.5px; }
+.sd-hero.sd-l-stitch .sd-ic { border-style: dashed; border-radius: 50%; }
+
+/* O'rindiq chexol — assimetrik burchaklar (tikuv hissi) */
+.sd-hero.sd-l-fabric .sd-ic { border-radius: 22px 34px 22px 34px; }
