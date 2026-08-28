@@ -6765,3 +6765,469 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .st-add:active, .st-inbox:active, .st-mini:active,
   .st-ring:active, .st-pick:active, .st-reply:active { transform: none; }
 }
+
+
+/* ==========================================================================
+   BUYURTMALARIM (uch bo'lim, uch oyna) VA MANZILLARIM
+
+   Fayl boshidagi ISHLASH QOIDALARI shu blokda ham kuchda:
+     • `filter: blur()` va `backdrop-filter` YO'Q — nur radial-gradient bilan;
+     • animatsiyalar faqat `transform`/`opacity` (kompozitor) va bir martalik;
+     • cheksiz animatsiya faqat bitta — timeline'ning JORIY bosqichi
+       («nafas olishi»), u ham opacity/transform, ya'ni deyarli bepul;
+     • ro'yxatlarda `content-visibility: auto`.
+
+   `--d` — kirish animatsiyasining kechikishi (JS inline beradi), shu
+   sababli elementlar navbat bilan «ko'tariladi».
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1) KABINETDAGI HUB PLITKALARI — uchta tugma, har biri o'z oynasini ochadi
+   -------------------------------------------------------------------------- */
+.mo-hub { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+
+.mo-tile {
+  position: relative;
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 15px 16px; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; color: var(--text); font-family: inherit;
+  transition: transform 0.16s var(--silk), background 0.2s, border-color 0.2s;
+  animation: moTileIn 0.42s var(--spring) both;
+  animation-delay: var(--d, 0ms);
+  overflow: hidden;
+}
+.mo-tile:nth-child(1) { --d: 40ms; }
+.mo-tile:nth-child(2) { --d: 110ms; }
+.mo-tile:nth-child(3) { --d: 180ms; }
+.mo-tile:active { transform: scale(0.98); background: var(--surface-2); }
+
+/* Yumshoq nur — plitkani "tirik" qiladi (GPU uchun arzon) */
+.mo-tile::after {
+  content: ""; position: absolute; top: -60%; right: -12%;
+  width: 130px; height: 130px; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 45, 58, 0.10), transparent 70%);
+}
+#mo-open-booking::after { background: radial-gradient(circle, rgba(125, 184, 255, 0.10), transparent 70%); }
+#mo-open-order::after { background: radial-gradient(circle, rgba(212, 168, 83, 0.11), transparent 70%); }
+
+.mo-tile-ic {
+  flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: 21px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.mo-tile-tx { flex: 1; min-width: 0; }
+.mo-tile-tx b {
+  display: block; font-size: 14.5px; font-weight: 800; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mo-tile-tx small {
+  display: flex; align-items: center; gap: 6px; margin-top: 3px;
+  font-size: 11.5px; color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Oxirgi holatning rangli nuqtasi */
+.mo-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.mo-dot.is-new { background: #ff6b61; }
+.mo-dot.is-accepted { background: var(--green); }
+.mo-dot.is-delivering { background: var(--amber); }
+.mo-dot.is-delivered { background: var(--gold); }
+.mo-dot.is-cancelled { background: var(--dim); }
+
+.mo-tile-n {
+  flex-shrink: 0; min-width: 30px; text-align: center;
+  font-size: 17px; font-weight: 900; color: var(--gold);
+}
+.mo-tile-go { flex-shrink: 0; color: var(--dim); font-size: 20px; font-style: normal; }
+
+/* «Yangi» yozuvlar belgisi — mijoz kutilayotgan buyurtmani o'tkazib yubormaydi */
+.mo-tile-badge {
+  position: absolute; top: 9px; right: 10px;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--red); color: #fff;
+  font-size: 11px; font-weight: 800; line-height: 19px; text-align: center;
+  box-shadow: 0 2px 9px rgba(255, 45, 58, 0.5);
+  animation: moBadgePop 0.4s var(--bounce) both;
+}
+
+@keyframes moTileIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes moBadgePop {
+  0%   { opacity: 0; transform: scale(0.3); }
+  60%  { opacity: 1; transform: scale(1.18); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Kabinet menyusidagi soni («Manzillarim  3 ›») */
+.pf-menu-hint {
+  font-size: 12.5px; font-weight: 700; color: var(--gold); margin-right: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   2) PASTGA TORTIB YANGILASH (pull-to-refresh)
+   -------------------------------------------------------------------------- */
+.mo-ptr {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 46px; margin-top: -46px; pointer-events: none;
+  opacity: 0; transition: opacity 0.18s;
+}
+.mo-ptr.show { opacity: 1; }
+.mo-ptr b { font-size: 12px; font-weight: 700; color: var(--muted); }
+.mo-ptr-spin {
+  font-size: 15px; color: var(--gold);
+  transition: transform 0.24s var(--silk);
+}
+.mo-ptr.ready .mo-ptr-spin { transform: rotate(180deg); }
+.mo-ptr.ready b { color: var(--gold); }
+
+/* Yangilash tugmasi aylanadi (bir marta, so'rov davomida) */
+.icon-btn.is-spin { animation: moSpin 0.9s linear infinite; }
+@keyframes moSpin { to { transform: rotate(360deg); } }
+
+/* --------------------------------------------------------------------------
+   3) QIDIRUV MAYDONI
+   -------------------------------------------------------------------------- */
+.mo-search {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 12px;
+  padding: 0 13px; height: 44px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  transition: border-color 0.2s;
+}
+.mo-search:focus-within { border-color: rgba(212, 168, 83, 0.45); }
+.mo-search-ic { font-size: 14px; opacity: 0.65; flex-shrink: 0; }
+.mo-search input {
+  flex: 1; min-width: 0; height: 100%;
+  background: none; border: none; outline: none; color: var(--text);
+  font-family: inherit; font-size: 14px;
+}
+.mo-search input::placeholder { color: var(--dim); }
+.mo-search-x {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--muted);
+  font-size: 12px; line-height: 1; font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+}
+.mo-search-x:active { transform: scale(0.9); }
+
+/* Pul ko'rsatiladigan xulosa plitkasi — gold */
+.ord-stat.is-money b { color: var(--gold); font-size: 17px; }
+
+/* --------------------------------------------------------------------------
+   4) BUYURTMA KARTOCHKASI (akkordeon)
+
+   `.ord` asosini qayta ishlatamiz (styles.css:3772) — bu yerda faqat
+   kabinetga xos qo'shimchalar: bosiladigan tana, ochilish, timeline.
+   -------------------------------------------------------------------------- */
+/* DIQQAT: bu yerda `content-visibility: auto` ATAYLAB ISHLATILMAYDI.
+   Kartochkalar balandligi juda xilma-xil (tovar soni, zanjir, jami satri
+   har xil) va akkordeon ochilganda yana o'zgaradi. `contain-intrinsic-size`
+   esa faqat TAXMIN — ekrandan tashqaridagi kartochkaning haqiqiy balandligi
+   taxmindan farq qilsa, skroll sakraydi va mijoz o'qiyotgan joyini
+   yo'qotadi. Bundan tashqari ichki elementlar o'lchami 0 bo'lib qoladi.
+   Mijozning o'z buyurtmalari ro'yxati qisqa — bu tejamkorlik shart emas. */
+.mo-card {
+  cursor: pointer;
+  animation: moCardIn 0.4s var(--silk) both;
+  animation-delay: var(--d, 0ms);
+  transition: border-color 0.24s, transform 0.16s var(--silk);
+}
+.mo-card:active { transform: scale(0.995); }
+.mo-card.is-open { border-color: rgba(212, 168, 83, 0.34); }
+
+@keyframes moCardIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.mo-body { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.mo-head { flex: 1; min-width: 0; }
+.mo-lead {
+  font-size: 13.5px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mo-sub2 {
+  margin-top: 3px; font-size: 11.5px; color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Ochilish belgisi — bosilganda 90° buriladi */
+.mo-exp {
+  flex-shrink: 0; font-style: normal; font-size: 20px; color: var(--dim);
+  transition: transform 0.3s var(--silk), color 0.2s;
+}
+.mo-card.is-open .mo-exp { transform: rotate(90deg); color: var(--gold); }
+
+/* --------------------------------------------------------------------------
+   5) HOLAT ZANJIRI (timeline)
+
+   Chiziq chapdan o'ngga «chiziladi» (scaleX — kompozitor), o'tilgan
+   bosqichlarda ✓, joriy bosqich belgisi sekin nafas oladi.
+   -------------------------------------------------------------------------- */
+.mo-track {
+  position: relative; margin-top: 14px; padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.mo-tr-line {
+  position: absolute; left: 11%; right: 11%; top: 18px; height: 2px;
+  background: var(--line-2); border-radius: 2px; overflow: hidden;
+}
+.mo-tr-line i {
+  display: block; height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--red-2), var(--gold));
+  transform-origin: left center;
+  animation: moTrackDraw 0.75s var(--silk) both;
+  animation-delay: 120ms;
+}
+@keyframes moTrackDraw {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.mo-tr-steps { position: relative; display: flex; margin-top: 8px; }
+.mo-tr-step {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  align-items: center; gap: 5px;
+  animation: moDotPop 0.36s var(--bounce) both;
+  animation-delay: var(--d, 0ms);
+}
+.mo-tr-step b {
+  width: 21px; height: 21px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 800; line-height: 1;
+  background: var(--surface-3); border: 1.5px solid var(--line-2); color: var(--dim);
+}
+.mo-tr-step small {
+  font-size: 9.5px; font-weight: 700; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+/* o'tilgan bosqich */
+.mo-tr-step.is-done b {
+  background: rgba(47, 212, 95, 0.16); border-color: rgba(47, 212, 95, 0.5); color: var(--green);
+}
+.mo-tr-step.is-done small { color: var(--muted); }
+/* joriy bosqich — ko'zga tashlanadi va sekin nafas oladi */
+.mo-tr-step.is-now b {
+  background: var(--red-grad); border-color: transparent; color: #fff;
+  font-size: 11px;
+  box-shadow: 0 0 0 4px rgba(255, 45, 58, 0.14);
+  animation: moNowPulse 2.2s ease-in-out infinite;
+  animation-delay: 0.7s;
+}
+.mo-tr-step.is-now small { color: #fff; font-weight: 800; }
+
+@keyframes moDotPop {
+  from { opacity: 0; transform: scale(0.55); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes moNowPulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255, 45, 58, 0.14); }
+  50%      { box-shadow: 0 0 0 8px rgba(255, 45, 58, 0.05); }
+}
+
+/* --------------------------------------------------------------------------
+   6) TAFSILOT (akkordeon ichi)
+
+   BALANDLIK JS DAN BERILADI (`moToggle` → `style.maxHeight = scrollHeight`).
+
+   NEGA `grid-template-rows: 0fr → 1fr` EMAS
+   Avval mashhur «grid 0fr → 1fr» usuli ishlatilgan edi va u brauzerda
+   SINOVDAN O'TMADI: ochilgan kartochkaning qatori 0px bo'lib qolardi.
+   Sabab — spetsifikatsiya nozikligi: `1fr` = `minmax(auto, 1fr)`, ichki
+   element `overflow: hidden` bo'lganda esa uning «avtomatik minimal
+   o'lchami» NOLGA aylanadi va konteyner balandligi noaniq bo'lgani uchun
+   `1fr` ga taqsimlanadigan bo'sh joy ham yo'q. Natijada tafsilot
+   OCHILMAY qolardi (tashqi ko'rinishda «tugma ishlamaydi» degan xato).
+
+   `max-height` + aniq piksel esa hamma joyda bir xil ishlaydi va
+   `scrollHeight` tovarlar soni qancha bo'lsa ham to'g'ri o'lchanadi.
+   -------------------------------------------------------------------------- */
+.mo-more {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.34s var(--silk);
+}
+.mo-more-in {
+  opacity: 0; transform: translateY(-5px);
+  transition: opacity 0.26s var(--silk), transform 0.26s var(--silk);
+}
+.mo-card.is-open .mo-more-in { opacity: 1; transform: none; transition-delay: 0.05s; }
+
+/* Holat izohi — mijoz «endi nima bo'ladi» degan savolga javob oladi */
+.mo-hint {
+  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  font-size: 12.5px; line-height: 1.5; font-weight: 600;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+}
+.mo-hint.is-new { background: rgba(255, 45, 58, 0.07); border-color: rgba(255, 45, 58, 0.22); color: #ffb3ac; }
+.mo-hint.is-accepted { background: rgba(47, 212, 95, 0.07); border-color: rgba(47, 212, 95, 0.22); color: #a8ecbe; }
+.mo-hint.is-delivering { background: rgba(255, 176, 32, 0.07); border-color: rgba(255, 176, 32, 0.24); color: #ffd792; }
+.mo-hint.is-delivered { background: rgba(212, 168, 83, 0.08); border-color: rgba(212, 168, 83, 0.26); color: #e8cd96; }
+
+/* Amal tugmalari: yon-yonma, kichik ekranda o'raladi */
+.mo-acts { flex-wrap: wrap; }
+.mo-acts .ord-act { flex: 1 1 auto; min-width: 92px; font-size: 12.5px; }
+.ord-act.is-go {
+  background: var(--gold-soft); border-color: var(--gold-glow); color: var(--gold);
+  flex-basis: 100%;
+}
+
+/* Yuklanish skeleti — bo'sh ekran «buyurtma yo'q» degan yolg'on bermasin */
+.mo-skel {
+  height: 118px; margin-bottom: 11px; border-radius: 18px;
+  background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%);
+  background-size: 260% 100%;
+  border: 1px solid var(--line);
+  animation: moSkel 1.25s ease-in-out infinite, moCardIn 0.4s var(--silk) both;
+  animation-delay: 0ms, var(--d, 0ms);
+}
+@keyframes moSkel {
+  from { background-position: 130% 0; }
+  to   { background-position: -30% 0; }
+}
+
+/* Aloqa panelidagi «nima haqida» qatori */
+.mo-about {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px; padding: 11px 13px; border-radius: 13px;
+  background: var(--gold-soft); border: 1px solid var(--gold-glow);
+  font-size: 13px; font-weight: 800; color: var(--gold);
+}
+.mo-about-copy {
+  flex-shrink: 0; cursor: pointer; font-family: inherit;
+  padding: 7px 11px; border-radius: 10px; font-size: 11.5px; font-weight: 700;
+  background: rgba(212, 168, 83, 0.16); border: 1px solid var(--gold-glow); color: var(--gold);
+}
+.mo-about-copy:active { transform: scale(0.94); }
+
+/* --------------------------------------------------------------------------
+   7) MANZILLARIM
+   -------------------------------------------------------------------------- */
+.ad-add {
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 15px 16px; margin-bottom: 16px; text-align: left; cursor: pointer;
+  background: linear-gradient(145deg, var(--red-soft), rgba(0, 0, 0, 0.35));
+  border: 1px solid rgba(255, 45, 58, 0.26); border-radius: 18px;
+  color: var(--text); font-family: inherit;
+  transition: transform 0.16s var(--silk);
+  animation: moTileIn 0.42s var(--spring) both;
+}
+.ad-add:active { transform: scale(0.98); }
+.ad-add-ic {
+  flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: 21px;
+  background: rgba(255, 45, 58, 0.13); border: 1px solid rgba(255, 45, 58, 0.28);
+}
+.ad-add-tx { flex: 1; min-width: 0; }
+.ad-add-tx b {
+  display: block; font-size: 14.5px; font-weight: 800; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Ikkinchi qator ikki satrga o'ralishi mumkin — kichik ekranda «+»
+   tugmasi ustiga chiqib ketmasin. */
+.ad-add-tx small {
+  display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted);
+  font-weight: 600; line-height: 1.35;
+}
+.ad-add-plus {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 700; line-height: 1;
+  background: var(--red-grad); color: #fff;
+}
+
+.ad-item {
+  padding: 14px 15px; margin-bottom: 11px; border-radius: 18px;
+  background: var(--surface); border: 1px solid var(--line);
+  animation: moCardIn 0.4s var(--silk) both;
+  animation-delay: var(--d, 0ms);
+  transition: border-color 0.22s;
+}
+/* «Asosiy» manzil ajralib turadi — mijoz qaysi biri tanlanishini biladi */
+.ad-item.is-def {
+  border-color: rgba(212, 168, 83, 0.36);
+  background: linear-gradient(180deg, rgba(212, 168, 83, 0.06), transparent 55%), var(--surface);
+}
+
+.ad-row { display: flex; align-items: flex-start; gap: 12px; }
+.ad-ic {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 13px;
+  display: flex; align-items: center; justify-content: center; font-size: 19px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.ad-item.is-def .ad-ic { background: var(--gold-soft); border-color: var(--gold-glow); }
+.ad-tx { flex: 1; min-width: 0; }
+.ad-name {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-size: 14px; font-weight: 800; color: #fff;
+}
+.ad-def {
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.2px;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--gold-soft); border: 1px solid var(--gold-glow); color: var(--gold);
+}
+.ad-addr {
+  margin-top: 4px; font-size: 12.5px; color: var(--muted); line-height: 1.45;
+  word-break: break-word;
+}
+.ad-note { margin-top: 3px; font-size: 11.5px; color: var(--dim); line-height: 1.4; }
+
+.ad-acts {
+  display: flex; flex-wrap: wrap; gap: 7px;
+  margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line);
+}
+.ad-act {
+  min-height: 36px; padding: 0 12px; border-radius: 11px; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--text);
+  font-family: inherit; font-size: 12.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform 0.14s var(--silk);
+}
+.ad-act:active { transform: scale(0.94); }
+.ad-act.is-on {
+  background: var(--gold-soft); border-color: var(--gold-glow); color: var(--gold);
+  cursor: default;
+}
+.ad-act.is-danger {
+  background: rgba(255, 45, 58, 0.10); border-color: rgba(255, 45, 58, 0.3); color: #ff6b61;
+}
+
+.ad-tip {
+  margin: 16px 0 0; padding: 11px 13px; border-radius: 13px;
+  background: var(--surface); border: 1px dashed var(--line-2);
+  font-size: 12px; color: var(--muted); line-height: 1.5;
+}
+
+/* Tahrirlash panelidagi manzil matni */
+.ae-addr {
+  margin: 12px 0; padding: 11px 13px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-size: 12.5px; color: var(--muted); line-height: 1.45; word-break: break-word;
+}
+
+/* Xaritadan topilgan haqiqiy manzil (reverse geocoding) */
+.addr-found {
+  margin: 10px 0 2px; padding: 10px 12px; border-radius: 12px;
+  background: rgba(47, 212, 95, 0.07); border: 1px solid rgba(47, 212, 95, 0.22);
+  font-size: 12.5px; font-weight: 700; color: #a8ecbe; line-height: 1.45;
+  word-break: break-word;
+  animation: moCardIn 0.3s var(--silk) both;
+}
+.addr-found-wait { color: var(--muted); font-weight: 600; }
+.addr-note-input { margin-top: 10px; }
+
+/* --------------------------------------------------------------------------
+   8) HARAKATNI KAMAYTIRISH REJIMI (qurilma sozlamasi)
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .mo-tile, .mo-card, .mo-skel, .ad-add, .ad-item,
+  .mo-tile-badge, .mo-tr-step, .mo-tr-line i, .addr-found {
+    animation: none;
+  }
+  .mo-tr-step.is-now b { animation: none; }
+  .icon-btn.is-spin { animation: none; }
+  .mo-more, .mo-more-in, .mo-exp { transition: none; }
+  .mo-tile:active, .mo-card:active, .ad-add:active,
+  .ad-act:active, .mo-about-copy:active, .mo-search-x:active { transform: none; }
+}

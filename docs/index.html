@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=54">
+  <link rel="stylesheet" href="styles.css?v=55">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -295,20 +295,58 @@
       <div class="pf-car-info" id="profile-car">Belgilanmagan</div>
     </div>
 
-    <h3 class="sec-title">🔥 Bi&#8209;LED buyurtmalarim</h3>
-    <div class="list" id="my-biled"></div>
-    <p class="empty hidden" id="biled-empty">Hali buyurtma bermagansiz.</p>
+    <!-- ==========================================================
+         BUYURTMALARIM — UCH BO'LIM, UCH ALOHIDA OYNA
 
-    <h3 class="sec-title">🗓 Navbatlarim</h3>
-    <div class="list" id="my-bookings"></div>
-    <p class="empty hidden" id="bookings-empty">Navbat yo'q.</p>
+         Ilgari uchala ro'yxat (Bi-LED, navbat, mahsulot) shu yerda
+         ketma-ket chizilardi. Buyurtma ko'paygan mijozda kabinet
+         cho'zilib ketardi va menyu tugmalari ekrandan chiqib qolardi.
 
-    <h3 class="sec-title">📦 Mahsulot buyurtmalari</h3>
-    <div class="list" id="my-orders"></div>
-    <p class="empty hidden" id="orders-empty">Buyurtma yo'q.</p>
+         Endi admin panelidagi mantiq (`admin-shop.js` → `KINDS`)
+         mijozga moslandi: har bo'lim ALOHIDA to'liq ekranli oyna
+         (`#orders`), plitkada esa soni, oxirgi holati va yangilar
+         belgisi turadi.
+         ========================================================== -->
+    <h3 class="sec-title">📋 Buyurtmalarim</h3>
+    <div class="mo-hub" id="mo-hub">
+      <button class="mo-tile" id="mo-open-order" data-kind="order">
+        <span class="mo-tile-ic">📦</span>
+        <span class="mo-tile-tx">
+          <b>Mahsulot buyurtmalari</b>
+          <small id="mo-sum-order">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-order">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-order">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+      <button class="mo-tile" id="mo-open-biled" data-kind="biled">
+        <span class="mo-tile-ic">🔥</span>
+        <span class="mo-tile-tx">
+          <b>Bi&#8209;LED buyurtmalarim</b>
+          <small id="mo-sum-biled">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-biled">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-biled">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+      <button class="mo-tile" id="mo-open-booking" data-kind="booking">
+        <span class="mo-tile-ic">🗓</span>
+        <span class="mo-tile-tx">
+          <b>Navbatlarim</b>
+          <small id="mo-sum-booking">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-booking">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-booking">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+    </div>
 
     <!-- profil menyusi -->
     <div class="pf-menu">
+      <button class="pf-menu-item" id="pf-addresses">
+        <span class="left"><i>📍</i> Manzillarim</span>
+        <em><span class="pf-menu-hint" id="pf-addr-hint"></span> ›</em>
+      </button>
       <button class="pf-menu-item" id="pf-contact">
         <span class="left"><i>📞</i> Biz bilan aloqa</span><em>›</em>
       </button>
@@ -319,6 +357,81 @@
         <span class="left"><i>↻</i> Ilovani yangilash</span><em>↻</em>
       </button>
     </div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     BUYURTMALARIM — UMUMIY OYNA (uch bo'lim uchun bitta qolip)
+
+     NEGA BITTA SAHIFA, LEKIN UCH OYNA
+     Mijoz uchun bular uch alohida oyna: kabinetdagi uch tugma uch xil
+     ro'yxatni ochadi, sarlavha va tugmalar ham har xil. Kod tomonida esa
+     bitta qolip — chunki uchalasining tuzilishi bir xil (xulosa, qidiruv,
+     filtr, kartochkalar). Uchta nusxa yozilsa, ertaga kartochka
+     o'zgarganda uchtasini yangilash kerak bo'lardi va bittasi eskirib
+     qolardi (aynan shu xato ilgari holat lug'atlarida bo'lgan).
+
+     Qaysi bo'lim ochilgani `S.moKind` da: "order" | "biled" | "booking".
+     ========================================================================== -->
+<section id="orders" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="mo-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="mo-title">Buyurtmalarim</div>
+      <div class="topbar-sub" id="mo-sub"></div>
+    </div>
+    <button class="icon-btn ghost" id="mo-refresh" aria-label="Yangilash">↻</button>
+  </header>
+
+  <!-- Pastga tortib yangilash ko'rsatkichi -->
+  <div class="mo-ptr" id="mo-ptr"><span class="mo-ptr-spin">↻</span><b id="mo-ptr-tx">Yangilash uchun tortib turing</b></div>
+
+  <div class="pad">
+    <!-- xulosa: soni · jarayonda · sarflangan -->
+    <div class="mo-stats" id="mo-stats"></div>
+
+    <!-- qidiruv: kod yoki tovar nomi bo'yicha -->
+    <div class="mo-search" id="mo-search">
+      <span class="mo-search-ic">🔍</span>
+      <input type="text" id="mo-q" placeholder="Kod yoki nom bo'yicha izlash…" autocomplete="off">
+      <button class="mo-search-x hidden" id="mo-q-clear" aria-label="Tozalash">✕</button>
+    </div>
+
+    <!-- filtr chiplari (admin panelidagi kabi, sanoq bilan) -->
+    <div class="ord-filters" id="mo-filters"></div>
+
+    <div id="mo-list"></div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     MANZILLARIM (Avto_A1 dagi manzil menejeri, Zimmer dizaynida)
+
+     Ilgari manzillar FAQAT rasmiylashtirish oynasining ichida ko'rinardi:
+     mijoz manzilni faqat buyurtma berayotganda ko'rar, tahrirlay olmas va
+     «asosiy» manzil tushunchasi yo'q edi. Endi kabinetda alohida bo'lim.
+
+     Saqlash joyi o'zgarmadi — `localStorage["zimmer_addresses"]`, ya'ni
+     rasmiylashtirish oynasi bilan YAGONA manba. Yozuvga faqat qo'shimcha
+     (majburiy bo'lmagan) maydonlar qo'shildi: `def`, `note`, `lat`, `lng`.
+     ========================================================================== -->
+<section id="addresses" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="ad-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title">📍 Manzillarim</div>
+      <div class="topbar-sub" id="ad-sub"></div>
+    </div>
+  </header>
+  <div class="pad">
+    <button class="ad-add" id="ad-add">
+      <span class="ad-add-ic">🗺</span>
+      <span class="ad-add-tx"><b>Xaritadan yangi manzil</b>
+        <small>Nuqtani belgilang — manzil o'zi topiladi</small></span>
+      <span class="ad-add-plus">+</span>
+    </button>
+    <div id="ad-list"></div>
+    <p class="ad-tip" id="ad-tip">💡 «Asosiy» deb belgilangan manzil buyurtma berayotganda o'zi tanlanadi.</p>
   </div>
 </section>
 
@@ -446,11 +559,18 @@
     <p class="step-sub">Keyingi safar oson topishingiz uchun bu manzilga qulay nom qo'ying.</p>
     <input type="text" class="addr-name-input" id="addr-name-input" maxlength="40" placeholder="Masalan: Uy, Ish, Onamniki..." autocomplete="off">
     <div class="addr-name-chips" id="addr-name-chips">
-      <button class="addr-chip" data-label="Uy">🏠 Uy</button>
-      <button class="addr-chip" data-label="Ish">💼 Ish</button>
-      <button class="addr-chip" data-label="Do'kon">🏪 Do'kon</button>
-      <button class="addr-chip" data-label="Boshqa">📍 Boshqa</button>
+      <button class="addr-chip" data-label="Uy" data-type="home">🏠 Uy</button>
+      <button class="addr-chip" data-label="Ish" data-type="work">💼 Ish</button>
+      <button class="addr-chip" data-label="Do'kon" data-type="shop">🏪 Do'kon</button>
+      <button class="addr-chip" data-label="Boshqa" data-type="map">📍 Boshqa</button>
     </div>
+    <!-- Kuryer uchun eng kerakli qo'shimcha: uy/xonadon/mo'ljal.
+         Ilgari bunday maydon yo'q edi va mijoz «12-uy, 3-podyezd» ni
+         hech qayerga yozib qo'ya olmasdi — kuryer telefon qilishga
+         majbur bo'lardi. -->
+    <input type="text" class="addr-name-input addr-note-input" id="addr-note-input" maxlength="80" placeholder="Uy / xonadon / mo'ljal (majburiy emas)" autocomplete="off">
+    <!-- Xaritadan topilgan haqiqiy manzil (reverse geocoding) -->
+    <div class="addr-found hidden" id="addr-name-found"></div>
     <div class="addr-name-coords" id="addr-name-coords"></div>
     <button class="btn btn-primary" id="addr-name-save">Saqlash</button>
   </div>
@@ -530,28 +650,28 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=54"></script>
+<script src="config.js?v=55"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=54"></script>
+<script src="js/fb.js?v=55"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=54"></script>
-<script src="js/offline.js?v=54"></script>
-<script src="js/headlight.js?v=54"></script>
-<script src="js/cars.js?v=54"></script>
+<script src="js/upload.js?v=55"></script>
+<script src="js/offline.js?v=55"></script>
+<script src="js/headlight.js?v=55"></script>
+<script src="js/cars.js?v=55"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=54"></script>
+<script src="js/bts.js?v=55"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=54"></script>
+<script src="js/admin.js?v=55"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=54"></script>
+<script src="js/admin-shop.js?v=55"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=54"></script>
+<script src="js/admin-crm.js?v=55"></script>
 <!-- Stories boshqaruvi: qo'shish, ko'rishlar, reaksiyalar, mijoz javoblari -->
-<script src="js/admin-stories.js?v=54"></script>
-<script src="js/app.js?v=54"></script>
+<script src="js/admin-stories.js?v=55"></script>
+<script src="js/app.js?v=55"></script>
 </body>
 </html>

@@ -64,6 +64,18 @@
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
     coStep: 1, // rasmiylashtirish oynasidagi qadam: 1 | 2 | 3
     pay: {}, // karta rekvizitlari (/api/config dan)
+
+    /* ---- BUYURTMALARIM (uch bo'lim, uch oyna) ----
+       `my` — uchala ro'yxatning KESHI. Kabinet ochilganda bir marta
+       yig'iladi, shuning uchun bo'limga kirish ONI ochiladi (kutish yo'q),
+       so'ng fonda jimgina yangilanadi. `myAt` — keshning vaqti (ms). */
+    my: { order: [], biled: [], booking: [] },
+    myAt: 0,
+    myLoading: false,
+    moKind: "order", // ochilgan bo'lim: "order" | "biled" | "booking"
+    moFilter: "all", // filtr chipi: all | new | run | done | cancelled
+    moQ: "", // qidiruv matni
+    moOpen: null, // kengaytirilgan kartochka kaliti (akkordeon)
     // Zaxira rejim: server javob bermaydi, katalog Firebase'dan o'qilgan.
     // Bu holatda faqat KO'RISH mumkin — buyurtma/navbat bloklanadi.
     offline: false,
@@ -415,12 +427,23 @@
 
   /* ---------------------------------------------------------- navigatsiya */
   function show(page) {
-    ["splash", "gate", "flow", "home", "cart", "saved", "profile", "admin", "checkout"].forEach(
-      (p) => {
-        const node = $(p);
-        if (node) node.classList.toggle("hidden", p !== page);
-      }
-    );
+    [
+      "splash",
+      "gate",
+      "flow",
+      "home",
+      "cart",
+      "saved",
+      "profile",
+      "admin",
+      "checkout",
+      // Kabinetning ichki oynalari: buyurtmalarim (uch bo'lim) va manzillarim.
+      "orders",
+      "addresses",
+    ].forEach((p) => {
+      const node = $(p);
+      if (node) node.classList.toggle("hidden", p !== page);
+    });
     S.page = page;
 
     // Konfiguratorda o'zining sticky CTA'si bor — navbar yashiriladi.
@@ -428,7 +451,13 @@
     // o'zining «‹ orqaga» hamda «✕ yopish» tugmalari bor. Navbar tursa,
     // mijoz oqim o'rtasida boshqa bo'limga sakrab, tanlagan manzilini
     // yo'qotardi.
-    const navVisible = ["home", "cart", "saved", "profile", "admin"].includes(page) && S.me;
+    /* Buyurtmalarim va Manzillarim oynalarida navbar QOLADI (checkout'dan
+       farqli). Sabab: bu oynalarda mijoz hech qanday oqim o'rtasida emas —
+       aksincha, «Qayta buyurtma» dan keyin darhol savatga o'tishi kerak.
+       Navbar yashirilsa, u faqat «‹» orqali kabinetga, keyin savatga —
+       ikki bosishga majbur bo'lardi. */
+    const navVisible =
+      ["home", "cart", "saved", "profile", "admin", "orders", "addresses"].includes(page) && S.me;
     $("nav").classList.toggle("hidden", !navVisible);
     document
       .querySelectorAll(".nav-btn")
@@ -443,6 +472,10 @@
     if (page === "checkout") renderCheckout();
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
+    if (page === "addresses") renderAddressPage();
+    /* Bo'lim (`S.moKind`) `openMyOrders()` da o'rnatiladi va shundan keyin
+       `show("orders")` chaqiriladi — chizish shu yerda, bitta joyda. */
+    if (page === "orders") renderMyOrdersPage();
     // Boshqaruv paneli: ONLINE bo'lsa to'liq panel (`admin.js`, Render),
     // zaxira rejimda esa Worker orqali ishlaydigan ixcham panel.
     //
@@ -468,7 +501,7 @@
     if (!tg || !tg.BackButton) return;
     const need =
       (S.page === "flow" && S.step > 1) ||
-      ["cart", "saved", "profile", "checkout"].includes(S.page);
+      ["cart", "saved", "profile", "checkout", "orders", "addresses"].includes(S.page);
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
   }
@@ -496,6 +529,14 @@
     if (S.page === "checkout") {
       if (S.coStep > 1) return coGo(S.coStep - 1);
       return show("cart");
+    }
+    /* Kabinetning ichki oynalari har doim KABINETGA qaytadi (bosh sahifaga
+       emas) — mijoz qaysi bo'limdan kelganini yo'qotmasin. Xarita va
+       manzil oynalari ustma-ust turgan bo'lsa, avval ular yopiladi. */
+    if (S.page === "addresses" || S.page === "orders") {
+      if (!$("addr-name-overlay").classList.contains("hidden")) return closeAddrNameModal();
+      if (!$("map-picker-overlay").classList.contains("hidden")) return closeMapPicker();
+      return show("profile");
     }
     if (S.page === "flow" && S.step > 1) return setStep(S.step - 1);
     if (S.page !== "home") return show("home");
@@ -2937,7 +2978,7 @@
 
     $("dlv-courier").onclick = () => pickDelivery("courier");
     $("dlv-bts").onclick = () => pickDelivery("bts");
-    $("dlv-map-btn").onclick = openMapPicker;
+    $("dlv-map-btn").onclick = () => openMapPicker("checkout");
     regSel.onchange = btsRegionChange;
     $("bts-district").onchange = btsDistrictChange;
     $("bts-branch").onchange = btsBranchChange;
@@ -2968,7 +3009,17 @@
     $("dlv-bts").classList.toggle("on", method === "bts");
     $("dlv-courier-box").classList.toggle("hidden", method !== "courier");
     $("dlv-bts-box").classList.toggle("hidden", method !== "bts");
-    if (method === "courier") renderCourierAddresses();
+    if (method === "courier") {
+      /* «Asosiy» manzil o'zi tanlanadi. Ilgari mijoz saqlangan manzillari
+         bo'lsa ham har safar ro'yxatdan bosib tanlashi kerak edi — eng
+         ko'p takrorlanadigan ish shu bo'lgan. */
+      if (S._dlvSelectedAddr === null) {
+        const arr = getAddresses();
+        const di = arr.findIndex((x) => x && x.def);
+        if (di >= 0) S._dlvSelectedAddr = di;
+      }
+      renderCourierAddresses();
+    }
   }
 
   function btsRegionChange() {
@@ -3042,11 +3093,17 @@
       const addrs = getAddresses();
       if (S._dlvSelectedAddr !== null && addrs[S._dlvSelectedAddr]) {
         const a = addrs[S._dlvSelectedAddr];
-        const addr = a.address;
+        const note = a.note ? ` (${a.note})` : "";
+        // Uy/xonadon izohi MANZILGA qo'shiladi — kuryer uni ko'rmasa,
+        // izohning ma'nosi qolmaydi (bot faqat `address` ni yuboradi).
+        const addr = a.address + note;
         const mapLink = a.mapLink || "";
         S.delivery = {
           method: "courier", address: addr, mapLink,
-          summary: `Kuryer (manzilga): ${a.label || addr}` + (mapLink ? `\n🗺 ${mapLink}` : ""),
+          summary:
+            `Kuryer (manzilga): ${a.label || a.address}${note}` +
+            (a.address && a.label ? `\n📍 ${a.address}` : "") +
+            (mapLink ? `\n🗺 ${mapLink}` : ""),
         };
       } else {
         const address = ($("dlv-address").value || "").trim();
@@ -3398,22 +3455,179 @@
   }
 
   /* -------------------------------------------------------------- kabinet */
-  /** Butun son "count-up" animatsiyasi (statistika plitkalari). */
-  function animateStat(id, end) {
+  /* ==================================================================
+     BUYURTMALARIM — UCH BO'LIM, UCH ALOHIDA OYNA
+
+     NEGA SHUNDAY
+     Ilgari uchala ro'yxat (Bi-LED, navbat, mahsulot) kabinet sahifasida
+     ketma-ket chizilardi. Ikki-uch buyurtmadan keyin sahifa cho'zilib
+     ketardi, pastdagi menyu («Aloqa», «Kafolat») ekrandan chiqib qolardi
+     va mijoz kerakli buyurtmani izlab uzoq skroll qilardi. Filtr,
+     qidiruv, holat izohi — hech biri yo'q edi.
+
+     Endi admin panelidagi mantiq (`admin-shop.js` → `KINDS`) mijozga
+     moslandi: kabinetda uch plitka, har biri ALOHIDA to'liq ekranli
+     oynani ochadi. Oynada xulosa, qidiruv, filtr chiplari va holat
+     zanjiri (timeline) bor.
+
+     HOLAT NOMLARI ADMIN PANELI BILAN BIR XIL bo'lishi SHART — aks holda
+     admin qo'ygan holat mijozda «Yangi» bo'lib ko'rinadi. Shuning uchun
+     har bo'limning zanjiri va taxalluslari (`alias`) shu yerda, bitta
+     joyda yozilgan:
+
+        order   : new → accepted → delivering → delivered   (+ cancelled)
+        biled   : new → accepted → in_work    → done        (+ cancelled)
+        booking : new → confirmed → done                    (+ cancelled)
+
+     `tone` — CSS bo'yog'i. Mavjud `.ord-pill.is-*` klasslari qayta
+     ishlatiladi, ya'ni yangi rang yozish kerak emas.
+     ================================================================== */
+
+  const MY_KINDS = {
+    order: {
+      icon: "📦",
+      title: "Mahsulot buyurtmalari",
+      sub: "Do'kondan olgan tovarlaringiz",
+      track: ["new", "accepted", "delivering", "delivered"],
+      run: ["accepted", "delivering"],
+      alias: { done: "delivered", shipped: "delivering", paid: "accepted" },
+      st: {
+        new: { label: "Yangi", short: "Yangi", icon: "🆕", tone: "new" },
+        accepted: { label: "Qabul qilindi", short: "Qabul", icon: "✅", tone: "accepted" },
+        delivering: { label: "Yo'lda", short: "Yo'lda", icon: "🚚", tone: "delivering" },
+        delivered: { label: "Yetkazildi", short: "Yetkazildi", icon: "🎉", tone: "delivered" },
+        cancelled: { label: "Bekor qilingan", short: "Bekor", icon: "✕", tone: "cancelled" },
+      },
+      hint: {
+        new: "Buyurtma qabul qilindi. Admin tez orada tasdiqlaydi.",
+        accepted: "Tasdiqlandi — tovar yetkazishga tayyorlanmoqda.",
+        delivering: "Kuryer yo'lda. Telefonni yoningizda tuting.",
+        delivered: "Yetkazildi. Xaridingiz uchun rahmat!",
+        cancelled: "Bu buyurtma bekor qilingan.",
+      },
+      empty: {
+        icon: "📦",
+        title: "Buyurtma yo'q",
+        desc: "Do'kondan tovar tanlab, birinchi buyurtmangizni bering.",
+        btnText: "🛍 Do'konga o'tish",
+      },
+    },
+
+    biled: {
+      icon: "🔥",
+      title: "Bi-LED buyurtmalarim",
+      sub: "Linza o'rnatish buyurtmalari",
+      track: ["new", "accepted", "in_work", "done"],
+      run: ["accepted", "in_work"],
+      alias: { delivered: "done", delivering: "in_work", in_progress: "in_work" },
+      st: {
+        new: { label: "Yangi", short: "Yangi", icon: "🆕", tone: "new" },
+        accepted: { label: "Qabul qilindi", short: "Qabul", icon: "✅", tone: "accepted" },
+        in_work: { label: "Ish jarayonida", short: "Ishda", icon: "🔧", tone: "delivering" },
+        done: { label: "Topshirildi", short: "Topshirildi", icon: "✨", tone: "delivered" },
+        cancelled: { label: "Bekor qilingan", short: "Bekor", icon: "✕", tone: "cancelled" },
+      },
+      hint: {
+        new: "So'rovingiz qabul qilindi. Usta narxni aniqlab, bog'lanadi.",
+        accepted: "Tasdiqlandi — o'rnatish kuni belgilanadi.",
+        in_work: "Mashinangiz ustaxonada, ish ketmoqda.",
+        done: "Ish topshirildi. Kafolat 1 yil!",
+        cancelled: "Bu buyurtma bekor qilingan.",
+      },
+      empty: {
+        icon: "🔥",
+        title: "Bi-LED buyurtma yo'q",
+        desc: "Konfiguratorda mashinangizga linza tanlab, narxini bilib olasiz.",
+        btnText: "🔧 Konfiguratorni ochish",
+      },
+    },
+
+    booking: {
+      icon: "🗓",
+      title: "Navbatlarim",
+      sub: "Ustaga band qilgan vaqtlaringiz",
+      track: ["new", "confirmed", "done"],
+      run: ["confirmed"],
+      alias: { accepted: "confirmed", delivered: "done", delivering: "confirmed" },
+      st: {
+        new: { label: "Kutilmoqda", short: "Kutilmoqda", icon: "⏳", tone: "new" },
+        confirmed: { label: "Tasdiqlangan", short: "Tasdiq", icon: "✅", tone: "accepted" },
+        done: { label: "Bajarilgan", short: "Bajarildi", icon: "✔️", tone: "delivered" },
+        cancelled: { label: "Bekor qilingan", short: "Bekor", icon: "✕", tone: "cancelled" },
+      },
+      hint: {
+        new: "Navbat so'rovi yuborildi. Usta vaqtni tasdiqlaydi.",
+        confirmed: "Vaqt siz uchun band qilindi. Kechikmang!",
+        done: "Navbat o'tdi. Xizmatimizdan foydalanganingiz uchun rahmat!",
+        cancelled: "Bu navbat bekor qilingan.",
+      },
+      empty: {
+        icon: "🗓",
+        title: "Navbat yo'q",
+        desc: "Ustaga bo'sh vaqtni tanlab, 3 qadamda navbat olasiz.",
+        btnText: "🗓 Navbat olish",
+      },
+    },
+  };
+
+  /** Har bo'lim uchun holat nomini YAGONA ko'rinishga keltiradi.
+   *  Notanish qiymat kelsa — «new» (yo'qotib qo'ymaslik uchun). */
+  function myNorm(kind, value) {
+    const cfg = MY_KINDS[kind] || MY_KINDS.order;
+    let s = String(value == null ? "new" : value)
+      .toLowerCase()
+      .trim();
+    if (cfg.alias[s]) s = cfg.alias[s];
+    return cfg.st[s] ? s : "new";
+  }
+
+  const myStatus = (kind, value) => (MY_KINDS[kind] || MY_KINDS.order).st[myNorm(kind, value)];
+
+  /** Holat «pill» belgisi — mavjud `.ord-pill.is-*` ranglarida.
+   *
+   *  DIQQAT: serverning `status_label` maydoni ATAYLAB ishlatilmaydi. U
+   *  «🚚 Yetkazildi» ko'rinishida emoji bilan keladi va bizning belgimiz
+   *  bilan qo'shilib IKKI emoji chiqarardi; bundan tashqari server eski
+   *  nomlarni (`done`, `shipped`) xom qaytarishi mumkin. Matn ham, belgi
+   *  ham YUQORIDAGI yagona lug'atdan olinadi. */
+  function myPill(kind, value) {
+    const st = myStatus(kind, value);
+    return `<span class="ord-pill is-${st.tone}">${st.icon} ${esc(st.label)}</span>`;
+  }
+
+  /* Eski nomlar — kod bo'ylab boshqa joylarda ishlatilishi mumkin.
+     Mahsulot buyurtmasi lug'atiga yo'naltiriladi. */
+  const normStatus = (v) => myNorm("order", v);
+  const statusPill = (v) => myPill("order", v);
+
+  /* ------------------------------------------------------- kabinet: yig'ish */
+
+  /** Butun son "count-up" animatsiyasi (statistika plitkalari).
+   *  `format` berilsa — har kadrda shu funksiya orqali chiziladi
+   *  (masalan pul summasi bo'sh joy bilan ajratilib ko'rsatiladi). */
+  function animateNum(id, end, format) {
     const obj = $(id);
     if (!obj) return;
     end = Number(end) || 0;
+    const draw = format || String;
     let startTime = null;
     const duration = 800;
     function step(ts) {
       if (!startTime) startTime = ts;
       const p = Math.min((ts - startTime) / duration, 1);
-      obj.textContent = Math.floor(p * end);
+      // easeOutCubic — oxirida sekinlashadi, ko'zga yoqimli
+      const e = 1 - Math.pow(1 - p, 3);
+      obj.textContent = draw(Math.floor(e * end));
       if (p < 1) requestAnimationFrame(step);
-      else obj.textContent = end;
+      else obj.textContent = draw(end);
     }
     requestAnimationFrame(step);
   }
+
+  /* Eski nom — «saqlanganlar» sanog'i bir necha joydan shu nom bilan
+     chaqiriladi. Ikki xil count-up bo'lmasin: bittasi ikkinchisiga
+     yo'naltiriladi. */
+  const animateStat = (id, end) => animateNum(id, end);
 
   async function loadProfile() {
     if (S.me) {
@@ -3433,59 +3647,83 @@
       renderPhoneWarn();
     }
     // "Saqlangan" endi alohida bo'lim — bu yerda faqat sonini ko'rsatamiz
-    animateStat("pf-stat-saved", S.favorites ? S.favorites.size : 0);
+    animateNum("pf-stat-saved", S.favorites ? S.favorites.size : 0);
+    renderAddrHint();
 
-    // Zaxira rejim: buyurtma/navbat tarixi FAQAT serverda turadi, uni
-    // bulutdagi katalogdan tiklab bo'lmaydi. Bo'sh ro'yxat ko'rsatish
-    // "buyurtmalarim yo'qolgan" degan taassurot beradi — shuning uchun
-    // aniq sabab yoziladi.
-    if (S.offline) {
-      // Do'kon buyurtmalari Worker'dan keladi (Firebase'da saqlangan).
-      // Bi-LED va navbat esa faqat serverda — ular uchun izoh ko'rsatiladi.
-      renderBiledOrders([]);
-      renderBookings([]);
-      // Firebase'dan o'qiymiz — ilova qayta ochilganda ham yo'qolmaydi.
-      // Ilgari faqat XOTIRADAGI `S.offlineOrders` ishlatilardi, ya'ni
-      // ilovani yopib qaytsa mijoz buyurtmalarini ko'rmasdi.
-      const mine = await myPendingOrders();
-      renderOrders(mine.length ? mine : offlineOrdersForView());
-      setOfflineNote(true);
-      return;
-    }
-    // To'liq rejimda izoh YASHIRILISHI shart. Ilgari faqat `remove("hidden")`
-    // bor edi — server tiklangandan keyin ham «Server uyg'onmoqda» yozuvi
-    // kabinetda qolib ketardi.
+    // Ilgari bu yerda «Server uyg'onmoqda» izohi bor edi va to'liq rejimga
+    // qaytilganda ham kabinetda qolib ketardi. Endi har ochilishda yopiladi.
     setOfflineNote(false);
 
-    try {
-      /* BUYURTMALAR IKKI JOYDAN YIG'ILADI.
-
-         `/api/orders`  -> SQLite (Render). Bot bularni biladi.
-         `pending_orders` -> Worker qabul qilganlari. Bot ularni SQLite'ga
-                             faqat ishga tushganda ko'chiradi (2 daqiqada bir
-                             marta tekshiruv), ya'ni yangi buyurtma
-                             `/api/orders` da DARHOL ko'rinmaydi.
-
-         Ilgari profil faqat birinchisini o'qirdi. Natijada mijoz buyurtma
-         beradi, «qabul qilindi» xabarini ko'radi — keyin kabinetda uni
-         TOPMAYDI. Endi ikkisi birlashtiriladi va takrorlanmaydi. */
-      const [biled, bookings, orders, pending] = await Promise.all([
-        api("/api/biled-orders"),
-        api("/api/bookings"),
-        api("/api/orders"),
-        myPendingOrders(),
-      ]);
-      const shop = mergeOrders(orders, pending);
-      renderBiledOrders(biled);
-      renderBookings(bookings);
-      renderOrders(shop);
-      // statistika: buyurtma (do'kon + bi-led), navbat
-      animateStat("pf-stat-orders", shop.length + (biled.length || 0));
-      animateStat("pf-stat-bookings", bookings.length || 0);
-    } catch (err) {
-      onError(err);
-    }
+    // Keshdan DARHOL chizamiz (bo'sh bo'lsa «Yuklanmoqda…»), keyin
+    // yangilaymiz — plitkalar bo'sh bo'lib turmaydi.
+    renderProfileHub();
+    await refreshMyOrders({ silent: true });
   }
+
+  /** Uchala ro'yxatni BIR martada yig'adi va `S.my` da keshlaydi.
+   *
+   *  Ilgari har bir chizish uchun uchta so'rov yuborilardi va bittasi
+   *  yiqilsa (`Promise.all`) UCHALASI ham bo'sh qolardi — mijoz «hammasi
+   *  yo'qolgan» deb o'ylardi. Endi har manba alohida himoyalangan:
+   *  bittasi ishlamasa, qolganlari ko'rinadi. Xato esa HAMMASI bo'sh
+   *  qolgandagina aytiladi. */
+  async function refreshMyOrders(opts) {
+    const o = opts || {};
+    if (S.myLoading) return;
+    S.myLoading = true;
+    let firstErr = null;
+
+    const grab = async (path) => {
+      try {
+        const r = await api(path);
+        return Array.isArray(r) ? r : [];
+      } catch (err) {
+        firstErr = firstErr || err;
+        return [];
+      }
+    };
+
+    try {
+      if (S.offline) {
+        /* Zaxira rejim: do'kon buyurtmalari Firebase'dagi `pending_orders`
+           dan o'qiladi (ilova yopilib qayta ochilsa ham yo'qolmaydi).
+           Bi-LED va navbat tarixi FAQAT serverda turadi — ular bo'sh
+           qoladi va oynada buning sababi yoziladi. */
+        const mine = await myPendingOrders();
+        S.my = {
+          order: mine.length ? mine : offlineOrdersForView(),
+          biled: [],
+          booking: [],
+        };
+      } else {
+        const [biled, bookings, orders, pending] = await Promise.all([
+          grab("/api/biled-orders"),
+          grab("/api/bookings"),
+          grab("/api/orders"),
+          myPendingOrders(),
+        ]);
+        S.my = {
+          order: mergeOrders(orders, pending),
+          biled: byNewest(biled),
+          booking: byNewest(bookings),
+        };
+      }
+      S.myAt = Date.now();
+    } catch (err) {
+      firstErr = firstErr || err;
+    } finally {
+      S.myLoading = false;
+    }
+
+    const total =
+      (S.my.order || []).length + (S.my.biled || []).length + (S.my.booking || []).length;
+    if (firstErr && !total && !o.silent) onError(firstErr);
+
+    renderProfileHub();
+    if (S.page === "orders") renderMyOrdersPage();
+  }
+
+  const byNewest = (list) => (list || []).slice().sort((a, b) => orderTime(b) - orderTime(a));
 
   /** Firebase `pending_orders` dan MENING buyurtmalarim (Worker qabul
    *  qilganlari). O'qish yiqilsa — jimgina bo'sh ro'yxat. */
@@ -3523,66 +3761,12 @@
     return Number.isFinite(t) ? t : 0;
   }
 
-  function renderBiledOrders(list) {
-    const box = $("my-biled");
-    box.innerHTML = "";
-    $("biled-empty").classList.toggle("hidden", list.length > 0);
-    list.forEach((o) => {
-      box.append(
-        el(
-          "div",
-          "card",
-          `<div class="row">
-             <b>#${o.id} · ${esc(o.car_name)}</b>
-             <span class="status ${esc(o.status)}">${esc(o.status_label)}</span>
-           </div>
-           <div class="item-sub">${esc(o.summary)}</div>
-           <div class="row"><span>Jami</span><b>${esc(o.total_label)}</b></div>`
-        )
-      );
-    });
-  }
-
-  function renderBookings(list) {
-    const box = $("my-bookings");
-    box.innerHTML = "";
-    $("bookings-empty").classList.toggle("hidden", list.length > 0);
-    list.forEach((b) => {
-      const card = el(
-        "div",
-        "card",
-        `<div class="row">
-           <b>#${b.id} · ${esc(b.service_name)}</b>
-           <span class="status ${esc(b.status)}">${esc(b.status_label)}</span>
-         </div>
-         <div class="item-sub">📅 ${esc(b.date_label)} · 🕐 <b>${esc(b.time)}</b></div>`
-      );
-      if (b.can_cancel) {
-        const btn = el("button", "btn btn-danger btn-sm", "Bekor qilish");
-        btn.style.marginTop = "10px";
-        btn.onclick = async () => {
-          if (!(await ask(`#${b.id} navbatni bekor qilasizmi?`))) return;
-          try {
-            await api(`/api/bookings/${b.id}/cancel`, { method: "POST" });
-            toast("Navbat bekor qilindi");
-            loadProfile();
-          } catch (err) {
-            onError(err);
-          }
-        };
-        card.append(btn);
-      }
-      box.append(card);
-    });
-  }
-
-  /** Worker'dan kelgan buyurtmalarni `renderOrders` kutgan shaklga keltiradi.
-      Worker'da raqamli `id` yo'q (SQLite bermaydi) — o'rniga `ZM-XXXXXX` kod
-      ishlatiladi va bot buyurtmani bazaga ko'chirganda raqam beriladi. */
+  /** Worker'dan kelgan buyurtmalarni umumiy shaklga keltiradi.
+      Worker'da raqamli `id` yo'q (SQLite bermaydi) — o'rniga `ZM-XXXXXX`
+      kod ishlatiladi va bot buyurtmani bazaga ko'chirganda raqam beriladi. */
   function offlineOrdersForView() {
-    // Holat yozuvi `renderOrders` ichida yagona lug'atdan olinadi —
-    // shuning uchun bu yerda `status_label` yasamaymiz (ilgari bu yerda
-    // uchinchi xil lug'at bor edi: `shipped`, `done`).
+    // Holat yozuvi yagona lug'atdan olinadi — bu yerda `status_label`
+    // yasamaymiz (ilgari bu yerda uchinchi xil lug'at bor edi).
     return (S.offlineOrders || []).map((o) => ({
       id: o.code || "—",
       code: o.code || "",
@@ -3595,86 +3779,902 @@
     }));
   }
 
-  /* ==================================================================
-     BUYURTMA HOLATI — YAGONA LUG'AT
+  /* ------------------------------------------------- kabinet: hub plitkalari */
 
-     Ilgari bir xil narsa uch xil nomlanardi:
-        SQLite/Render : new  accepted  delivered  cancelled
-        Worker/panel  : new  accepted  delivering  done  cancelled
-        mijoz profili : new  accepted  shipped     done  cancelled
-     Ya'ni «yetkazildi» uchun `delivered` va `done` — ikki so'z. Panelda
-     qo'yilgan holat SQLite uchun notanish bo'lib qolardi.
-     Endi yagona beshta nom; eskilari shu yerda o'giriladi.
-     ================================================================== */
-  const ORDER_STATUS = {
-    new: { label: "Yangi", icon: "🆕" },
-    accepted: { label: "Qabul qilindi", icon: "✅" },
-    delivering: { label: "Yo'lda", icon: "🚚" },
-    delivered: { label: "Yetkazildi", icon: "🎉" },
-    cancelled: { label: "Bekor qilingan", icon: "✕" },
-  };
-
-  function normStatus(value) {
-    const s = String(value || "new").toLowerCase();
-    if (s === "done" || s === "delivered") return "delivered";
-    if (s === "shipped" || s === "delivering") return "delivering";
-    if (ORDER_STATUS[s]) return s;
-    return "new";
+  /** «Qachon» — inson tilida: bugun / kecha / N kun oldin / 12-mar.
+   *  Navbat uchun esa buyurtma vaqti emas, TAYINLANGAN vaqt muhim. */
+  function moWhen(kind, o) {
+    if (kind === "booking" && o.date_label) {
+      return o.date_label + (o.time ? " · " + o.time : "");
+    }
+    const t = orderTime(o);
+    if (!t) return o.date_label || "";
+    const d = new Date(t);
+    const now = new Date();
+    const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((startOf(now) - startOf(d)) / 86400000);
+    const hhmm =
+      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    if (days === 0) return "bugun " + hhmm;
+    if (days === 1) return "kecha " + hhmm;
+    if (days > 1 && days < 7) return days + " kun oldin";
+    const MON = [
+      "yan",
+      "fev",
+      "mar",
+      "apr",
+      "may",
+      "iyn",
+      "iyl",
+      "avg",
+      "sen",
+      "okt",
+      "noy",
+      "dek",
+    ];
+    return (
+      d.getDate() +
+      "-" +
+      MON[d.getMonth()] +
+      (d.getFullYear() !== now.getFullYear() ? " " + d.getFullYear() : "")
+    );
   }
 
-  /** Holat «pill» belgisi — iOS uslubida (bo'yalgan fon + qisqa matn).
-   *
-   *  DIQQAT: serverdan kelgan `status_label` ATAYLAB ishlatilmaydi. U
-   *  «🚚 Yetkazildi» ko'rinishida emoji bilan keladi va pastdagi belgi
-   *  bilan qo'shilib IKKI emoji chiqarardi. Bundan tashqari server eski
-   *  nomlarni (`done`) xom qaytarishi mumkin. Shu sababli matn ham,
-   *  belgi ham SHU YERDAGI yagona lug'atdan olinadi. */
-  function statusPill(value) {
-    const key = normStatus(value);
-    const meta = ORDER_STATUS[key];
-    return `<span class="ord-pill is-${key}">${meta.icon} ${esc(meta.label)}</span>`;
+  /** Buyurtma summasi (son). Server ba'zan faqat `total_label` beradi
+   *  («1 200 000 so'm») — undan raqamlarni ajratib olamiz. */
+  function moMoney(o) {
+    const n = Number(o && o.total);
+    if (Number.isFinite(n) && n > 0) return n;
+    const digits = String((o && o.total_label) || "").replace(/[^\d]/g, "");
+    return digits ? Number(digits) : 0;
   }
 
-  /* ==================================================================
-     MENING BUYURTMALARIM (kabinet)
+  /** Kabinetdagi uch plitka: soni, oxirgi holat va yangilar belgisi. */
+  function renderProfileHub() {
+    ["order", "biled", "booking"].forEach((kind) => {
+      const cfg = MY_KINDS[kind];
+      const list = S.my[kind] || [];
+      const cntEl = $("mo-cnt-" + kind);
+      const sumEl = $("mo-sum-" + kind);
+      const badge = $("mo-new-" + kind);
+      if (!cntEl || !sumEl || !badge) return;
 
-     Dizayn soddalashtirildi: bitta kartochkada faqat kerakli narsa —
-     tepada kod va holat, o'rtada tovarlar, pastda jami. Ortiqcha emoji
-     va uzun manzil satrlari olib tashlandi (ular kartochkani buzardi).
-     ================================================================== */
-  function renderOrders(list) {
-    const box = $("my-orders");
-    box.innerHTML = "";
-    $("orders-empty").classList.toggle("hidden", list.length > 0);
+      cntEl.textContent = String(list.length);
 
-    list.forEach((o) => {
-      const code = o.code || (o.id != null ? "#" + o.id : "—");
-      const goods = (o.items || [])
-        .map(
-          (i) =>
-            `<div class="ord-good"><span>${esc(i.name)}</span><i>×${Number(i.qty) || 1}</i></div>`
-        )
-        .join("");
+      // «Yangi» — hali admin ko'rib chiqmagan yozuvlar. Qizil belgi
+      // mijozga «bu hali kutilmoqda» degan tushunarli signal beradi.
+      const fresh = list.filter((o) => myNorm(kind, o.status) === "new").length;
+      badge.textContent = String(fresh);
+      badge.classList.toggle("hidden", fresh === 0);
 
-      const meta = [];
-      if (o.delivery_info) meta.push(`<div class="ord-meta-row">🚚 ${esc(o.delivery_info)}</div>`);
-      if (o.payment_method) meta.push(`<div class="ord-meta-row">💳 ${esc(o.payment_method)}</div>`);
-
-      const card = el(
-        "div",
-        "ord",
-        `<div class="ord-top">
-           <span class="ord-code">${esc(code)}</span>
-           ${statusPill(o.status)}
-         </div>
-         ${goods ? `<div class="ord-goods">${goods}</div>` : ""}
-         ${meta.length ? `<div class="ord-meta">${meta.join("")}</div>` : ""}
-         <div class="ord-foot">
-           <span>Jami</span><b>${esc(o.total_label || fmt(o.total || 0))}</b>
-         </div>`
-      );
-      box.append(card);
+      if (!list.length) {
+        sumEl.textContent = S.myLoading
+          ? "Yuklanmoqda…"
+          : S.offline && kind !== "order"
+            ? "Server uyg'onganda ko'rinadi"
+            : "Hozircha bo'sh";
+        return;
+      }
+      const last = list[0];
+      const st = myStatus(kind, last.status);
+      sumEl.innerHTML =
+        `<span class="mo-dot is-${st.tone}"></span> ${esc(st.label)}` +
+        (moWhen(kind, last) ? ` · ${esc(moWhen(kind, last))}` : "");
     });
+
+    // Statistika: buyurtma (do'kon + bi-led) va navbat
+    animateNum("pf-stat-orders", (S.my.order || []).length + (S.my.biled || []).length);
+    animateNum("pf-stat-bookings", (S.my.booking || []).length);
+  }
+
+  /** Bo'limni ALOHIDA oynada ochadi. Ro'yxat keshdan darhol chiziladi,
+   *  kesh eskirgan bo'lsa fonda jimgina yangilanadi. */
+  function openMyOrders(kind) {
+    if (!MY_KINDS[kind]) kind = "order";
+    haptic("light");
+    S.moKind = kind;
+    S.moFilter = "all";
+    S.moQ = "";
+    S.moOpen = null;
+    show("orders");
+    if (!S.myAt || Date.now() - S.myAt > 30000) refreshMyOrders({ silent: true });
+  }
+
+  /* ------------------------------------------------- buyurtmalar oynasi */
+
+  /** Filtr shartlari — HOLAT NOMI bo'yicha (admin panelidagi mantiq).
+   *  «Yakunlangan» — zanjirning oxirgi bosqichi. */
+  function moFilters(kind) {
+    const cfg = MY_KINDS[kind];
+    const last = cfg.track[cfg.track.length - 1];
+    return {
+      all: () => true,
+      new: (s) => s === "new",
+      run: (s) => cfg.run.indexOf(s) !== -1,
+      done: (s) => s === last,
+      cancelled: (s) => s === "cancelled",
+    };
+  }
+
+  const MO_CHIPS = [
+    ["all", "Hammasi"],
+    ["new", "🆕 Yangi"],
+    ["run", "⏳ Jarayonda"],
+    ["done", "✅ Yakunlangan"],
+    ["cancelled", "✕ Bekor"],
+  ];
+
+  /** Qidiruv: kod, raqam, tovar nomi, mashina, xizmat va manzil bo'yicha. */
+  function moMatch(kind, o, q) {
+    if (!q) return true;
+    const hay = [
+      o.code,
+      o.id != null ? "#" + o.id : "",
+      o.car_name,
+      o.service_name,
+      o.address,
+      o.delivery_info,
+      o.summary,
+      o.payment_method,
+      (o.items || []).map((i) => i.name).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.indexOf(q) !== -1;
+  }
+
+  /** Kartochka kaliti (akkordeon holatini eslab qolish uchun). */
+  const moKey = (kind, o, i) => kind + "|" + (o.code || (o.id != null ? o.id : "i" + i));
+
+  function renderMyOrdersPage() {
+    const kind = MY_KINDS[S.moKind] ? S.moKind : "order";
+    S.moKind = kind;
+    const cfg = MY_KINDS[kind];
+    const list = S.my[kind] || [];
+
+    $("mo-title").textContent = cfg.icon + " " + cfg.title;
+    $("mo-sub").textContent = list.length ? list.length + " ta yozuv" : cfg.sub;
+
+    // Qidiruv maydonini holatga moslaymiz (fokusni buzmasdan)
+    const q = $("mo-q");
+    if (q && q.value !== S.moQ) q.value = S.moQ;
+    $("mo-q-clear").classList.toggle("hidden", !S.moQ);
+    // Qidiruv va filtr bo'sh ro'yxatda ma'nosiz — yashiramiz
+    const hasAny = list.length > 0;
+    $("mo-search").classList.toggle("hidden", !hasAny);
+    $("mo-stats").classList.toggle("hidden", !hasAny);
+
+    renderMoStats(kind, list);
+    renderMoFilters(kind, list);
+    renderMoList(kind, list);
+  }
+
+  /** Tepadagi xulosa — mavjud `.ord-summary`/`.ord-stat` uslubida. */
+  function renderMoStats(kind, list) {
+    const box = $("mo-stats");
+    if (!box) return;
+    if (!list.length) {
+      box.innerHTML = "";
+      return;
+    }
+    const f = moFilters(kind);
+    const st = (o) => myNorm(kind, o.status);
+    const running = list.filter((o) => f.run(st(o))).length;
+    const doneN = list.filter((o) => f.done(st(o))).length;
+    const spent = list.reduce((s, o) => (st(o) === "cancelled" ? s : s + moMoney(o)), 0);
+
+    // Navbatda pul yo'q — uning o'rniga «bajarilgan» ko'rsatiladi
+    const third =
+      kind === "booking"
+        ? { id: "mo-st-3", val: doneN, label: "Bajarilgan", cls: "" }
+        : { id: "mo-st-3", val: spent, label: "Sarflangan", cls: "is-money", money: true };
+
+    box.innerHTML =
+      `<div class="ord-summary">
+         <div class="ord-stat"><b id="mo-st-1">0</b><span>Jami</span></div>
+         <div class="ord-stat is-run"><b id="mo-st-2">0</b><span>Jarayonda</span></div>
+         <div class="ord-stat ${third.cls}"><b id="${third.id}">0</b><span>${esc(third.label)}</span></div>
+       </div>`;
+
+    animateNum("mo-st-1", list.length);
+    animateNum("mo-st-2", running);
+    animateNum(
+      third.id,
+      third.val,
+      third.money ? (v) => (Number(v) || 0).toLocaleString("ru-RU").replace(/,/g, " ") : null
+    );
+  }
+
+  /** Filtr chiplari — sanoq bilan. Bo'sh filtr chizilmaydi (mijoz bosib
+   *  bo'sh ekran ko'rmasin), «Hammasi» esa har doim turadi. */
+  function renderMoFilters(kind, list) {
+    const box = $("mo-filters");
+    if (!box) return;
+    const f = moFilters(kind);
+    const stats = list.map((o) => myNorm(kind, o.status));
+
+    const counts = {};
+    MO_CHIPS.forEach(([key]) => {
+      counts[key] = stats.filter((s) => f[key](s)).length;
+    });
+    // Tanlangan filtr bo'shab qolgan bo'lsa — hammasiga qaytamiz
+    if (S.moFilter !== "all" && !counts[S.moFilter]) S.moFilter = "all";
+
+    const shown = MO_CHIPS.filter(([key]) => key === "all" || counts[key] > 0);
+    // Faqat «Hammasi» qolsa filtrning ma'nosi yo'q
+    box.classList.toggle("hidden", shown.length < 2 || !list.length);
+    box.innerHTML = shown
+      .map(
+        ([key, label]) =>
+          `<button class="ord-fchip${S.moFilter === key ? " selected" : ""}" data-mof="${key}">` +
+          `${esc(label)}<i>${counts[key]}</i></button>`
+      )
+      .join("");
+  }
+
+  /** Holat zanjiri (timeline). Chiziq chapdan o'ngga chizilib boradi,
+   *  o'tilgan bosqichlarda ✓, joriy bosqichda belgisi «nafas oladi».
+   *  Bekor qilingan buyurtmada zanjirning ma'nosi yo'q — ko'rsatilmaydi. */
+  function moTrack(kind, status) {
+    const cfg = MY_KINDS[kind];
+    const key = myNorm(kind, status);
+    if (key === "cancelled") return "";
+    const steps = cfg.track;
+    const at = steps.indexOf(key);
+    if (at < 0) return "";
+    const pct = steps.length > 1 ? (at / (steps.length - 1)) * 100 : 100;
+
+    const cells = steps
+      .map((s, i) => {
+        const meta = cfg.st[s];
+        const cls = i < at ? "is-done" : i === at ? "is-now" : "";
+        const mark = i < at ? "✓" : i === at ? meta.icon : "";
+        return (
+          `<span class="mo-tr-step ${cls}" style="--d:${i * 90}ms">` +
+          `<b>${mark}</b><small>${esc(meta.short)}</small></span>`
+        );
+      })
+      .join("");
+
+    return (
+      `<div class="mo-track">` +
+      `<div class="mo-tr-line"><i style="width:${pct}%"></i></div>` +
+      `<div class="mo-tr-steps">${cells}</div></div>`
+    );
+  }
+
+  /** Buyurtmadagi xarita havolasi. Ilgari `mapLink` alohida maydon
+   *  bo'lib yuborilmagan — u `delivery_info` matni ichida ketadi,
+   *  shuning uchun ikkalasini ham tekshiramiz. */
+  function moMapLink(o) {
+    if (o.mapLink) return o.mapLink;
+    if (o.map_link) return o.map_link;
+    const m = String(o.delivery_info || o.address || "").match(/https?:\/\/[^\s]+/);
+    return m ? m[0] : "";
+  }
+
+  /** Manzil matni — xarita havolasi olib tashlangan holda (u alohida
+   *  tugma bo'lib chiqadi, uzun URL kartochkani buzmasin). */
+  const moClean = (s) =>
+    String(s || "")
+      .replace(/https?:\/\/[^\s]+/g, "")
+      .replace(/🗺/g, "")
+      .replace(/\s*\n\s*/g, " · ")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^[\s·]+|[\s·]+$/g, "");
+
+  function renderMoList(kind, list) {
+    const box = $("mo-list");
+    if (!box) return;
+    const cfg = MY_KINDS[kind];
+
+    // Yuklanmoqda va kesh bo'sh — skelet (bo'sh ekran «yo'q» degan
+    // yolg'on taassurot bermasin)
+    if (!list.length && S.myLoading) {
+      box.innerHTML = Array.from({ length: 3 })
+        .map((_, i) => `<div class="mo-skel" style="--d:${i * 110}ms"></div>`)
+        .join("");
+      return;
+    }
+
+    // Zaxira rejimda Bi-LED va navbat tarixi FAQAT serverda turadi —
+    // buni aytmasak, mijoz «buyurtmalarim yo'qolgan» deb o'ylaydi.
+    if (!list.length && S.offline && kind !== "order") {
+      box.innerHTML = emptyStatePro({
+        icon: "🌙",
+        title: "Hozir ko'rsatib bo'lmaydi",
+        desc: "Bu bo'lim tarixi serverda saqlanadi. Server uyg'onganda ro'yxat o'zi paydo bo'ladi.",
+      });
+      return;
+    }
+
+    if (!list.length) {
+      box.innerHTML = emptyStatePro(cfg.empty);
+      const btn = box.querySelector(".es-btn");
+      if (btn) btn.onclick = () => moEmptyGo(kind);
+      return;
+    }
+
+    const f = moFilters(kind);
+    const q = S.moQ.trim().toLowerCase();
+    const rows = list.filter(
+      (o) => f[S.moFilter](myNorm(kind, o.status)) && moMatch(kind, o, q)
+    );
+
+    if (!rows.length) {
+      box.innerHTML = emptyStatePro({
+        icon: q ? "🔍" : "🗂",
+        title: q ? "Topilmadi" : "Bu filtrda yozuv yo'q",
+        desc: q
+          ? `«${q}» bo'yicha hech narsa chiqmadi. Kodni yoki tovar nomini tekshirib ko'ring.`
+          : "Boshqa filtrni tanlang.",
+      });
+      return;
+    }
+
+    box.innerHTML = rows
+      .map((o, i) => moCard(kind, o, list.indexOf(o), Math.min(i, 8)))
+      .join("");
+    // Ochiq kartochka qayta chizishdan keyin ham ochiq qolishi kerak —
+    // balandlik CSS dan emas, shu yerdan beriladi.
+    moApplyOpen(false);
+  }
+
+  function moEmptyGo(kind) {
+    haptic("light");
+    if (kind === "order") {
+      show("home");
+      if (!S.home) loadHome();
+      return;
+    }
+    if (kind === "biled") return openFlow();
+    return openBookingSheet();
+  }
+
+  /** Bitta kartochka. Tepa qismi har doim ko'rinadi, tafsilot esa bosilganda
+   *  ochiladi (akkordeon) — ro'yxat qisqa va tez skroll bo'ladi. */
+  function moCard(kind, o, idx, stagger) {
+    const cfg = MY_KINDS[kind];
+    const key = myNorm(kind, o.status);
+    const st = cfg.st[key];
+    const ck = moKey(kind, o, idx);
+    const open = S.moOpen === ck;
+    const code = o.code || (o.id != null ? "#" + o.id : "—");
+    const when = moWhen(kind, o);
+    const money = moMoney(o);
+    const mapLink = moMapLink(o);
+
+    /* --- kindga xos asosiy satr --- */
+    let head = "";
+    if (kind === "order") {
+      const n = (o.items || []).reduce((s, i) => s + (Number(i.qty) || 1), 0);
+      const names = (o.items || [])
+        .map((i) => i.name)
+        .filter(Boolean)
+        .join(", ");
+      head = `<div class="mo-lead">${esc(names || "Tovarlar")}</div>
+              <div class="mo-sub2">${n} dona${when ? " · " + esc(when) : ""}</div>`;
+    } else if (kind === "biled") {
+      head = `<div class="mo-lead">🚗 ${esc(o.car_name || "Mashina")}</div>
+              <div class="mo-sub2">${esc(moClean(o.summary) || "Bi-LED o'rnatish")}</div>`;
+    } else {
+      head = `<div class="mo-lead">🔧 ${esc(o.service_name || "Xizmat")}</div>
+              <div class="mo-sub2">📅 ${esc(o.date_label || "-")}${o.time ? " · 🕐 " + esc(o.time) : ""}</div>`;
+    }
+
+    /* --- tafsilot (akkordeon ichida) --- */
+    const goods = (o.items || [])
+      .map((i) => {
+        const qty = Number(i.qty) || 1;
+        const price = Number(i.price) || 0;
+        return (
+          `<div class="ord-good"><span>${esc(i.name || "Tovar")}</span>` +
+          `<i>×${qty}</i>${price ? `<b>${esc(fmt(price * qty))}</b>` : ""}</div>`
+        );
+      })
+      .join("");
+
+    const meta = [];
+    const addr = moClean(o.address);
+    const dinfo = moClean(o.delivery_info);
+    /* Manzil IKKI joyda bo'lishi mumkin: alohida `address` maydonida va
+       `delivery_info` matnining ichida («Kuryer (manzilga): Uy · 📍 …»).
+       Ikkalasini ham chizsak, mijoz bir xil manzilni ketma-ket ikki marta
+       o'qiydi. Shuning uchun takrorlanish tekshiriladi. */
+    if (addr && !(dinfo && dinfo.indexOf(addr) !== -1)) {
+      meta.push(`<div class="ord-meta-row">📍 ${esc(addr)}</div>`);
+    }
+    if (dinfo && dinfo !== addr) meta.push(`<div class="ord-meta-row">🚚 ${esc(dinfo)}</div>`);
+    if (o.payment_method) meta.push(`<div class="ord-meta-row">💳 ${esc(o.payment_method)}</div>`);
+    if (kind === "biled" && o.summary)
+      meta.push(`<div class="ord-meta-row">🔧 ${esc(moClean(o.summary))}</div>`);
+    if (o.created_at || o.createdAt)
+      meta.push(`<div class="ord-meta-row">🕒 Berilgan: ${esc(moWhen("order", o))}</div>`);
+
+    /* --- amal tugmalari --- */
+    const acts = [];
+    if (kind === "order" && (o.items || []).length && key !== "cancelled")
+      acts.push(`<button class="ord-act is-go" data-moact="reorder" data-mokey="${esc(ck)}">🔁 Qayta buyurtma</button>`);
+    if (mapLink)
+      acts.push(`<button class="ord-act" data-moact="map" data-mokey="${esc(ck)}">🗺 Xaritada</button>`);
+    acts.push(`<button class="ord-act" data-moact="copy" data-mokey="${esc(ck)}">📋 Kod</button>`);
+    if (kind === "booking" && o.can_cancel)
+      acts.push(`<button class="ord-act is-danger" data-moact="cancel" data-mokey="${esc(ck)}">✕ Bekor qilish</button>`);
+    acts.push(`<button class="ord-act" data-moact="help" data-mokey="${esc(ck)}">💬 Yordam</button>`);
+
+    return (
+      `<div class="ord mo-card is-${st.tone}${open ? " is-open" : ""}" data-key="${esc(ck)}" style="--d:${stagger * 60}ms">
+         <div class="ord-top">
+           <span class="ord-code">${esc(code)}</span>
+           ${myPill(kind, o.status)}
+         </div>
+         <div class="mo-body">
+           <div class="mo-head">${head}</div>
+           <span class="mo-exp">›</span>
+         </div>
+         ${moTrack(kind, o.status)}
+         ${money ? `<div class="ord-foot"><span>Jami</span><b>${esc(o.total_label || fmt(money))}</b></div>` : ""}
+         <div class="mo-more"><div class="mo-more-in">
+           <div class="mo-hint is-${st.tone}">${st.icon} ${esc(cfg.hint[key] || "")}</div>
+           ${goods ? `<div class="ord-goods">${goods}</div>` : ""}
+           ${meta.length ? `<div class="ord-meta">${meta.join("")}</div>` : ""}
+           <div class="ord-acts mo-acts">${acts.join("")}</div>
+         </div></div>
+       </div>`
+    );
+  }
+
+  /** Akkordeon: bitta kartochka ochiladi, qolganlari yopiladi.
+   *  Ro'yxat QAYTA CHIZILMAYDI — faqat klass va balandlik almashadi,
+   *  shuning uchun ochilish silliq va skroll joyida qoladi. */
+  function moToggle(ck) {
+    S.moOpen = S.moOpen === ck ? null : ck;
+    haptic("light");
+    moApplyOpen(true);
+  }
+
+  /** Ochilgan kartochkaning tafsilot balandligini o'rnatadi.
+   *
+   *  Balandlik ATAYLAB JS dan beriladi: tafsilot balandligi tovarlar
+   *  soniga qarab har xil, CSS da esa `max-height` uchun aniq son kerak.
+   *  `scrollHeight` — kontentning haqiqiy balandligi (element yopiq
+   *  turganda ham to'g'ri o'lchanadi).
+   *
+   *  `animate=false` — ro'yxat qayta chizilgandan keyin: ochiq kartochka
+   *  darhol ochiq holatda paydo bo'ladi, «sakrash» bo'lmaydi. */
+  function moApplyOpen(animate) {
+    const box = $("mo-list");
+    if (!box) return;
+    box.querySelectorAll(".mo-card").forEach((c) => {
+      const open = !!S.moOpen && c.dataset.key === S.moOpen;
+      const more = c.querySelector(".mo-more");
+      c.classList.toggle("is-open", open);
+      if (!more) return;
+      clearTimeout(more._moT);
+
+      if (!open) {
+        /* `none` dan to'g'ridan `0` ga o'tish animatsiya bermaydi —
+           brauzer `none` ni interpolatsiya qila olmaydi. Shuning uchun
+           avval aniq balandlik qo'yiladi, keyin nolga tushiriladi. */
+        if (more.style.maxHeight === "none") {
+          more.style.transition = "none";
+          more.style.maxHeight = more.scrollHeight + "px";
+          void more.offsetHeight;
+          more.style.transition = "";
+        }
+        if (!animate) {
+          more.style.transition = "none";
+          more.style.maxHeight = "0px";
+          void more.offsetHeight;
+          requestAnimationFrame(() => {
+            more.style.transition = "";
+          });
+        } else {
+          more.style.maxHeight = "0px";
+        }
+        return;
+      }
+
+      /* OCHISH. Animatsiya uchun aniq balandlik kerak, LEKIN u yakuniy
+         holat bo'lib QOLMASLIGI kerak: o'lchov xato bo'lsa yoki kontent
+         keyin qayta oqsa (uzun manzil boshqacha o'ralsa, ekran burilsa,
+         shrift kechikib yuklansa) tafsilot QIRQILIB qolardi.
+         Shuning uchun o'tish tugagach cheklov butunlay olib tashlanadi. */
+      const h = more.scrollHeight;
+      if (!animate) {
+        more.style.transition = "none";
+        more.style.maxHeight = "none";
+        void more.offsetHeight;
+        requestAnimationFrame(() => {
+          more.style.transition = "";
+        });
+        return;
+      }
+      more.style.maxHeight = (h || 1600) + "px";
+      more._moT = setTimeout(() => {
+        // Shu orada yopilgan bo'lsa — tegmaymiz.
+        if (c.classList.contains("is-open")) more.style.maxHeight = "none";
+      }, 400);
+    });
+  }
+
+  /** Kalit bo'yicha yozuvni topadi (amal tugmalari uchun). */
+  function moFind(ck) {
+    const kind = S.moKind;
+    const list = S.my[kind] || [];
+    for (let i = 0; i < list.length; i++) {
+      if (moKey(kind, list[i], i) === ck) return list[i];
+    }
+    return null;
+  }
+
+  async function moAction(act, ck) {
+    const kind = S.moKind;
+    const o = moFind(ck);
+    if (!o) return toast("Yozuv topilmadi — ro'yxatni yangilang");
+
+    if (act === "copy") {
+      const code = o.code || (o.id != null ? "#" + o.id : "");
+      if (!code) return toast("Bu yozuvda kod yo'q");
+      return copyText(code, "📋 Kod nusxalandi: " + code);
+    }
+    if (act === "map") {
+      const url = moMapLink(o);
+      if (!url) return toast("Xarita havolasi yo'q");
+      haptic("light");
+      return openExternal(url);
+    }
+    if (act === "help") {
+      const code = o.code || (o.id != null ? "#" + o.id : "");
+      return openContactSheet(code ? `Buyurtma: ${code}` : "");
+    }
+    if (act === "reorder") return reorderFromOrder(o);
+    if (act === "cancel") return cancelBooking(o);
+  }
+
+  /** Navbatni bekor qilish (server tasdiqlaydi). */
+  async function cancelBooking(b) {
+    if (!b || b.id == null) return toast("Navbat raqami topilmadi");
+    if (!(await ask(`#${b.id} navbatni bekor qilasizmi?`))) return;
+    try {
+      await api(`/api/bookings/${b.id}/cancel`, { method: "POST" });
+      haptic("ok");
+      toast("Navbat bekor qilindi");
+      await refreshMyOrders({ silent: true });
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  /** «Qayta buyurtma» — eski buyurtmadagi tovarlarni savatga qaytaradi.
+   *
+   *  Ehtiyotkorlik: tovar o'chirilgan, narxi o'zgargan yoki omborda
+   *  qoldiq kamaygan bo'lishi mumkin. Shuning uchun tovar KATALOGDAN
+   *  qayta topiladi (eski narx ishlatilmaydi) va qoldiqqa sig'gani
+   *  qo'shiladi. Nima bo'lganini mijoz bir qatorda ko'radi. */
+  async function reorderFromOrder(o) {
+    const items = o.items || [];
+    if (!items.length) return toast("Bu buyurtmada tovar ko'rsatilmagan");
+
+    if (!S.shopProducts || !S.shopProducts.length) {
+      toast("Katalog yuklanmoqda…");
+      try {
+        await loadHome();
+      } catch (_) {}
+    }
+    const all = S.shopProducts || [];
+    if (!all.length) {
+      haptic("err");
+      return toast("Katalog hozir yuklanmadi. Keyinroq urinib ko'ring.");
+    }
+
+    let added = 0;
+    let missing = 0;
+    let limited = 0;
+
+    items.forEach((it) => {
+      const pid = it.product_id != null ? it.product_id : it.id;
+      const nm = String(it.name || "")
+        .trim()
+        .toLowerCase();
+      const p =
+        (pid != null && all.find((x) => String(x.id) === String(pid))) ||
+        (nm && all.find((x) => String(x.name || "").trim().toLowerCase() === nm));
+      if (!p) {
+        missing++;
+        return;
+      }
+      const want = Math.max(1, Number(it.qty) || 1);
+      const found = S.cart.find((c) => c.id === p.id);
+      const have = found ? found.qty : 0;
+      const room = Math.max(0, (Number(p.stock) || 0) - have);
+      if (room <= 0) {
+        limited++;
+        return;
+      }
+      const take = Math.min(want, room);
+      if (take < want) limited++;
+      if (found) found.qty = have + take;
+      else
+        S.cart.push({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          qty: take,
+          stock: p.stock,
+          photo_url: p.photo_url || null,
+        });
+      added += take;
+    });
+
+    if (!added) {
+      haptic("err");
+      return toast(
+        missing ? "Bu tovarlar endi katalogda yo'q" : "Omborda qoldiq tugagan",
+        3600
+      );
+    }
+
+    saveCart();
+    haptic("ok");
+    const notes = [];
+    if (missing) notes.push(missing + " ta topilmadi");
+    if (limited) notes.push("qoldiq cheklandi");
+    toast(
+      `🧺 ${added} dona savatga qo'shildi` + (notes.length ? " (" + notes.join(", ") + ")" : ""),
+      3600
+    );
+  }
+
+  /** Ro'yxatni qo'lda yangilash (↻ tugmasi va pastga tortish). */
+  async function moRefresh() {
+    const btn = $("mo-refresh");
+    if (btn) btn.classList.add("is-spin");
+    await refreshMyOrders({ silent: false });
+    if (btn) btn.classList.remove("is-spin");
+    toast("↻ Yangilandi", 1500);
+  }
+
+  /* ------------------------------------------------------- kichik yordamchi */
+
+  /** Matnni almashish buferiga nusxalash.
+   *  Telegram WebView'da `navigator.clipboard` HAR DOIM ishlamaydi
+   *  (ruxsat yoki eski versiya) — shuning uchun zaxira yo'l ham bor. */
+  function copyText(text, okMsg) {
+    const done = () => {
+      haptic("ok");
+      toast(okMsg || "📋 Nusxalandi");
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
+        return;
+      }
+    } catch (_) {}
+    legacyCopy(text, done);
+  }
+
+  function legacyCopy(text, done) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-1000px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, String(text).length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) return done();
+    } catch (_) {}
+    // Nusxalab bo'lmasa — hech bo'lmasa ko'rsatamiz, mijoz qo'lda oladi
+    toast(String(text), 5000);
+  }
+
+  /** Tashqi havolani ochish (xarita). Telegram'da `openLink` ishlatiladi. */
+  function openExternal(url) {
+    try {
+      if (tg && tg.openLink) return tg.openLink(url);
+    } catch (_) {}
+    try {
+      window.open(url, "_blank");
+    } catch (_) {
+      location.href = url;
+    }
+  }
+
+  /* ==================================================================
+     MANZILLARIM
+
+     Saqlash joyi rasmiylashtirish oynasi bilan YAGONA:
+     `localStorage["zimmer_addresses"]`. Yozuv shakli (barcha qo'shimcha
+     maydonlar majburiy emas — eski yozuvlar ham ishlaydi):
+
+        { type, label, address, mapLink, lat, lng, note, def, at }
+
+     `def` — «asosiy» manzil. Buyurtma berayotganda o'zi tanlanadi, ya'ni
+     mijoz har safar ro'yxatni bosib o'tirmaydi.
+     ================================================================== */
+
+  const ADDR_ICONS = { home: "🏠", work: "💼", shop: "🏪", map: "📍" };
+  const addrIcon = (a) => ADDR_ICONS[(a && a.type) || "map"] || "📍";
+
+  /** Kabinet menyusidagi «Manzillarim» yonidagi soni. */
+  function renderAddrHint() {
+    const h = $("pf-addr-hint");
+    if (!h) return;
+    const n = getAddresses().length;
+    h.textContent = n ? String(n) : "";
+  }
+
+  function renderAddressPage() {
+    const box = $("ad-list");
+    if (!box) return;
+    const arr = getAddresses();
+    $("ad-sub").textContent = arr.length
+      ? arr.length + " ta manzil saqlangan"
+      : "Hali manzil yo'q";
+    $("ad-tip").classList.toggle("hidden", arr.length < 2);
+
+    if (!arr.length) {
+      box.innerHTML = emptyStatePro({
+        icon: "🗺",
+        title: "Manzil yo'q",
+        desc: "Uy yoki ish manzilingizni bir marta belgilab qo'ysangiz, keyingi buyurtmalar bir necha bosishda tayyor bo'ladi.",
+      });
+      return;
+    }
+
+    box.innerHTML = arr
+      .map(
+        (a, i) =>
+          `<div class="ad-item${a.def ? " is-def" : ""}" style="--d:${Math.min(i, 8) * 60}ms">
+             <div class="ad-row">
+               <span class="ad-ic">${addrIcon(a)}</span>
+               <div class="ad-tx">
+                 <div class="ad-name">${esc(a.label || "Manzil")}${
+                   a.def ? '<span class="ad-def">⭐ Asosiy</span>' : ""
+                 }</div>
+                 <div class="ad-addr">${esc(a.address || "")}</div>
+                 ${a.note ? `<div class="ad-note">🚪 ${esc(a.note)}</div>` : ""}
+               </div>
+             </div>
+             <div class="ad-acts">
+               ${
+                 a.def
+                   ? '<span class="ad-act is-on">⭐ Asosiy</span>'
+                   : `<button class="ad-act" data-adact="def" data-adi="${i}">⭐ Asosiy qilish</button>`
+               }
+               <button class="ad-act" data-adact="edit" data-adi="${i}">✏️</button>
+               ${
+                 a.mapLink
+                   ? `<button class="ad-act" data-adact="map" data-adi="${i}">🗺</button>`
+                   : ""
+               }
+               <button class="ad-act" data-adact="copy" data-adi="${i}">📋</button>
+               <button class="ad-act is-danger" data-adact="del" data-adi="${i}">🗑</button>
+             </div>
+           </div>`
+      )
+      .join("");
+  }
+
+  async function addrAction(act, i) {
+    const arr = getAddresses();
+    const a = arr[i];
+    if (!a) {
+      renderAddressPage();
+      return toast("Manzil topilmadi");
+    }
+
+    if (act === "def") {
+      arr.forEach((x, k) => {
+        if (x) x.def = k === i;
+      });
+      saveAddresses(arr);
+      haptic("ok");
+      toast("⭐ Asosiy manzil: " + (a.label || "manzil"));
+      // Rasmiylashtirish oynasidagi tanlov eskirmasin
+      S._dlvSelectedAddr = null;
+      renderAddressPage();
+      return;
+    }
+
+    if (act === "map") {
+      if (!a.mapLink) return toast("Bu manzil xaritadan belgilanmagan");
+      haptic("light");
+      return openExternal(a.mapLink);
+    }
+
+    if (act === "copy") {
+      const text = [a.label, a.address, a.note].filter(Boolean).join(" — ");
+      return copyText(text, "📋 Manzil nusxalandi");
+    }
+
+    if (act === "edit") return openAddrEdit(i);
+
+    if (act === "del") {
+      if (!(await ask(`"${a.label || a.address}" manzilini o'chirasizmi?`))) return;
+      const wasDef = !!a.def;
+      arr.splice(i, 1);
+      // Asosiy manzil o'chirilsa — birinchisi asosiy bo'ladi, aks holda
+      // «asosiy» tushunchasi yo'qolib, checkout hech narsa tanlamaydi.
+      if (wasDef && arr.length) arr[0].def = true;
+      saveAddresses(arr);
+      // Indekslar siljidi — checkout tanlovini tozalaymiz (aks holda
+      // boshqa manzilga buyurtma ketishi mumkin edi).
+      S._dlvSelectedAddr = null;
+      haptic("success");
+      toast("Manzil o'chirildi");
+      renderAddressPage();
+      renderAddrHint();
+      return;
+    }
+  }
+
+  /** Nom, tur va izohni tahrirlash (koordinata o'zgarmaydi). */
+  function openAddrEdit(i) {
+    const arr = getAddresses();
+    const a = arr[i];
+    if (!a) return;
+    haptic("light");
+    openSheet(
+      "✏️ Manzilni tahrirlash",
+      `<label class="field"><span>🏷 Nom</span>
+         <input type="text" id="ae-name" maxlength="40" value="${esc(a.label || "")}"
+           placeholder="Uy, Ish, Onamniki…"></label>
+       <div class="addr-name-chips" id="ae-chips">
+         <button class="addr-chip${a.type === "home" ? " sel" : ""}" data-label="Uy" data-type="home">🏠 Uy</button>
+         <button class="addr-chip${a.type === "work" ? " sel" : ""}" data-label="Ish" data-type="work">💼 Ish</button>
+         <button class="addr-chip${a.type === "shop" ? " sel" : ""}" data-label="Do'kon" data-type="shop">🏪 Do'kon</button>
+         <button class="addr-chip${!a.type || a.type === "map" ? " sel" : ""}" data-label="Boshqa" data-type="map">📍 Boshqa</button>
+       </div>
+       <label class="field"><span>🚪 Uy / xonadon / mo'ljal</span>
+         <input type="text" id="ae-note" maxlength="80" value="${esc(a.note || "")}"
+           placeholder="12-uy, 3-podyezd, 45-xonadon"></label>
+       <div class="ae-addr">📍 ${esc(a.address || "")}</div>
+       <button class="btn btn-primary" id="ae-save">Saqlash</button>`
+    );
+
+    let type = a.type || "map";
+    const chips = document.querySelectorAll("#ae-chips .addr-chip");
+    chips.forEach((chip) => {
+      chip.onclick = () => {
+        chips.forEach((c) => c.classList.remove("sel"));
+        chip.classList.add("sel");
+        type = chip.dataset.type;
+        // Nom bo'sh bo'lsa chipning nomi qo'yiladi — bir bosishda tayyor
+        const nameIn = $("ae-name");
+        if (nameIn && !nameIn.value.trim()) nameIn.value = chip.dataset.label;
+        haptic("selection");
+      };
+    });
+
+    $("ae-save").onclick = () => {
+      const name = ($("ae-name").value || "").trim();
+      if (!name) {
+        toast("Manzilga nom kiriting");
+        $("ae-name").focus();
+        return;
+      }
+      const list = getAddresses();
+      if (!list[i]) {
+        closeSheet();
+        renderAddressPage();
+        return toast("Manzil topilmadi");
+      }
+      list[i].label = name;
+      list[i].type = type;
+      list[i].note = ($("ae-note").value || "").trim();
+      saveAddresses(list);
+      haptic("ok");
+      toast("✅ Saqlandi");
+      closeSheet();
+      renderAddressPage();
+    };
   }
 
   /* -------------------------------------------------- profil: kesh / aloqa */
@@ -3695,12 +4695,22 @@
     });
   }
 
-  function openContactSheet() {
+  /** Aloqa paneli. `about` berilsa (masalan «Buyurtma: ZM-123456») —
+   *  mijoz adminga nima haqida yozayotganini darhol ko'radi va kodni
+   *  bir bosishda nusxalaydi. Buyurtma kartochkasidagi «💬 Yordam»
+   *  tugmasi shu yo'l bilan ishlaydi. */
+  function openContactSheet(about) {
     haptic();
     const admin = (S.pay && S.pay.admin) || "";
     openSheet(
       "📞 Biz bilan aloqa",
-      `<p class="step-sub">Savol yoki takliflar bo'lsa bemalol yozing — tez javob beramiz.</p>
+      `${
+        about
+          ? `<div class="mo-about">${esc(about)}
+               <button class="mo-about-copy" id="contact-copy">📋 Nusxalash</button></div>`
+          : ""
+      }
+       <p class="step-sub">Savol yoki takliflar bo'lsa bemalol yozing — tez javob beramiz.</p>
        ${
          admin
            ? `<button class="btn btn-primary" id="contact-tg">✈️ Telegram: @${esc(admin)}</button>`
@@ -3718,6 +4728,12 @@
           tg.openTelegramLink("https://t.me/" + admin);
         } catch (_) {}
       };
+    const cp = $("contact-copy");
+    if (cp) {
+      // Faqat kodni nusxalaymiz («Buyurtma: » qismi keraksiz)
+      const code = String(about || "").replace(/^[^:]*:\s*/, "");
+      cp.onclick = () => copyText(code || String(about || ""), "📋 Nusxalandi: " + code);
+    }
   }
 
   function openTrustSheet() {
@@ -4356,9 +5372,168 @@
 
   // Profil hub tugmalari
   $("pf-edit").onclick = () => openPhoneSheet(() => loadProfile());
-  $("pf-contact").onclick = openContactSheet;
+  $("pf-contact").onclick = () => openContactSheet();
   $("pf-trust").onclick = openTrustSheet;
   $("pf-clear-cache").onclick = clearAppCache;
+
+  /* ---------------------------------------- BUYURTMALARIM (uch oyna) */
+  // Kabinetdagi uch plitka — har biri o'z oynasini ochadi
+  $("mo-open-order").onclick = () => openMyOrders("order");
+  $("mo-open-biled").onclick = () => openMyOrders("biled");
+  $("mo-open-booking").onclick = () => openMyOrders("booking");
+
+  $("mo-back").onclick = () => {
+    haptic();
+    show("profile");
+  };
+  $("mo-refresh").onclick = () => {
+    haptic("light");
+    moRefresh();
+  };
+
+  /* Qidiruv: har harfda qayta chizish o'rniga 180 ms kutamiz — uzun
+     ro'yxatda yozish sekinlashmasin. */
+  (function bindMoSearch() {
+    const box = $("mo-q");
+    if (!box) return;
+    let t = 0;
+    box.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        S.moQ = box.value || "";
+        $("mo-q-clear").classList.toggle("hidden", !S.moQ);
+        renderMoFilters(S.moKind, S.my[S.moKind] || []);
+        renderMoList(S.moKind, S.my[S.moKind] || []);
+      }, 180);
+    };
+    // Klaviaturadagi «izlash» tugmasi — klaviaturani yopadi
+    box.onkeydown = (e) => {
+      if (e.key === "Enter") box.blur();
+    };
+  })();
+
+  $("mo-q-clear").onclick = () => {
+    S.moQ = "";
+    $("mo-q").value = "";
+    haptic("light");
+    renderMyOrdersPage();
+  };
+
+  /* Filtr chiplari va kartochkalar HAR chizishda qaytadan yasaladi —
+     shuning uchun har biriga alohida `onclick` bog'lash xato bo'lardi
+     (yangi element eski bog'lamani olmaydi). Hodisa ota elementda
+     tutiladi: bir marta bog'lanadi va abadiy ishlaydi. */
+  $("mo-filters").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-mof]");
+    if (!chip) return;
+    S.moFilter = chip.dataset.mof;
+    S.moOpen = null;
+    haptic("selection");
+    renderMoFilters(S.moKind, S.my[S.moKind] || []);
+    renderMoList(S.moKind, S.my[S.moKind] || []);
+  });
+
+  $("mo-list").addEventListener("click", (e) => {
+    const act = e.target.closest("[data-moact]");
+    if (act) {
+      // Amal tugmasi bosilganda kartochka ochilib-yopilmasligi kerak
+      e.stopPropagation();
+      moAction(act.dataset.moact, act.dataset.mokey);
+      return;
+    }
+    const card = e.target.closest(".mo-card[data-key]");
+    if (card) moToggle(card.dataset.key);
+  });
+
+  /* Pastga tortib yangilash (pull-to-refresh) — telefonda eng tabiiy
+     harakat. Faqat sahifa tepasida turganda ishlaydi, aks holda oddiy
+     skrollga xalaqit berardi. */
+  (function moPullToRefresh() {
+    const page = $("orders");
+    const ptr = $("mo-ptr");
+    if (!page || !ptr) return;
+    const TH = 66; // shu masofadan keyin qo'yib yuborsa — yangilanadi
+    let startY = 0;
+    let dist = 0;
+    let pulling = false;
+
+    page.addEventListener(
+      "touchstart",
+      (e) => {
+        if (page.classList.contains("hidden")) return;
+        if (e.touches.length !== 1) return;
+        if (window.scrollY > 4) return;
+        startY = e.touches[0].clientY;
+        dist = 0;
+        pulling = true;
+      },
+      { passive: true }
+    );
+
+    page.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!pulling) return;
+        // Skroll boshlansa — tortishni tashlab yuboramiz
+        if (window.scrollY > 4) {
+          pulling = false;
+          ptr.classList.remove("show", "ready");
+          ptr.style.transform = "";
+          return;
+        }
+        dist = e.touches[0].clientY - startY;
+        if (dist <= 0) {
+          ptr.classList.remove("show", "ready");
+          ptr.style.transform = "";
+          return;
+        }
+        // Qarshilik bilan: 0.45 koeffitsient «rezina» hissini beradi
+        ptr.classList.add("show");
+        ptr.style.transform = "translate3d(0," + Math.min(dist * 0.45, 84) + "px,0)";
+        const ready = dist > TH;
+        ptr.classList.toggle("ready", ready);
+        $("mo-ptr-tx").textContent = ready
+          ? "Qo'yib yuboring — yangilanadi"
+          : "Yangilash uchun tortib turing";
+      },
+      { passive: true }
+    );
+
+    const release = () => {
+      if (!pulling) return;
+      pulling = false;
+      const fire = dist > TH;
+      dist = 0;
+      ptr.style.transition = "transform .26s var(--silk)";
+      ptr.style.transform = "";
+      setTimeout(() => {
+        ptr.style.transition = "";
+        ptr.classList.remove("show", "ready");
+      }, 280);
+      if (fire) {
+        haptic("medium");
+        moRefresh();
+      }
+    };
+    page.addEventListener("touchend", release, { passive: true });
+    page.addEventListener("touchcancel", release, { passive: true });
+  })();
+
+  /* ------------------------------------------------- MANZILLARIM */
+  $("pf-addresses").onclick = () => {
+    haptic("light");
+    show("addresses");
+  };
+  $("ad-back").onclick = () => {
+    haptic();
+    show("profile");
+  };
+  $("ad-add").onclick = () => openMapPicker("addresses");
+  $("ad-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-adact]");
+    if (!btn) return;
+    addrAction(btn.dataset.adact, parseInt(btn.dataset.adi, 10));
+  });
 
   $("sheet-close").onclick = closeSheet;
   $("sheet-backdrop").onclick = closeSheet;
@@ -4640,10 +5815,17 @@
     box.innerHTML = addrs.map((a, i) =>
       `<div class="dlv-addr-item ${S._dlvSelectedAddr === i ? "selected" : ""}" data-idx="${i}">
         <div class="dlv-addr-radio"></div>
-        <span style="font-size:17px;">${a.type === "home" ? "🏠" : a.type === "work" ? "🏢" : "📍"}</span>
+        <span style="font-size:17px;">${addrIcon(a)}</span>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:700;">${esc(a.label || "Manzil")}</div>
+          <div style="font-size:13px;font-weight:700;">${esc(a.label || "Manzil")}${
+            a.def ? ' <span class="ad-def">⭐</span>' : ""
+          }</div>
           <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.address)}</div>
+          ${
+            a.note
+              ? `<div style="font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🚪 ${esc(a.note)}</div>`
+              : ""
+          }
         </div>
         <button class="dlv-addr-del" data-delidx="${i}" aria-label="O'chirish">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -4671,12 +5853,15 @@
         if (!arr[idx]) return;
         const ok = await ask(`"${arr[idx].label || arr[idx].address}" manzilini o'chirasizmi?`);
         if (!ok) return;
+        const wasDef = !!arr[idx].def;
         arr.splice(idx, 1);
+        if (wasDef && arr.length) arr[0].def = true;
         saveAddresses(arr);
         if (S._dlvSelectedAddr === idx) {
           S._dlvSelectedAddr = arr.length > 0 ? Math.min(idx, arr.length - 1) : null;
         } else if (S._dlvSelectedAddr !== null && S._dlvSelectedAddr > idx) S._dlvSelectedAddr--;
         renderCourierAddresses();
+        renderAddrHint();
         toast("Manzil o'chirildi");
         haptic("success");
       });
@@ -4705,11 +5890,22 @@
   let _mapObj = null;
   let _mapMarker = null;
   let _pickedCoords = null;
+  /* Xarita IKKI joydan ochiladi: rasmiylashtirish oynasidan («checkout»)
+     va kabinetdagi «Manzillarim» dan («addresses»). Saqlagandan keyin
+     qaysi ro'yxatni qayta chizish kerakligi shu bilan aniqlanadi —
+     ilgari xarita faqat checkout'ni bilardi. */
+  let _mapCtx = "checkout";
+  /* Xaritadan topilgan haqiqiy manzil matni (reverse geocoding). */
+  let _pickedAddrText = "";
+  /* Tanlangan tur — «🏠 Uy» / «💼 Ish» chipiga qarab (belgi uchun). */
+  let _pickedType = "map";
 
-  async function openMapPicker() {
+  async function openMapPicker(ctx) {
+    _mapCtx = ctx === "addresses" ? "addresses" : "checkout";
     const ov = $("map-picker-overlay");
     ov.classList.remove("hidden");
     _pickedCoords = null;
+    _pickedAddrText = "";
     haptic("medium");
 
     try { await ensureLeaflet(); } catch {
@@ -4753,10 +5949,29 @@
     haptic();
   }
 
+  /** Haqiqiy son yoki `null`.
+   *
+   *  DIQQAT: oddiy `Number(v)` bu yerda YARAMAYDI — `Number(null)` va
+   *  `Number("")` NOLGA aylanadi, ya'ni «koordinata yo'q» holati
+   *  «(0, 0) nuqtasi» bo'lib o'tib ketardi va keyin `lat.toFixed()`
+   *  butun oynani yiqitardi. Shuning uchun bo'sh qiymatlar alohida
+   *  rad etiladi. */
+  const finiteNum = (v) => {
+    if (v === null || v === undefined || v === "" || typeof v === "boolean") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const validCoords = (c) => !!c && finiteNum(c.lat) !== null && finiteNum(c.lng) !== null;
+
   function placeMarker(lat, lng) {
-    _pickedCoords = { lat, lng };
-    if (_mapMarker) _mapMarker.setLatLng([lat, lng]);
-    else if (window.L) _mapMarker = L.marker([lat, lng]).addTo(_mapObj);
+    const la = finiteNum(lat);
+    const ln = finiteNum(lng);
+    // Xarita hodisasi yoki qurilma geolokatsiyasi buzuq qiymat bersa —
+    // markerni qo'ymaymiz, aks holda keyingi qadam yiqiladi.
+    if (la === null || ln === null) return;
+    _pickedCoords = { lat: la, lng: ln };
+    if (_mapMarker) _mapMarker.setLatLng([la, ln]);
+    else if (window.L) _mapMarker = L.marker([la, ln]).addTo(_mapObj);
   }
 
   function locateMe() {
@@ -4790,23 +6005,105 @@
   }
 
   function confirmMapLocation() {
-    if (!_pickedCoords) return toast("Xaritada nuqtani belgilang");
+    if (!validCoords(_pickedCoords)) return toast("Xaritada nuqtani belgilang");
     openAddrNameModal();
+  }
+
+  /** Koordinatadan HAQIQIY manzil matni (ko'cha, uy, tuman, shahar).
+   *
+   *  NEGA KERAK: ilgari manzil sifatida faqat «📍 41.31111, 69.27970»
+   *  saqlanardi. Kuryer bunday yozuvdan hech narsa tushunmaydi va
+   *  mijozga qo'ng'iroq qilishga majbur bo'ladi. Endi OpenStreetMap
+   *  (Nominatim, kalitsiz va bepul) orqali ko'cha nomi topiladi.
+   *
+   *  Xizmat yiqilsa yoki sekin bo'lsa — hech narsa buzilmaydi:
+   *  koordinata matni zaxira bo'lib qoladi (shu sababli `try/catch` va
+   *  6 soniyalik chek). */
+  async function reverseGeocode(lat, lng) {
+    try {
+      const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = setTimeout(() => {
+        try {
+          if (ctl) ctl.abort();
+        } catch (_) {}
+      }, 6000);
+      const url =
+        "https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1" +
+        "&accept-language=uz&lat=" +
+        encodeURIComponent(lat) +
+        "&lon=" +
+        encodeURIComponent(lng);
+      const res = await fetch(url, {
+        signal: ctl ? ctl.signal : undefined,
+        headers: { Accept: "application/json" },
+      });
+      clearTimeout(timer);
+      if (!res.ok) return "";
+      const d = await res.json();
+      const a = d.address || {};
+      const street = a.road || a.pedestrian || a.residential || a.neighbourhood || "";
+      const parts = [
+        street + (a.house_number ? " " + a.house_number : ""),
+        a.suburb || a.city_district || a.district || "",
+        a.city || a.town || a.village || a.county || "",
+      ]
+        .map((s) => String(s).trim())
+        .filter(Boolean);
+      // Takrorlanishni olib tashlaymiz («Chilonzor, Chilonzor» bo'lmasin)
+      const uniq = parts.filter((s, i) => parts.indexOf(s) === i);
+      if (uniq.length) return uniq.join(", ");
+      return String(d.display_name || "").split(",").slice(0, 4).join(",").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /** Topilgan manzilni oynada ko'rsatadi (kutish belgisi bilan). */
+  async function resolvePickedAddress() {
+    const found = $("addr-name-found");
+    if (!found || !validCoords(_pickedCoords)) return;
+    const want = _pickedCoords;
+    _pickedAddrText = "";
+    found.classList.remove("hidden");
+    found.innerHTML = '<span class="addr-found-wait">🔎 Manzil aniqlanmoqda…</span>';
+
+    const txt = await reverseGeocode(want.lat, want.lng);
+    // Mijoz shu orada boshqa nuqtani tanlagan bo'lishi mumkin — eski
+    // javobni yozib qo'ymaymiz.
+    if (_pickedCoords !== want) return;
+    if (txt) {
+      _pickedAddrText = txt;
+      found.innerHTML = "📌 " + esc(txt);
+    } else {
+      found.innerHTML = '<span class="addr-found-wait">Ko\'cha nomi topilmadi — koordinata saqlanadi</span>';
+    }
   }
 
   // Manzilga nom berish modali
   function openAddrNameModal() {
     const ov = $("addr-name-overlay");
+    if (!validCoords(_pickedCoords)) return toast("Xaritada nuqtani belgilang");
     const coords = $("addr-name-coords");
-    if (coords && _pickedCoords) {
+    if (coords) {
       coords.textContent = "📍 " + _pickedCoords.lat.toFixed(5) + ", " + _pickedCoords.lng.toFixed(5);
     }
     $("addr-name-input").value = "";
+    const noteIn = $("addr-note-input");
+    if (noteIn) noteIn.value = "";
+    const found = $("addr-name-found");
+    if (found) {
+      found.classList.add("hidden");
+      found.innerHTML = "";
+    }
     ov.querySelectorAll(".addr-chip").forEach((c) => c.classList.remove("sel"));
+    _pickedType = "map";
 
     ov.classList.remove("hidden");
     requestAnimationFrame(() => ov.classList.add("show"));
     setTimeout(() => $("addr-name-input").focus(), 320);
+
+    // Ko'cha nomini fonda topamiz — mijoz nom yozayotgan paytda tayyor bo'ladi
+    resolvePickedAddress();
 
     // Chip tanlash
     ov.querySelectorAll(".addr-chip").forEach((chip) => {
@@ -4814,6 +6111,7 @@
         ov.querySelectorAll(".addr-chip").forEach((c) => c.classList.remove("sel"));
         chip.classList.add("sel");
         $("addr-name-input").value = chip.dataset.label;
+        _pickedType = chip.dataset.type || "map";
         haptic("selection");
       };
     });
@@ -4832,24 +6130,45 @@
   }
 
   function saveMapAddressWithName() {
-    if (!_pickedCoords) return toast("Xaritada nuqtani belgilang");
+    if (!validCoords(_pickedCoords)) return toast("Xaritada nuqtani belgilang");
     const name = ($("addr-name-input").value || "").trim();
     if (!name) { toast("Manzilga nom kiriting"); $("addr-name-input").focus(); return; }
 
     const lat = _pickedCoords.lat, lng = _pickedCoords.lng;
     const mapLink = "https://www.google.com/maps?q=" + lat.toFixed(6) + "," + lng.toFixed(6);
-    const addrText = "📍 " + lat.toFixed(5) + ", " + lng.toFixed(5);
+    // Ko'cha nomi topilgan bo'lsa — u ishlatiladi (kuryer uchun tushunarli),
+    // topilmasa koordinata zaxira bo'lib qoladi.
+    const addrText = _pickedAddrText || "📍 " + lat.toFixed(5) + ", " + lng.toFixed(5);
+    const noteIn = $("addr-note-input");
+    const note = noteIn ? (noteIn.value || "").trim() : "";
 
     const arr = getAddresses();
-    arr.push({ type: "map", label: name, address: addrText, mapLink: mapLink });
+    arr.push({
+      type: _pickedType || "map",
+      label: name,
+      address: addrText,
+      mapLink: mapLink,
+      lat: lat,
+      lng: lng,
+      note: note,
+      // Birinchi manzil o'zi «asosiy» bo'ladi — mijoz alohida bosmasin
+      def: arr.length === 0,
+      at: Date.now(),
+    });
     saveAddresses(arr);
 
     toast("✅ Manzil saqlandi: " + name);
     haptic("success");
     closeAddrNameModal();
     closeMapPicker();
+    renderAddrHint();
 
-    // Yangi manzilni tanlash
+    if (_mapCtx === "addresses") {
+      // Kabinetdagi menejerdan qo'shildi — checkout tanloviga tegmaymiz
+      renderAddressPage();
+      return;
+    }
+    // Rasmiylashtirish oynasidan qo'shildi — yangi manzil darhol tanlanadi
     S._dlvSelectedAddr = arr.length - 1;
     renderCourierAddresses();
   }
