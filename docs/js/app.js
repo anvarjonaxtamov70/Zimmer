@@ -64,6 +64,10 @@
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
     coStep: 1, // rasmiylashtirish oynasidagi qadam: 1 | 2 | 3
     payMethod: null, // tanlangan to'lov usuli: "card" | "app" | "cash"
+    /* Xizmatlar ro'yxati (kesh). `servicesFallback` — server bo'sh
+       ro'yxat bergani va ichki zaxira ishlatilgani belgisi. */
+    services: null,
+    servicesFallback: false,
     pay: {}, // karta rekvizitlari (/api/config dan)
 
     /* ---- BUYURTMALARIM (uch bo'lim, uch oyna) ----
@@ -438,6 +442,8 @@
       "profile",
       "admin",
       "checkout",
+      // Xizmatlar bo'limi (pastdagi navigatsiyada «🛠 Xizmatlar»)
+      "services",
       // Kabinetning ichki oynalari: buyurtmalarim (uch bo'lim) va manzillarim.
       "orders",
       "addresses",
@@ -458,7 +464,9 @@
        Navbar yashirilsa, u faqat «‹» orqali kabinetga, keyin savatga —
        ikki bosishga majbur bo'lardi. */
     const navVisible =
-      ["home", "cart", "saved", "profile", "admin", "orders", "addresses"].includes(page) && S.me;
+      ["home", "cart", "saved", "profile", "admin", "orders", "addresses", "services"].includes(
+        page
+      ) && S.me;
     $("nav").classList.toggle("hidden", !navVisible);
     document
       .querySelectorAll(".nav-btn")
@@ -474,6 +482,7 @@
     if (page === "saved") renderSaved();
     if (page === "profile") loadProfile();
     if (page === "addresses") renderAddressPage();
+    if (page === "services") renderServicesPage(false);
     /* Bo'lim (`S.moKind`) `openMyOrders()` da o'rnatiladi va shundan keyin
        `show("orders")` chaqiriladi — chizish shu yerda, bitta joyda. */
     if (page === "orders") renderMyOrdersPage();
@@ -502,7 +511,9 @@
     if (!tg || !tg.BackButton) return;
     const need =
       (S.page === "flow" && S.step > 1) ||
-      ["cart", "saved", "profile", "checkout", "orders", "addresses"].includes(S.page);
+      ["cart", "saved", "profile", "checkout", "orders", "addresses", "services"].includes(
+        S.page
+      );
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
   }
@@ -531,6 +542,8 @@
       if (S.coStep > 1) return coGo(S.coStep - 1);
       return show("cart");
     }
+    // Xizmatlar bo'limi — bosh menyuning bir pog'onasi ostida
+    if (S.page === "services") return show("home");
     /* Kabinetning ichki oynalari har doim KABINETGA qaytadi (bosh sahifaga
        emas) — mijoz qaysi bo'limdan kelganini yo'qotmasin. Xarita va
        manzil oynalari ustma-ust turgan bo'lsa, avval ular yopiladi. */
@@ -721,6 +734,25 @@
   }
 
   /* --------------------------------------------------------------- mashina */
+
+  /** Mashinalar ro'yxatini yakuniy holatga keltiradi.
+   *
+   *  Server (yoki bulut) BO'SH ro'yxat qaytarsa — `docs/js/cars.js` dagi
+   *  ichki ro'yxat ishlatiladi (O'zbekistondagi asosiy GM/Chevrolet
+   *  modellari, Damas'dan Tahoe'gacha). Ilgari bunday holatda konfigurator
+   *  «Hozircha mashinalar qo'shilmagan» deb turib qolardi va mijoz
+   *  hech narsa qila olmasdi.
+   *
+   *  DIQQAT: ro'yxatlar QO'SHILMAYDI. Bazada mashina bo'lsa faqat u
+   *  ko'rsatiladi — aks holda admin o'chirgan model ichki ro'yxatdan
+   *  qaytib kelib turardi. */
+  function useCars(list) {
+    const arr = Array.isArray(list) ? list.filter(Boolean) : [];
+    if (arr.length) return arr;
+    const built = (window.ZimmerCars && window.ZimmerCars.list) || [];
+    return built.slice();
+  }
+
   function renderCars(target) {
     const box = target || $("cars");
     box.innerHTML = "";
@@ -754,9 +786,13 @@
     renderCars();
     if ($("sheet-cars")) closeSheet();
 
-    // Zaxira rejimda tanlov serverga yozilmaydi — lekin ekranda ishlaydi,
-    // shunda mijoz mashinasiga mos tovarlarni ko'ra oladi.
-    if (S.offline) {
+    /* Tanlov serverga yozilmaydigan ikki holat:
+         • zaxira rejim (server javob bermayapti);
+         • mashina ICHKI ro'yxatdan olingan (`_fallback`) — uning id'si
+           bazada yo'q, so'rov 404 bilan yiqilib mijozga tushunarsiz xato
+           ko'rsatardi.
+       Ikkalasida ham tanlov ekranda to'liq ishlaydi. */
+    if (S.offline || car._fallback) {
       if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
       $("car-chip-name").textContent = car.name;
     } else {
@@ -1302,13 +1338,7 @@
       renderStories();
       renderBanners();
       renderCatalog();
-      renderBookCard();
       $("car-chip-name").textContent = (S.me && S.me.car && S.me.car.name) || "Mashina tanlash";
-      $("config-cta-sub").textContent =
-        S.me && S.me.car
-          ? `${S.me.car.name} uchun linza, ochki va rangni tanlang`
-          : "Linza, ochki va rangni tanlab narxni ko'ring";
-      renderGreeting();
       refreshQuickBadges();
     } catch (err) {
       // Zaxira rejimda xato bo'lsa ilovani YIQITMAYMIZ — bo'sh katalog
@@ -2499,46 +2529,42 @@
   }
 
   /* ==================================================================
-     BOSH SAHIFA — salomlashuv va tez o'tish plitkalari
+     BOSH SAHIFA — tez o'tish plitkalari
      ================================================================== */
 
-  /** Shaxsiy salomlashuv. Ilgari salomlashuv FAQAT splash ekranida bor edi
-   *  va bosh sahifa quruq sarlavha bilan boshlanardi. */
-  function renderGreeting() {
-    const nameEl = $("hm-greet-name");
-    const subEl = $("hm-greet-sub");
-    if (!nameEl || !subEl) return;
+  /* DIQQAT: `renderGreeting()` OLIB TASHLANDI.
+     U «Xayrli tong / Xayrli kun / Xayrli kech, {ism}» degan qatorni har
+     ochilishda ekranning eng tepasida chizardi. Foydasi yo'q edi: mijoz
+     ilovani tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
+     Markup ham (`.hm-greet`) index.html dan chiqarildi. */
 
-    const full = (S.me && (S.me.first_name || S.me.full_name)) || "";
-    const first = String(full).trim().split(/\s+/)[0] || "";
-    const h = new Date().getHours();
-    const part = h < 6 ? "Xayrli tun" : h < 12 ? "Xayrli tong" : h < 18 ? "Xayrli kun" : "Xayrli kech";
-
-    nameEl.textContent = first ? part + ", " + first + " 👋" : "Assalomu alaykum 👋";
-    const car = S.me && S.me.car ? S.me.car.name : null;
-    subEl.textContent = car
-      ? car + " uchun mos tovarlarni tanladik"
-      : "Mashinangizni tanlang — mos tovarlarni ko'rsatamiz";
-  }
-
-  /** Tez o'tish plitkalari (bir bosishda: konfigurator / navbat / saqlangan / savat). */
+  /** Tez o'tish plitkalari (bir bosishda: konfigurator / navbat).
+   *
+   *  «Saqlangan» va «Savatcha» plitkalari OLIB TASHLANDI — ikkisi ham
+   *  pastdagi navigatsiyada turadi va bu yerda takrorlanardi.
+   *
+   *  «Navbat» ilgari bosh sahifadagi `#book-sec` bo'limiga SKROLL qilardi.
+   *  U bo'lim endi yo'q — barcha xizmatlar «🛠 Xizmatlar» sahifasida,
+   *  shuning uchun plitka o'sha sahifani ochadi. */
   function bindQuickActions() {
     document.querySelectorAll("#hm-quick .hm-q").forEach((b) => {
       b.onclick = () => {
         haptic();
         const go = b.dataset.go;
         if (go === "flow") return openFlow();
-        if (go === "book") {
-          const sec = $("book-sec");
-          if (sec && sec.scrollIntoView) sec.scrollIntoView({ behavior: "smooth", block: "center" });
-          return;
-        }
+        if (go === "book") return show("services");
         show(go);
       };
     });
   }
 
-  /** Plitkalardagi sanoqchilar (saqlangan va savat). */
+  /** Plitkalardagi sanoqchilar.
+   *
+   *  «Saqlangan» va «Savatcha» plitkalari olib tashlangani uchun hozir
+   *  sanaladigan narsa qolmadi. Funksiya SAQLANDI: u savat o'zgarganda
+   *  bir necha joydan chaqiriladi (`saveCart`), va elementlar yo'q bo'lsa
+   *  jimgina chiqib ketadi. Ertaga plitka qaytsa — shu yerga bitta qator
+   *  qo'shiladi, chaqiruvlarni qidirish kerak bo'lmaydi. */
   function refreshQuickBadges() {
     const set = (id, n) => {
       const b = $(id);
@@ -2619,25 +2645,12 @@
     haptic();
   }
 
-  /* --------------------------------------------------------------- navbat */
-  function renderBookCard() {
-    $("book-body").innerHTML = `
-      <div class="bk-card-top">
-        <span class="bk-card-ico">🗓</span>
-        <div class="bk-card-tx">
-          <b>Ustaga navbat olish</b>
-          <small>Bo'sh vaqtni tanlab, 3 qadamda band qilasiz</small>
-        </div>
-      </div>
-      <div class="bk-card-facts">
-        <div><i>⏱</i><b>2–3 soat</b><small>O'rnatish</small></div>
-        <div><i>🛡</i><b>1 yil</b><small>Kafolat</small></div>
-        <div><i>🔧</i><b>Usta</b><small>Tajribali</small></div>
-      </div>
-      <button class="btn btn-primary" id="book-open" style="width:100%;margin-top:12px">
-        Navbat olish →</button>`;
-    $("book-open").onclick = openBookingSheet;
-  }
+  /* DIQQAT: `renderBookCard()` OLIB TASHLANDI.
+     U bosh sahifada «Ustaga navbat olish» kartochkasini chizardi va
+     «2–3 soat / 1 yil kafolat» degan QATTIQ raqamlarni ko'rsatardi —
+     xizmatga bog'liq emas, ya'ni ko'pincha noto'g'ri. Navbat endi
+     «🛠 Xizmatlar» sahifasida, har xizmatning O'Z muddati va kafolati
+     bilan (`renderServicesPage`). */
 
   /* ------------------------------------------------------------- savatcha */
   // Bepul yetkazib berish chegarasi (so'm). Shu summadan oshsa — bepul.
@@ -4321,7 +4334,10 @@
       return;
     }
     if (kind === "biled") return openFlow();
-    return openBookingSheet();
+    // Navbat bo'sh — mijozni XIZMATLAR ro'yxatiga olib boramiz. Ilgari
+    // `openBookingSheet()` chaqirilardi, u endi yo'q: navbat har doim
+    // aniq bir xizmat kartochkasidan boshlanadi.
+    return show("services");
   }
 
   /** Bitta kartochka. Tepa qismi har doim ko'rinadi, tafsilot esa bosilganda
@@ -4969,22 +4985,319 @@
   }
 
   /* ==================================================================
-     NAVBAT OLISH — iPhone uslubida, uch qadam:
-       1) Xizmat  →  2) Kun  →  3) Vaqt  →  tasdiq
-     Har qadam orqaga qaytadi, tanlovlar esda qoladi. Vaqt band bo'lib
-     qolsa (409) — ro'yxat darhol yangilanadi va mijoz xabar oladi.
+     XIZMATLAR — ro'yxat, dizayn temalari va alohida navbat
+
+     NEGA ALOHIDA BO'LIM
+     Ilgari pastdagi navigatsiyada «Konfigurator» turardi (faqat Bi-LED
+     linza tanlash), navbat esa bosh menyudagi bitta kartochka edi. Qolgan
+     xizmatlar — polirovka, chexol tikish, shisha almashtirish, fara ichini
+     tozalash — ilovada UMUMAN ko'rinmasdi, mijoz ular borligini bilmasdi.
+
+     Endi «🛠 Xizmatlar» bo'limida hammasi bor. Har xizmatning O'Z narxi,
+     kafolati, davomiyligi va alohida navbat oqimi bor.
+
+     DIZAYN: har xizmat boshqacha ko'rinadi (`SERVICE_THEMES` → `layout`).
+     Sabab oddiy: yetti xil ishni bir xil kulrang qatorda ko'rsatsak, mijoz
+     ularni farqlamaydi va o'qimaydi ham.
+     ================================================================== */
+
+  /** Dizayn temalari. `layout` — kartochkaning TUZILISHI (bir-birini
+   *  takrorlamaydi), `accent` — rang kaliti (CSS `.sv-a-*`). */
+  const SERVICE_THEMES = {
+    config: {
+      icon: "💡",
+      layout: "hero",
+      accent: "gold",
+      tagline: "Linza, ochki va rangni tanlab narxni o'zingiz hisoblang",
+      facts: [
+        ["🔩", "Linza", "5 xil model"],
+        ["🎭", "Ochki", "Devil Eye"],
+        ["🌈", "Rang", "Optika tusi"],
+      ],
+    },
+    biled: {
+      icon: "🔧",
+      layout: "tech",
+      accent: "red",
+      tagline: "Ikki faraga professional Bi-LED linza o'rnatish",
+      steps: ["Farani ochamiz", "Linzani o'rnatamiz", "Germetiklaymiz"],
+    },
+    polish: {
+      icon: "✨",
+      layout: "shine",
+      accent: "cyan",
+      tagline: "Xiralashgan farani asl shaffofligiga qaytaramiz",
+      before: "Xira, sarg'aygan",
+      after: "Shaffof, yorqin",
+    },
+    glass: {
+      icon: "🪟",
+      layout: "split",
+      accent: "blue",
+      tagline: "Yorilgan yoki singan fara shishasini yangisiga almashtirish",
+      pair: ["Yorilgan shisha", "Yangi original shisha"],
+    },
+    clean: {
+      icon: "🧼",
+      layout: "bubble",
+      accent: "teal",
+      tagline: "Fara ichidagi chang, bug' va namlikni to'liq tozalash",
+      bullets: ["Farani ochib tozalash", "Namlikni quritish", "Qayta germetiklash"],
+    },
+    wheel: {
+      icon: "🕹",
+      layout: "stitch",
+      accent: "amber",
+      tagline: "Rul g'ilofini o'lchov bo'yicha qo'lda tikamiz",
+      threads: ["#d4a853", "#c1121f", "#2b2f38", "#e9e2d0"],
+    },
+    seat: {
+      icon: "🪑",
+      layout: "fabric",
+      accent: "violet",
+      tagline: "O'rindiqlarga to'liq chexol — o'lchov bo'yicha tikiladi",
+      materials: ["Ekoteri", "Alkantara", "Mato", "Kombinatsiya"],
+    },
+  };
+
+  /* Notanish xizmat kelsa temalar NAVBAT bilan beriladi — ikki yangi
+     xizmat qo'shilsa ham ular bir xil ko'rinmaydi. */
+  const THEME_CYCLE = ["tech", "shine", "split", "bubble", "stitch", "fabric"];
+
+  /** Xizmat nomidan tema kalitini aniqlaydi.
+   *
+   *  Birinchi navbatda serverdagi `theme` ustuni ishlatiladi (admin uni
+   *  o'zi qo'yadi). U bo'lmasa nom bo'yicha taxmin qilinadi — shu sababli
+   *  eski bazadagi xizmatlar ham to'g'ri dizayn oladi. Tekshiruv tartibi
+   *  MUHIM: «Bi-LED o'rnatish» ham «o'rnat», ham «bi-led» so'zini o'z
+   *  ichiga oladi, «Fara shishasini almashtirish» esa «shisha» ni. */
+  function themeOf(s, index) {
+    const key = String((s && s.theme) || "").toLowerCase().trim();
+    if (SERVICE_THEMES[key]) return key;
+
+    const n = String((s && s.name) || "").toLowerCase();
+    if (n.indexOf("konfigurator") !== -1) return "config";
+    if (n.indexOf("rul") !== -1) return "wheel";
+    if (n.indexOf("rindiq") !== -1 || n.indexOf("orindiq") !== -1) return "seat";
+    if (n.indexOf("shisha") !== -1) return "glass";
+    if (n.indexOf("polirov") !== -1 || n.indexOf("polish") !== -1) return "polish";
+    if (n.indexOf("tozala") !== -1 || n.indexOf("germet") !== -1) return "clean";
+    if (n.indexOf("bi-led") !== -1 || n.indexOf("biled") !== -1 || n.indexOf("bi led") !== -1) {
+      return "biled";
+    }
+    return THEME_CYCLE[(Number(index) || 0) % THEME_CYCLE.length];
+  }
+
+  /** ICHKI ZAXIRA RO'YXAT.
+   *
+   *  Faqat server (va bulut) BO'SH ro'yxat qaytarganda ishlatiladi —
+   *  masalan backend hali yangilanmagan bo'lsa. Bo'lmasa bo'lim butunlay
+   *  bo'sh turib, mijoz «xizmat yo'q» deb o'ylardi.
+   *
+   *  Narx va kafolat — BOSHLANG'ICH qiymatlar; admin panelda o'zgartirilsa
+   *  serverdan kelgan ro'yxat ustun turadi va bu yerga qaralmaydi. */
+  const SERVICES_FALLBACK = [
+    { id: null, theme: "config", name: "Bi-LED konfigurator", duration_min: 0, price: 0,
+      warranty: "1 yil", description: "Mashinangizga mos linzani tanlab, narxni o'zingiz ko'ring." },
+    { id: null, theme: "biled", name: "Bi-LED o'rnatish (2 fara)", duration_min: 120, price: 400000,
+      warranty: "1 yil", description: "Linzani o'rnatish, sozlash va germetiklash." },
+    { id: null, theme: "polish", name: "Fara polirovkasi", duration_min: 60, price: 150000,
+      warranty: "3 oy", description: "Sarg'aygan qatlamni olib, himoya lak qo'yamiz." },
+    { id: null, theme: "glass", name: "Fara shishasini almashtirish", duration_min: 90, price: 250000,
+      warranty: "6 oy", description: "Yorilgan shisha o'rniga yangisi qo'yiladi." },
+    { id: null, theme: "clean", name: "Fara ichini tozalash", duration_min: 45, price: 120000,
+      warranty: "3 oy", description: "Chang, bug' va namlik to'liq tozalanadi." },
+    { id: null, theme: "wheel", name: "Rul chexol tikish", duration_min: 90, price: 200000,
+      warranty: "6 oy", description: "O'lchov bo'yicha qo'lda tikiladi." },
+    { id: null, theme: "seat", name: "O'rindiq chexol tikish", duration_min: 240, price: 700000,
+      warranty: "1 yil", description: "Barcha o'rindiqlarga to'liq chexol." },
+  ].map(function (s) {
+    s._fallback = true;
+    return s;
+  });
+
+  /** Davomiylikni inson tilida: 45 daqiqa → «45 daqiqa», 120 → «2 soat». */
+  function svcDuration(min) {
+    const m = Number(min) || 0;
+    if (m <= 0) return "";
+    if (m < 60) return m + " daqiqa";
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return h + " soat" + (rest ? " " + rest + " daq" : "");
+  }
+
+  const svcPrice = (s) =>
+    s && s.price_label ? s.price_label : fmt((s && s.price) || 0);
+
+  /** Xizmatlar ro'yxati (keshlanadi). */
+  async function loadServices(force) {
+    if (S.services && !force) return S.services;
+    let list = null;
+    try {
+      list = S.offline ? await ZimmerOffline.services() : await api("/api/services");
+    } catch (_) {
+      /* Server javob bermadi — bulutdan urinamiz. `services` tuguni
+         katalog bilan birga ko'chiriladi, ya'ni Render uxlasa ham bor. */
+      try {
+        if (window.ZimmerOffline && ZimmerOffline.services) list = await ZimmerOffline.services();
+      } catch (_) {}
+    }
+    if (!Array.isArray(list)) list = [];
+    S.servicesFallback = list.length === 0;
+    S.services = list.length ? list : SERVICES_FALLBACK.slice();
+    return S.services;
+  }
+
+  function renderServicesPage(force) {
+    const box = $("sv-list");
+    if (!box) return;
+    if (!S.services || force) {
+      box.innerHTML =
+        '<div class="sv-skel"></div><div class="sv-skel"></div><div class="sv-skel"></div>';
+      $("sv-sub").textContent = "Yuklanmoqda…";
+      loadServices(force).then(
+        () => renderServicesPage(false),
+        () => renderServicesPage(false)
+      );
+      return;
+    }
+
+    const list = S.services || [];
+    $("sv-sub").textContent = list.length + " ta xizmat";
+    box.innerHTML = list.map((s, i) => svcCard(s, i)).join("");
+
+    /* Xizmat hali sozlanmagan bo'lsa (server bo'sh ro'yxat berdi) —
+       buni yashirmaymiz. Narxlar boshlang'ich ekanini aytamiz. */
+    if (S.servicesFallback) {
+      box.insertAdjacentHTML(
+        "beforeend",
+        '<p class="sv-note">ℹ️ Narxlar boshlang\'ich ko\'rsatilgan. Aniq narx va ' +
+          "muddat uchun navbat olayotganda usta bilan tasdiqlanadi.</p>"
+      );
+    }
+  }
+
+  /** Bitta xizmat kartochkasi — temaga qarab BOSHQA tuzilishda chiziladi. */
+  function svcCard(s, i) {
+    const key = themeOf(s, i);
+    const t = SERVICE_THEMES[key] || SERVICE_THEMES.biled;
+    const isConfig = key === "config";
+    const dur = svcDuration(s.duration_min);
+    const war = s.warranty || "";
+    const desc = s.description || t.tagline || "";
+
+    /* --- temaga xos o'rta qism (aynan shu joy dizaynlarni ajratadi) --- */
+    let mid = "";
+    if (t.layout === "hero") {
+      mid =
+        '<div class="sv-hero-beam"></div>' +
+        '<div class="sv-facts">' +
+        (t.facts || [])
+          .map(
+            (f) =>
+              '<div class="sv-fact"><i>' + f[0] + "</i><b>" + esc(f[1]) +
+              "</b><small>" + esc(f[2]) + "</small></div>"
+          )
+          .join("") +
+        "</div>";
+    } else if (t.layout === "tech") {
+      mid =
+        '<ol class="sv-steps">' +
+        (t.steps || []).map((x) => "<li>" + esc(x) + "</li>").join("") +
+        "</ol>";
+    } else if (t.layout === "shine") {
+      mid =
+        '<div class="sv-ba">' +
+        '<div class="sv-ba-col is-before"><small>Oldin</small><b>' +
+        esc(t.before || "") + "</b></div>" +
+        '<span class="sv-ba-arrow">→</span>' +
+        '<div class="sv-ba-col is-after"><small>Keyin</small><b>' +
+        esc(t.after || "") + "</b></div>" +
+        "</div>";
+    } else if (t.layout === "split") {
+      mid =
+        '<div class="sv-pair">' +
+        (t.pair || [])
+          .map(
+            (x, k) =>
+              '<div class="sv-pair-b' + (k ? " is-new" : " is-old") + '">' +
+              (k ? "🪟" : "💥") + " " + esc(x) + "</div>"
+          )
+          .join("") +
+        "</div>";
+    } else if (t.layout === "bubble") {
+      mid =
+        '<div class="sv-bubbles"><i></i><i></i><i></i></div>' +
+        '<ul class="sv-bullets">' +
+        (t.bullets || []).map((x) => "<li>" + esc(x) + "</li>").join("") +
+        "</ul>";
+    } else if (t.layout === "stitch") {
+      mid =
+        '<div class="sv-thread"><span>Ip rangi:</span>' +
+        (t.threads || [])
+          .map((c) => '<i style="background:' + esc(c) + '"></i>')
+          .join("") +
+        "</div>";
+    } else if (t.layout === "fabric") {
+      mid =
+        '<div class="sv-mats">' +
+        (t.materials || []).map((x) => "<span>" + esc(x) + "</span>").join("") +
+        "</div>";
+    }
+
+    /* --- pastdagi qator: narx / kafolat / vaqt --- */
+    const meta = [];
+    if (dur) meta.push('<span class="sv-m">⏱ ' + esc(dur) + "</span>");
+    if (war) meta.push('<span class="sv-m is-war">🛡 ' + esc(war) + "</span>");
+
+    const priceBlock = isConfig
+      ? '<div class="sv-price is-calc">Narx tanlovga qarab</div>'
+      : '<div class="sv-price">' + esc(svcPrice(s)) + "</div>";
+
+    const cta = isConfig
+      ? '<button class="sv-cta" data-svc="config">💡 Narxni hisoblash</button>'
+      : '<button class="sv-cta" data-svc="' + i + '">🗓 Navbat olish</button>';
+
+    return (
+      '<article class="sv-card sv-l-' + t.layout + " sv-a-" + t.accent +
+      '" style="--d:' + Math.min(i, 8) * 70 + 'ms">' +
+      '<div class="sv-glow"></div>' +
+      '<div class="sv-top">' +
+      '<span class="sv-ic">' + t.icon + "</span>" +
+      '<div class="sv-tx"><h3>' + esc(s.name || "Xizmat") + "</h3>" +
+      "<p>" + esc(desc) + "</p></div>" +
+      "</div>" +
+      mid +
+      '<div class="sv-foot">' +
+      priceBlock +
+      (meta.length ? '<div class="sv-metas">' + meta.join("") + "</div>" : "") +
+      "</div>" +
+      cta +
+      "</article>"
+    );
+  }
+
+  /* ==================================================================
+     NAVBAT OLISH — IKKI qadam:  1) Kun  →  2) Vaqt  →  tasdiq
+
+     Ilgari uch qadam edi va birinchisi «Xizmatni tanlang» ro'yxati bo'lib
+     turardi. Endi xizmat «🛠 Xizmatlar» bo'limidagi KARTOCHKADAN keladi
+     (`openServiceBooking`) — mijoz allaqachon nimani xohlayotganini
+     aytgan, ro'yxatni ikkinchi marta ko'rsatish ortiqcha qadam edi.
+
+     Vaqt band bo'lib qolsa (409) — ro'yxat darhol yangilanadi.
      ================================================================== */
 
   const BK = { step: 1, service: null, day: null, days: [], slots: [], time: null };
 
   function bookingHead() {
-    const titles = ["Xizmatni tanlang", "Qulay kunni tanlang", "Vaqtni tanlang"];
+    const titles = ["Qulay kunni tanlang", "Vaqtni tanlang"];
     $("sheet-title").textContent = "🗓 " + (titles[BK.step - 1] || "Navbat olish");
   }
 
   /** Yuqoridagi qadam ko'rsatkichi (iOS segment uslubi). */
   function bookingSteps() {
-    const names = ["Xizmat", "Kun", "Vaqt"];
+    const names = ["Kun", "Vaqt"];
     const wrap = el("div", "bk-steps");
     names.forEach((name, i) => {
       const n = i + 1;
@@ -5005,83 +5318,59 @@
     return wrap;
   }
 
-  /** Tanlanganlar haqida ixcham eslatma (2- va 3-qadamda). */
+  /** Tanlangan xizmat va kun haqida ixcham eslatma.
+   *  Xizmat endi alohida qadam emas — nomi va narxi HAR DOIM ko'rinib
+   *  turadi, mijoz nimaga navbat olayotganini yo'qotmasin. */
   function bookingRecap() {
     const bits = [];
-    if (BK.service) bits.push(`🔧 ${esc(BK.service.name)}`);
+    if (BK.service) {
+      const p = BK.service.price ? " · " + svcPrice(BK.service) : "";
+      bits.push(`🔧 ${esc(BK.service.name)}${esc(p)}`);
+    }
     if (BK.day) bits.push(`📅 ${esc(BK.day.short_label || BK.day.label)}`);
     return bits.length ? el("div", "bk-recap", bits.join(" · ")) : null;
   }
 
-  async function openBookingSheet() {
-    // Bo'sh vaqtlar endi brauzerda hisoblanadi: band slotlar bazadan
-    // o'qiladi, mantiq `utils/helpers.py: free_slots` dan aynan ko'chirilgan.
-    // Shuning uchun Render kerak emas.
-    haptic();
+  /** Tanlangan xizmat uchun navbat oqimini ochadi.
+   *
+   *  Xizmat kartochkasidan chaqiriladi, ya'ni ro'yxat qadami TASHLAB
+   *  ketiladi va mijoz to'g'ridan kun tanlashga tushadi.
+   *
+   *  Bo'sh vaqtlar brauzerda ham hisoblanadi (mantiq
+   *  `utils/helpers.py: free_slots` dan aynan ko'chirilgan), shuning uchun
+   *  Render uxlagan bo'lsa ham navbat ishlaydi.
+   */
+  function openServiceBooking(service) {
+    if (!service) return;
+    haptic("medium");
     BK.step = 1;
-    BK.service = null;
+    BK.service = service;
     BK.day = null;
     BK.time = null;
-    openSheet("🗓 Xizmatni tanlang", '<div class="bk-load">Yuklanmoqda...</div>');
-    try {
-      // `services` jadvali ham bulutda bor — navbat ro'yxati Render'siz
-      // ko'rinadi. Vaqt tanlash hali serverni talab qiladi (bo'sh
-      // soatlarni hisoblash uchun jonli buyurtma ma'lumoti kerak).
-      BK.services = S.offline
-        ? await ZimmerOffline.services()
-        : await api("/api/services");
-    } catch (err) {
-      closeSheet();
-      return onError(err);
-    }
-    paintBooking();
+    BK.days = [];
+    BK.slots = [];
+    openSheet("🗓 Qulay kunni tanlang", '<div class="bk-load">Yuklanmoqda...</div>');
+    loadBookingDays();
   }
+
+  /** Navbat so'rovlari SERVERGA ketishi kerakmi.
+   *
+   *  Xizmat serverda mavjud bo'lmasa (ichki zaxira ro'yxat — `id` yo'q)
+   *  yoki zaxira rejim bo'lsa, hammasi brauzer + bulut orqali bajariladi.
+   *  Aks holda mavjud bo'lmagan `service_id` bilan so'rov ketib, mijoz
+   *  tushunarsiz xato ko'rardi. */
+  const bkLocal = () => S.offline || !BK.service || !BK.service.id;
 
   function paintBooking() {
     bookingHead();
     const box = $("sheet-content");
     box.innerHTML = "";
     box.append(bookingSteps());
-    const recap = BK.step > 1 ? bookingRecap() : null;
+    const recap = bookingRecap();
     if (recap) box.append(recap);
 
-    if (BK.step === 1) return paintBookingServices(box);
-    if (BK.step === 2) return paintBookingDays(box);
+    if (BK.step === 1) return paintBookingDays(box);
     return paintBookingSlots(box);
-  }
-
-  /* ------------------------------------------------------- 1-qadam: xizmat */
-  function paintBookingServices(box) {
-    const list = BK.services || [];
-    if (!list.length) {
-      box.append(el("p", "empty", "Hozircha xizmatlar qo'shilmagan."));
-      return;
-    }
-    const group = el("div", "bk-list");
-    list.forEach((s) => {
-      const row = el("button", "bk-row");
-      row.innerHTML = `
-        <span class="bk-row-ico">🔧</span>
-        <span class="bk-row-mid">
-          <b>${esc(s.name)}</b>
-          <small>⏱ ${s.duration_min} daqiqa</small>
-        </span>
-        <span class="bk-row-end">
-          <b>${esc(s.price_label)}</b>
-          <i>›</i>
-        </span>`;
-      row.onclick = () => {
-        BK.service = s;
-        BK.day = null;
-        BK.time = null;
-        haptic("medium");
-        BK.step = 2;
-        loadBookingDays();
-      };
-      group.append(row);
-    });
-    box.append(group);
-    box.append(el("p", "bk-hint", "O'rnatish vaqti xizmatga qarab belgilanadi."));
   }
 
   /** Kun kartochkasi uchun yozuvlar: yuqorida hafta kuni, o'rtada sana.
@@ -5116,7 +5405,7 @@
     if (recap) box.append(recap);
     box.append(el("div", "bk-load", "Kunlar yuklanmoqda..."));
     try {
-      BK.days = S.offline
+      BK.days = bkLocal()
         ? await ZimmerOffline.bookingDates(BK.service.duration_min)
         : await api("/api/dates?service_id=" + BK.service.id);
       paintBooking();
@@ -5149,18 +5438,21 @@
         BK.day = d;
         BK.time = null;
         haptic("medium");
-        BK.step = 3;
+        BK.step = 2;
         loadBookingSlots();
       };
       strip.append(card);
     });
     box.append(strip);
 
-    const back = el("button", "btn btn-ghost btn-sm", "‹ Xizmatni o'zgartirish");
+    /* Xizmat endi panel ichida tanlanmaydi — u «Xizmatlar» bo'limidagi
+       kartochkadan keldi. Shuning uchun bu tugma panelni YOPADI va mijoz
+       boshqa xizmatni ro'yxatdan tanlaydi. */
+    const back = el("button", "btn btn-ghost btn-sm", "‹ Boshqa xizmat");
     back.onclick = () => {
-      BK.step = 1;
       haptic();
-      paintBooking();
+      closeSheet();
+      show("services");
     };
     box.append(back);
   }
@@ -5175,7 +5467,7 @@
     if (recap) box.append(recap);
     box.append(el("div", "bk-load", "Bo'sh vaqtlar yuklanmoqda..."));
     try {
-      const data = S.offline
+      const data = bkLocal()
         ? await ZimmerOffline.bookingSlots(BK.day.date, BK.service.duration_min)
         : await api(
             `/api/slots?service_id=${BK.service.id}&date=${encodeURIComponent(BK.day.date)}`
@@ -5193,7 +5485,7 @@
       box.append(el("p", "empty", "Bu kunda bo'sh vaqt qolmagan. Boshqa kunni tanlang."));
       const back = el("button", "btn btn-ghost btn-sm", "‹ Boshqa kun");
       back.onclick = () => {
-        BK.step = 2;
+        BK.step = 1;
         haptic();
         paintBooking();
       };
@@ -5247,7 +5539,8 @@
 
     const back = el("button", "btn btn-ghost btn-sm", "‹ Boshqa kun");
     back.onclick = () => {
-      BK.step = 2;
+      // Kun — endi 1-qadam (xizmat qadami olib tashlangan)
+      BK.step = 1;
       haptic();
       paintBooking();
     };
@@ -5263,7 +5556,7 @@
       try {
         // Bazaga to'g'ridan yoziladi. Bandlik yozishdan OLDIN qayta
         // tekshiriladi — oradа boshqa mijoz olib qo'ygan bo'lishi mumkin.
-        const res = S.offline
+        const res = bkLocal()
           ? await ZimmerOffline.createBooking({
               uid: (S.me && (S.me.user_id || S.me.id)) || 0,
               service_id: BK.service.id,
@@ -5305,11 +5598,19 @@
   async function openFlow() {
     show("flow");
     if (!S.cars.length) {
+      /* Ilgari bu yerda FAQAT `/api/cars` so'ralardi va Render uxlagan
+         bo'lsa konfigurator umuman ochilmasdi (`onError` bilan chiqib
+         ketardi). Endi bulut, keyin ichki ro'yxat — oyna har holda
+         ishlaydi. */
+      let list = null;
       try {
-        S.cars = await api("/api/cars");
-      } catch (err) {
-        return onError(err);
+        list = S.offline ? await ZimmerOffline.cars() : await api("/api/cars");
+      } catch (_) {
+        try {
+          if (window.ZimmerOffline && ZimmerOffline.cars) list = await ZimmerOffline.cars();
+        } catch (_) {}
       }
+      S.cars = useCars(list);
     }
     renderCars();
     if (!S.tuning) await loadTuning();
@@ -5468,13 +5769,21 @@
     // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
     carsReady = (S.offline ? ZimmerOffline.cars() : api("/api/cars"))
       .then((list) => {
-        S.cars = list || [];
-        // Serverdan kelgan ro'yxatni keshlaymiz — keyingi safar server
-        // o'chgan bo'lsa konfigurator baribir ishlaydi.
-        if (!S.offline && window.ZimmerOffline) ZimmerOffline.saveCars(S.cars);
+        const real = Array.isArray(list) ? list.filter(Boolean) : [];
+        S.cars = useCars(real);
+        /* Keshga FAQAT serverdan kelgan ro'yxat yoziladi. Ichki ro'yxatni
+           keshlash xato bo'lardi: sun'iy (manfiy) id'lar keshda qolib,
+           keyinchalik haqiqiy ro'yxat kelganda ham ular «server ma'lumoti»
+           bo'lib ko'rinardi. */
+        if (real.length && !S.offline && window.ZimmerOffline) {
+          ZimmerOffline.saveCars(real);
+        }
         if (me.car) S.car = S.cars.find((c) => c.id === me.car.id) || null;
       })
-      .catch(() => {});
+      .catch(() => {
+        // So'rov butunlay yiqildi — konfigurator bo'sh qolmasin
+        S.cars = useCars(null);
+      });
     
     // DIQQAT: bu yerda ilgari `loadProducts()` chaqirilardi. U mavjud bo'lmagan
     // `${API}/products` manziliga murojaat qilib 404 olardi va catch bloki
@@ -5530,7 +5839,9 @@
     btn.onclick = () => {
       haptic();
       const page = btn.dataset.page;
-      if (page === "flow") return openFlow();
+      /* Ilgari bu yerda «flow» uchun maxsus shart bor edi (konfigurator
+         navigatsiyada alohida bo'lim edi). Endi u «🛠 Xizmatlar» ichidagi
+         bitta kartochka — navigatsiya oddiy `show()` bilan ishlaydi. */
       show(page);
       if (page === "home" && !S.home) loadHome();
     };
@@ -5551,8 +5862,25 @@
     if (!S.home) loadHome();
   };
 
-  $("config-cta").onclick = openFlow;
   bindQuickActions(); // bosh sahifadagi tez o'tish plitkalari
+
+  /* ---------------------------------------------------- XIZMATLAR bo'limi */
+  /* Kartochkalar HAR chizishda qaytadan yasaladi, shuning uchun hodisa
+     ota elementda tutiladi — bir marta bog'lanadi va abadiy ishlaydi. */
+  $("sv-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-svc]");
+    if (!btn) return;
+    const key = btn.dataset.svc;
+    // Konfigurator — navbat emas, alohida oyna (linza/ochki/rang tanlash)
+    if (key === "config") return openFlow();
+    const svc = (S.services || [])[Number(key)];
+    if (!svc) return toast("Xizmat topilmadi — ro'yxatni yangilang");
+    openServiceBooking(svc);
+  });
+  $("sv-refresh").onclick = () => {
+    haptic("light");
+    renderServicesPage(true); // serverdan qaytadan o'qiladi
+  };
   $("car-chip").onclick = openCarSheet;
   $("change-car").onclick = openCarSheet;
   $("order-submit").onclick = startCheckout;

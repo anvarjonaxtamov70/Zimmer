@@ -128,6 +128,15 @@ CREATE TABLE IF NOT EXISTS services (
     name         TEXT NOT NULL,
     duration_min INTEGER NOT NULL DEFAULT 30,
     price        INTEGER NOT NULL DEFAULT 0,
+    -- Kafolat MATN sifatida saqlanadi ("1 yil", "3 oy", "19 kun"):
+    -- admin xohlagan muddatni yozadi, ro'yxat bilan cheklanmaydi.
+    warranty     TEXT,
+    description  TEXT,
+    -- Mini App kartochkasining DIZAYN kaliti (`app.js: SERVICE_THEMES`):
+    -- config | biled | polish | glass | clean | wheel | seat.
+    -- Bo'sh bo'lsa mini app nom bo'yicha o'zi taxmin qiladi.
+    theme        TEXT,
+    sort         INTEGER NOT NULL DEFAULT 0,
     is_active    INTEGER NOT NULL DEFAULT 1
 );
 
@@ -251,10 +260,58 @@ CREATE TABLE IF NOT EXISTS promos (
 
 # ------------------------------------------------------------------ demo ma'lumot
 
+# O'zbekistonda eng ko'p uchraydigan GM / Chevrolet / Daewoo / Ravon
+# modellari — Damas'dan Tahoe'gacha.
+#
+# DIQQAT: bu ro'yxat `docs/js/cars.js: LIST` bilan MOS bo'lishi kerak.
+# Mini App server bo'sh ro'yxat qaytarsa o'sha fayldagi nusxani ishlatadi;
+# ikki joyda boshqa-boshqa nom bo'lsa mijoz ikki xil ro'yxat ko'rardi.
+#
+# name, slug, years, note, sort
 DEMO_CARS = [
-    # name, slug, years, note, sort
-    ("Gentra", "gentra", "2013 – 2024", "Chevrolet / Ravon Gentra", 1),
-    ("Nexia 2", "nexia2", "2008 – 2016", "Daewoo Nexia 2 (DOHC / SOHC)", 2),
+    # yengil tijorat
+    ("Damas", "damas", "1996 – hozir", "Chevrolet / Daewoo Damas", 1),
+    ("Labo", "labo", "1996 – hozir", "Chevrolet / Daewoo Labo", 2),
+    # kichik sinf
+    ("Tico", "tico", "1996 – 2001", "Daewoo Tico", 3),
+    ("Matiz", "matiz", "2001 – 2015", "Daewoo / Chevrolet Matiz", 4),
+    ("Spark", "spark", "2011 – 2015", "Chevrolet Spark (M300)", 5),
+    ("Spark 2", "spark2", "2016 – 2022", "Chevrolet Spark (M400)", 6),
+    ("Ravon R2", "ravon-r2", "2016 – 2018", "Ravon R2 (Spark)", 7),
+    # Nexia oilasi
+    ("Nexia 1", "nexia1", "1996 – 2008", "Daewoo Nexia (SOHC / DOHC)", 8),
+    ("Nexia 2", "nexia2", "2008 – 2016", "Daewoo Nexia 2", 9),
+    ("Nexia 3", "nexia3", "2016 – hozir", "Ravon Nexia R3 / Nexia 3", 10),
+    ("Ravon R3", "ravon-r3", "2016 – 2018", "Ravon R3 (Nexia)", 11),
+    # klassik Daewoo
+    ("Espero", "espero", "1995 – 1999", "Daewoo Espero", 12),
+    ("Nubira", "nubira", "1999 – 2003", "Daewoo Nubira", 13),
+    ("Leganza", "leganza", "1997 – 2002", "Daewoo Leganza", 14),
+    ("Magnus", "magnus", "2003 – 2007", "Daewoo Magnus / Evanda", 15),
+    ("Epica", "epica", "2007 – 2011", "Chevrolet Epica", 16),
+    # o'rta sinf sedanlar
+    ("Lacetti", "lacetti", "2004 – 2018", "Chevrolet Lacetti", 17),
+    ("Gentra", "gentra", "2013 – 2024", "Chevrolet / Ravon Gentra", 18),
+    ("Aveo", "aveo", "2011 – 2015", "Chevrolet Aveo", 19),
+    ("Cobalt", "cobalt", "2013 – hozir", "Chevrolet / Ravon Cobalt", 20),
+    ("Ravon R4", "ravon-r4", "2016 – 2020", "Ravon R4 (Cobalt)", 21),
+    ("Onix", "onix", "2019 – hozir", "Chevrolet Onix", 22),
+    ("Monza", "monza", "2023 – hozir", "Chevrolet Monza", 23),
+    # katta sedanlar
+    ("Malibu", "malibu", "2012 – 2016", "Chevrolet Malibu", 24),
+    ("Malibu 2", "malibu2", "2018 – hozir", "Chevrolet Malibu 2", 25),
+    ("Malibu XL", "malibu-xl", "2021 – hozir", "Chevrolet Malibu XL", 26),
+    # universal / minivan
+    ("Orlando", "orlando", "2011 – 2018", "Chevrolet Orlando (7 o'rin)", 27),
+    # krossover va SUV
+    ("Tracker", "tracker", "2013 – 2020", "Chevrolet Tracker 1", 28),
+    ("Tracker 2", "tracker2", "2020 – hozir", "Chevrolet Tracker 2", 29),
+    ("Captiva", "captiva", "2007 – 2018", "Chevrolet Captiva", 30),
+    ("Captiva 5", "captiva5", "2021 – hozir", "Chevrolet Captiva 5", 31),
+    ("Trailblazer", "trailblazer", "2021 – hozir", "Chevrolet Trailblazer", 32),
+    ("Equinox", "equinox", "2018 – hozir", "Chevrolet Equinox", 33),
+    ("Traverse", "traverse", "2018 – hozir", "Chevrolet Traverse (7 o'rin)", 34),
+    ("Tahoe", "tahoe", "2015 – hozir", "Chevrolet Tahoe", 35),
 ]
 
 DEMO_BILED = [
@@ -372,10 +429,44 @@ DEMO_COLORS = [
     ("Oltin", "#f0d060", "#8a6a14", "Cheklangan uslub. Diqqatni tortadi.", 500_000, 5),
 ]
 
+# Xizmatlar. Tartib MUHIM: Mini App shu tartibda ko'rsatadi.
+# name, duration_min, price, warranty, description, theme, sort
 DEMO_SERVICES = [
-    ("Bi-LED o'rnatish (2 fara)", 120, 400_000),
-    ("Fara polirovka / tozalash", 60, 150_000),
-    ("Fara germetizatsiya", 45, 120_000),
+    (
+        "Bi-LED konfigurator", 0, 0, "1 yil",
+        "Mashinangizga mos linzani tanlab, narxni o'zingiz ko'ring.",
+        "config", 1,
+    ),
+    (
+        "Bi-LED o'rnatish (2 fara)", 120, 400_000, "1 yil",
+        "Linzani o'rnatish, nur chegarasini sozlash va germetiklash.",
+        "biled", 2,
+    ),
+    (
+        "Fara polirovkasi", 60, 150_000, "3 oy",
+        "Sarg'aygan qatlamni olib tashlab, himoya lak qoplaymiz.",
+        "polish", 3,
+    ),
+    (
+        "Fara shishasini almashtirish", 90, 250_000, "6 oy",
+        "Yorilgan yoki singan shisha o'rniga yangisi qo'yiladi.",
+        "glass", 4,
+    ),
+    (
+        "Fara ichini tozalash", 45, 120_000, "3 oy",
+        "Chang, bug' va namlik to'liq tozalanadi, so'ng germetiklanadi.",
+        "clean", 5,
+    ),
+    (
+        "Rul chexol tikish", 90, 200_000, "6 oy",
+        "Rul g'ilofi o'lchov bo'yicha qo'lda tikiladi.",
+        "wheel", 6,
+    ),
+    (
+        "O'rindiq chexol tikish", 240, 700_000, "1 yil",
+        "Barcha o'rindiqlarga o'lchov bo'yicha to'liq chexol.",
+        "seat", 7,
+    ),
 ]
 
 DEMO_CATEGORIES = [
@@ -590,6 +681,14 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("photo3_url", "TEXT"),
     ],
     "categories": [("icon", "TEXT"), ("sort", "INTEGER NOT NULL DEFAULT 0")],
+    # Xizmatlar endi Mini App'da alohida bo'lim: har biriga kafolat, tavsif
+    # va dizayn kaliti kerak.
+    "services": [
+        ("warranty", "TEXT"),
+        ("description", "TEXT"),
+        ("theme", "TEXT"),
+        ("sort", "INTEGER NOT NULL DEFAULT 0"),
+    ],
     # Eski bazalarga yetkazib berish/to'lov ustunlarini qo'shamiz.
     "orders": [
         ("delivery_method", "TEXT"),
@@ -623,6 +722,9 @@ async def init_db() -> aiosqlite.Connection:
     await _db.commit()
     await _migrate()
     await _seed()
+    # Jonli bazada `_seed()` o'tkazib yuboriladi — yangi xizmat/mashinalar
+    # shu yerda qo'shiladi (hech narsa o'chirilmaydi).
+    await _ensure_catalog()
     await _assign_story_categories()
     logger.info("Baza tayyor: %s", config.db_path)
     return _db
@@ -745,6 +847,131 @@ async def _count(table: str) -> int:
     return int(row[0])
 
 
+# =============================================================================
+# KATALOGNI TO'LDIRIB TURISH (idempotent)
+#
+# NEGA `_seed()` YETARLI EMAS
+# `_seed()` faqat BIR MARTA ishlaydi (`seed_version`) va bazada buyurtma
+# bo'lsa umuman o'tkazib yuboriladi — bu to'g'ri, aks holda admin qo'shgan
+# katalogni o'chirib tashlardi. Lekin natijada JONLI bazaga yangi xizmat
+# yoki mashina qo'shib bo'lmaydi: yangilanish chiqsa ham ular paydo
+# bo'lmaydi va Mini App'dagi «Xizmatlar» bo'limi bo'sh turadi.
+#
+# Bu funksiya boshqacha ishlaydi: hech narsani O'CHIRMAYDI va
+# O'ZGARTIRMAYDI, faqat YO'Q yozuvlarni qo'shadi va bo'sh (NULL) yangi
+# ustunlarni to'ldiradi. Shuning uchun har ishga tushishda xavfsiz
+# chaqirilishi mumkin.
+# =============================================================================
+
+# Eski nomlar. Bazada shu nomlardan biri bo'lsa, yangi xizmat TAKRORLANMAYDI
+# (nomi o'zgargan, mohiyati bir xil).
+SERVICE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Fara polirovkasi": ("fara polirovka / tozalash", "fara polirovka"),
+    "Fara ichini tozalash": ("fara germetizatsiya",),
+}
+
+# Nomdan dizayn kalitini taxmin qilish — `docs/js/app.js: themeOf()` bilan
+# bir xil tartibda. Eski yozuvlar ham to'g'ri dizayn olsin.
+_THEME_GUESS: tuple[tuple[str, str], ...] = (
+    ("konfigurator", "config"),
+    ("rul", "wheel"),
+    ("rindiq", "seat"),
+    ("shisha", "glass"),
+    ("polirov", "polish"),
+    ("tozala", "clean"),
+    ("germet", "clean"),
+    ("bi-led", "biled"),
+    ("biled", "biled"),
+)
+
+
+def _guess_theme(name: str) -> str | None:
+    low = (name or "").lower()
+    for needle, theme in _THEME_GUESS:
+        if needle in low:
+            return theme
+    return None
+
+
+async def _ensure_services() -> None:
+    """Yetishmayotgan xizmatlarni qo'shadi, bo'sh maydonlarni to'ldiradi."""
+    db = get_db()
+    async with db.execute("SELECT id, name, warranty, description, theme, sort FROM services") as cur:
+        rows = await cur.fetchall()
+
+    have = {(row["name"] or "").strip().lower() for row in rows}
+    added = 0
+
+    for name, duration, price, warranty, description, theme, sort in DEMO_SERVICES:
+        key = name.strip().lower()
+        aliases = {a.lower() for a in SERVICE_ALIASES.get(name, ())}
+        if key in have or (aliases & have):
+            continue
+        await db.execute(
+            "INSERT INTO services (name, duration_min, price, warranty, description,"
+            " theme, sort) VALUES (?,?,?,?,?,?,?)",
+            (name, duration, price, warranty, description, theme, sort),
+        )
+        added += 1
+
+    # Eski yozuvlarda yangi ustunlar bo'sh — dizayn kaliti va tartibni
+    # to'ldiramiz. Admin qo'lda yozgan qiymatga TEGMAYMIZ.
+    filled = 0
+    for row in rows:
+        patch: dict[str, object] = {}
+        if not (row["theme"] or "").strip():
+            guessed = _guess_theme(row["name"] or "")
+            if guessed:
+                patch["theme"] = guessed
+        if not row["sort"]:
+            patch["sort"] = int(row["id"]) + 100  # yangilaridan keyin turadi
+        if not patch:
+            continue
+        sets = ", ".join(f"{col} = ?" for col in patch)
+        await db.execute(
+            f"UPDATE services SET {sets} WHERE id = ?", (*patch.values(), row["id"])
+        )
+        filled += 1
+
+    if added or filled:
+        await db.commit()
+        logger.info("Xizmatlar: %s qo'shildi, %s yozuv to'ldirildi", added, filled)
+
+
+async def _ensure_cars() -> None:
+    """Yetishmayotgan mashinalarni qo'shadi (slug bo'yicha)."""
+    db = get_db()
+    async with db.execute("SELECT slug FROM cars") as cur:
+        have = {(row["slug"] or "").strip().lower() for row in await cur.fetchall()}
+
+    added = 0
+    for name, slug, years, note, sort in DEMO_CARS:
+        if slug.strip().lower() in have:
+            continue
+        await db.execute(
+            "INSERT INTO cars (name, slug, years, note, sort) VALUES (?,?,?,?,?)",
+            (name, slug, years, note, sort),
+        )
+        added += 1
+
+    if added:
+        await db.commit()
+        logger.info("Mashinalar: %s model qo'shildi", added)
+
+
+async def _ensure_catalog() -> None:
+    """Xizmat va mashina ro'yxatlarini to'ldirib turadi.
+
+    Xato bo'lsa ilova YIQILMAYDI: bu qo'shimcha to'ldirish, asosiy ish
+    emas. Bazada nima bo'lsa — shu bilan davom etadi.
+    """
+    try:
+        await _ensure_services()
+        await _ensure_cars()
+    except Exception as error:  # noqa: BLE001 — to'ldirish ilovani yiqitmasin
+        logger.warning("Katalogni to'ldirib bo'lmadi: %s", error)
+
+
 async def _seed() -> None:
     """Katalogni to'ldiradi. Eski demo ma'lumot bo'lsa, yangisiga almashtiradi."""
     db = get_db()
@@ -794,7 +1021,8 @@ async def _seed() -> None:
         DEMO_COLORS,
     )
     await db.executemany(
-        "INSERT INTO services (name, duration_min, price) VALUES (?, ?, ?)",
+        "INSERT INTO services (name, duration_min, price, warranty, description,"
+        " theme, sort) VALUES (?,?,?,?,?,?,?)",
         DEMO_SERVICES,
     )
     await db.executemany(
