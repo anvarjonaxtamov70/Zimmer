@@ -389,6 +389,13 @@
       old_price: r.old_price ? Number(r.old_price) : null,
       badge: r.badge || null,
       stock: Number(r.stock) || 0,
+      /* Kafolat muddati — admin panelda har tovarga alohida qo'yiladi
+         («1 yil», «3 oy», «19 kun»). Bo'lmasa `null` va mijoz tomonida
+         kafolat satri umuman chizilmaydi. */
+      warranty: r.warranty || null,
+      /* Mashina NOMI (admin panel `carName` deb yozadi). Tovar oynasidagi
+         xususiyatlar jadvalida ko'rsatiladi. */
+      car_name: r.carName || r.car_name || null,
       car_id: r.car_id == null ? null : r.car_id,
       price_label: priceLabel(r.price),
       old_price_label: r.old_price ? priceLabel(r.old_price) : null,

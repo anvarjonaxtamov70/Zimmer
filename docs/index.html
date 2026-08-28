@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=55">
+  <link rel="stylesheet" href="styles.css?v=56">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -206,13 +206,20 @@
 
     <!-- pastga yopishadigan panel: jami + kafolat + tugma -->
     <div class="cart-checkout-bar hidden" id="cart-checkout">
-      <div class="cart-total-footer">Jami <b id="cart-total-sum">0</b></div>
+      <div class="cart-total-footer">
+        <span>Jami <i id="cart-total-n"></i></span>
+        <b id="cart-total-sum">0</b>
+      </div>
 
-      <!-- ishonch belgilari (kafolat) -->
+      <!-- Ishonch belgilari.
+           DIQQAT: «7 kun / Qaytarish» va «1–2 kun» ATAYLAB OLIB TASHLANDI —
+           bunday shartlar amalda berilmaydi. Kafolat muddati endi har
+           tovarning O'ZIDA (admin panelda qo'yiladi), shu sababli bu yerda
+           umumiy «1 yil» ham yozilmaydi. -->
       <div class="cart-trust">
-        <div class="ct-badge"><i>🚚</i><b>1–2 kun</b><small>Yetkazish</small></div>
-        <div class="ct-badge"><i>🛡</i><b>1 yil</b><small>Kafolat</small></div>
-        <div class="ct-badge"><i>↩️</i><b>7 kun</b><small>Qaytarish</small></div>
+        <div class="ct-badge"><i>🚚</i><b>Kuryer</b><small id="ct-city">Samarqand</small></div>
+        <div class="ct-badge"><i>📦</i><b>BTS Pochta</b><small>Butun O'zbekiston</small></div>
+        <div class="ct-badge"><i>🛡</i><b>Kafolat</b><small>Tovarga qarab</small></div>
       </div>
 
       <!-- Telefon, manzil va usul keyingi bosqichda so'raladi -->
@@ -545,9 +552,12 @@
       <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle>
     </svg>
   </button>
+  <!-- Ikki tugma TENG o'lchamda, yonma-yon (CSS: .map-picker-bar .btn).
+       Matnlar ham qisqa va bir xil uzunlikda — biri ikkinchisidan
+       katta ko'rinmasin. -->
   <div class="map-picker-bar">
-    <button class="btn btn-ghost" id="map-cancel">Bekor</button>
-    <button class="btn btn-primary" id="map-confirm">📍 Shu manzilni tanlash</button>
+    <button class="btn btn-ghost" id="map-cancel">Bekor qilish</button>
+    <button class="btn btn-primary" id="map-confirm">✓ Tanlash</button>
   </div>
 </div>
 
@@ -650,28 +660,28 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=55"></script>
+<script src="config.js?v=56"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=55"></script>
+<script src="js/fb.js?v=56"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=55"></script>
-<script src="js/offline.js?v=55"></script>
-<script src="js/headlight.js?v=55"></script>
-<script src="js/cars.js?v=55"></script>
+<script src="js/upload.js?v=56"></script>
+<script src="js/offline.js?v=56"></script>
+<script src="js/headlight.js?v=56"></script>
+<script src="js/cars.js?v=56"></script>
 <!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=55"></script>
+<script src="js/bts.js?v=56"></script>
 <!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=55"></script>
+<script src="js/admin.js?v=56"></script>
 <!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
 <!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=55"></script>
+<script src="js/admin-shop.js?v=56"></script>
 <!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
      buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=55"></script>
+<script src="js/admin-crm.js?v=56"></script>
 <!-- Stories boshqaruvi: qo'shish, ko'rishlar, reaksiyalar, mijoz javoblari -->
-<script src="js/admin-stories.js?v=55"></script>
-<script src="js/app.js?v=55"></script>
+<script src="js/admin-stories.js?v=56"></script>
+<script src="js/app.js?v=56"></script>
 </body>
 </html>

@@ -63,6 +63,7 @@
     delivery: null, // {method, address, summary}
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
     coStep: 1, // rasmiylashtirish oynasidagi qadam: 1 | 2 | 3
+    payMethod: null, // tanlangan to'lov usuli: "card" | "app" | "cash"
     pay: {}, // karta rekvizitlari (/api/config dan)
 
     /* ---- BUYURTMALARIM (uch bo'lim, uch oyna) ----
@@ -1076,7 +1077,7 @@
       pay_card_number: "",
       pay_card_holder: "",
       pay_admin_username: c.SHOP_TELEGRAM || "",
-      delivery_city: "Toshkent",
+      delivery_city: "Samarqand",
     };
   }
 
@@ -2431,10 +2432,18 @@
       "</b>" +
       (off && p.old_price_label ? "<s>" + esc(p.old_price_label) + "</s>" : "") +
       "</div>" +
+      /* Pastdagi bitta satr: qoldiq kam bo'lsa OGOHLANTIRISH ustun turadi
+         (u shoshiltiradi), aks holda kafolat muddati.
+
+         DIQQAT: ilgari bu yerda «🛡 14 kun kafolat» degan QATTIQ matn
+         turardi — barcha tovarlar uchun bir xil va aksariyati uchun
+         noto'g'ri. Endi muddat admin panelda har tovarga alohida
+         qo'yiladi; qo'yilmagan bo'lsa satr UMUMAN chizilmaydi (yolg'on
+         kafolat yozib qo'yishdan ko'ra hech narsa yozmaslik to'g'ri). */
       (p.stock > 0 && p.stock <= 5
         ? '<div class="prod-low">📦 ' + p.stock + " ta qoldi</div>"
-        : p.stock > 0
-          ? '<div class="prod-trust">🛡 14 kun kafolat</div>'
+        : p.stock > 0 && p.warranty
+          ? '<div class="prod-trust">🛡 ' + esc(p.warranty) + " kafolat</div>"
           : "") +
       "</div>";
 
@@ -2682,11 +2691,24 @@
           <div class="cart-info">
             <h4>${esc(item.name)}</h4>
             <span class="cart-price">${esc(fmt(item.price * item.qty))}</span>
+            ${
+              /* Bittadan ko'p bo'lsa DONA NARXI ham yoziladi. Ilgari faqat
+                 yig'indi turardi va mijoz «nega bunchalik?» deb hisobni
+                 tekshira olmasdi. */
+              item.qty > 1
+                ? `<i class="cart-unit">${item.qty} × ${esc(fmt(item.price))}</i>`
+                : ""
+            }
           </div>
           <div class="cart-controls">
             <button data-act="minus" aria-label="Kamaytirish">−</button>
             <span class="cart-qty">${item.qty}</span>
-            <button data-act="plus" aria-label="Ko'paytirish">+</button>
+            <button data-act="plus" aria-label="Ko'paytirish"${
+              /* Qoldiq tugagan bo'lsa tugma O'CHIRILADI. Ilgari bosilaverardi
+                 va faqat toast chiqardi — mijoz nima uchun ko'paymayotganini
+                 tushunmasdi. */
+              item.qty >= item.stock ? ' disabled title="Omborda shuncha bor"' : ""
+            }>+</button>
           </div>
         </div>
         <div class="swipe-delete" title="O'chirish">🗑</div>`;
@@ -2696,9 +2718,33 @@
       box.append(row);
     });
 
+    /* «Savatni bo'shatish» — bittalab o'chirish uzoq. Ro'yxat ostida,
+       ko'zga tashlanmaydigan joyda (tasodifan bosilmasin) va tasdiq
+       so'raydi. */
+    const clear = el("button", "cart-clear", "🗑 Savatni bo'shatish");
+    clear.onclick = async () => {
+      if (!(await ask("Savatdagi hamma narsa o'chirilsinmi?"))) return;
+      S.cart = [];
+      saveCart();
+      renderCart();
+      haptic("success");
+      toast("Savat bo'shatildi");
+    };
+    box.append(clear);
+
     const total = cartSum();
     const sumEl = $("cart-total-sum");
     if (sumEl) sumEl.textContent = fmt(total);
+    // Jami yonida DONA soni — mijoz nechta tovar olayotganini ko'radi
+    const nEl = $("cart-total-n");
+    if (nEl) {
+      const n = S.cart.reduce((s, i) => s + i.qty, 0);
+      nEl.textContent = n + " dona";
+    }
+    // Kuryer shahri serverdan keladi — belgida ham shu yozilishi kerak,
+    // aks holda HTML'dagi qattiq nom bilan ziddiyat chiqadi.
+    const cityEl = $("ct-city");
+    if (cityEl) cityEl.textContent = dcity();
     renderCartProgress(total);
   }
 
@@ -2778,7 +2824,9 @@
      (Avto_A1 dagi mantiq, Zimmer dizaynida)
      ================================================================== */
 
-  const dcity = () => (S.pay && S.pay.city) || "Toshkent";
+  /* Kuryer ishlaydigan shahar. Server `/api/config` da `delivery_city`
+     beradi; u yetib kelmasa zaxira qiymat ishlatiladi. */
+  const dcity = () => (S.pay && S.pay.city) || "Samarqand";
 
   /** "Rasmiylashtirish" tugmasi: to'liq ekranli oynani ochadi. */
   function startCheckout() {
@@ -2798,6 +2846,7 @@
        oqim ichida ko'rib-o'zgartira olmasdi. */
     S.delivery = null;
     S.dlvMethod = null;
+    S.payMethod = null; // yangi buyurtma — usul qaytadan tanlanadi
     S.coStep = 1;
     haptic();
     show("checkout");
@@ -2934,7 +2983,7 @@
          <button class="dlv-card" id="dlv-courier">
            <span class="dlv-ico">🚖</span>
            <span class="dlv-txt"><b>Kuryer — manzilga</b>
-             <small>Faqat ${esc(dcity())} shahar ichida · 1–2 kun</small></span>
+             <small>Faqat ${esc(dcity())} shahar ichida</small></span>
            <span class="dlv-check">✓</span>
          </button>
          <button class="dlv-card" id="dlv-bts">
@@ -2950,7 +2999,7 @@
          <button class="dlv-map-btn" id="dlv-map-btn">🗺 Xaritadan belgilash</button>
          <label class="field"><span>📍 Yoki manzilni yozing</span>
            <textarea id="dlv-address" rows="2"
-             placeholder="${esc(dcity())}, Chilonzor 9-kvartal, 25-uy, 12-xonadon"></textarea></label>
+             placeholder="${esc(dcity())}, Registon ko'chasi, 25-uy, 12-xonadon"></textarea></label>
          <p class="dlv-note">ℹ️ Kuryer faqat <b>${esc(dcity())} shahar ichida</b> ishlaydi.
            Boshqa hududda bo'lsangiz, 📦 <b>BTS Pochta</b> ni tanlang.</p>
        </div>
@@ -3132,131 +3181,263 @@
     coGo(3);
   }
 
-  /* ------------------------------------------------- 3-qadam: to'lov */
+  /* ==================================================================
+     3-QADAM: TO'LOV
+
+     NEGA QAYTA YOZILDI
+     Ilgari bu qadam IKKI ekranga bo'lingan edi: avval uch usul ro'yxati,
+     usulni bosgach butun ro'yxat YASHIRILIB o'rniga tafsilot chiqardi va
+     «‹ Boshqa usul» tugmasi paydo bo'lardi. Muammolari:
+
+       • mijoz qayerda turganini yo'qotardi (ro'yxat ko'rinmay qolardi);
+       • usulni almashtirish uchun orqaga qaytish kerak edi;
+       • buyurtmani yuboradigan joy IKKI xil bo'lgan: «Naqd» ro'yxatda,
+         «To'ladim» esa tafsilot ichida — ya'ni bir xil ish ikki xil
+         tugmada;
+       • summa tafsilot ichida yana bir marta takrorlanardi.
+
+     Endi BITTA ekran, tepadan pastga bitta oqim:
+
+       1) yetkazib berish eslatmasi — bosilsa 2-qadamga qaytaradi;
+       2) SUMMA — eng katta element (mijozning asosiy savoli);
+       3) uch usul iOS «grouped list» ko'rinishida, tanlangani belgilanadi;
+       4) tanlangan usulning tafsiloti O'SHA YERDA, ro'yxat ostida
+          ochiladi — hech narsa yashirilmaydi;
+       5) pastda YAKKA tugma: nima bo'lishini aniq yozadi.
+     ================================================================== */
+
+  /** To'lov usullari — yagona lug'at.
+   *
+   *  `label`  — buyurtmaga yoziladigan nom (admin shu matnni ko'radi);
+   *  `cta`    — pastdagi yakka tugma matni;
+   *  `chat`   — yuborilgandan keyin admin chati ochilsinmi (chek uchun).
+   *             Faqat kartada kerak: admin to'lovni tekshirishi shart. */
+  const PAY_METHODS = {
+    card: {
+      icon: "💳",
+      title: "Karta orqali o'tkazma",
+      sub: "Uzcard / Humo",
+      label: "Karta orqali o'tkazma",
+      cta: "✓ To'lovni yubordim",
+      note: "🛡 Admin to'lovni tekshirgach buyurtma tasdiqlanadi.",
+      chat: true,
+    },
+    app: {
+      icon: "📱",
+      title: "Payme yoki Click",
+      sub: "Ilova orqali o'tkazma",
+      label: "Ilova orqali (Payme/Click)",
+      cta: "✓ To'lovni yubordim",
+      note: "🛡 Admin to'lovni tekshirgach buyurtma tasdiqlanadi.",
+      chat: false,
+    },
+    cash: {
+      icon: "💵",
+      title: "Naqd pul",
+      sub: "Tovarni olganda to'laysiz",
+      label: "Naqd pul (yetkazilganda)",
+      cta: "Buyurtmani tasdiqlash",
+      note: "💵 To'lovni kuryerga tovarni qo'lga olganda berasiz.",
+      chat: false,
+    },
+  };
+
+  /** Yetkazib berish eslatmasi — bosiladi (2-qadamga qaytaradi).
+   *  Xarita havolasi va ko'p qatorlilik tozalanadi: uzun URL bu yerda
+   *  faqat xalaqit beradi. */
+  function payRecap() {
+    if (!S.delivery) return "";
+    const isBts = S.delivery.method === "bts";
+    const txt = moClean(S.delivery.summary || S.delivery.address || "");
+    return (
+      '<button class="pz-recap" id="pz-recap">' +
+      '<span class="pz-recap-ic">' + (isBts ? "📦" : "🚖") + "</span>" +
+      '<span class="pz-recap-tx"><small>Yetkazib berish</small>' +
+      "<b>" + esc(txt) + "</b></span>" +
+      '<span class="pz-recap-go">O\'zgartirish</span>' +
+      "</button>"
+    );
+  }
+
+  function payHero(sum) {
+    const n = S.cart.reduce((s, i) => s + i.qty, 0);
+    const free = sum >= FREE_DELIVERY_TARGET;
+    return (
+      '<div class="pz-hero">' +
+      "<small>To'lov summasi</small>" +
+      '<b id="pz-sum">' + esc(fmt(sum)) + "</b>" +
+      "<span>" + n + " dona mahsulot" +
+      (free ? " · 🚚 yetkazish bepul" : "") + "</span></div>"
+    );
+  }
+
+  function payRow(kind) {
+    const m = PAY_METHODS[kind];
+    return (
+      '<button class="pz-row" id="pz-row-' + kind + '" data-pay="' + kind + '">' +
+      '<span class="pz-radio"></span>' +
+      '<span class="pz-ic pz-ic-' + kind + '">' + m.icon + "</span>" +
+      '<span class="pz-tx"><b>' + esc(m.title) + "</b>" +
+      "<small>" + esc(m.sub) + "</small></span></button>"
+    );
+  }
+
   function coStepPayment() {
     const sum = cartSum();
     const isBts = S.delivery && S.delivery.method === "bts";
+
+    /* BTS Pochta oldindan to'lov talab qiladi — naqd mumkin emas.
+       Mijoz 2-qadamga qaytib usulni BTS ga o'zgartirgan bo'lishi mumkin,
+       shuning uchun eskirgan tanlov shu yerda tozalanadi (aks holda
+       «Naqd» tanlangan holatda qolib, tugma ishlab ketardi). */
+    if (isBts && S.payMethod === "cash") S.payMethod = null;
+
+    const rows = isBts ? ["card", "app"] : ["card", "app", "cash"];
+
     $("co-body").innerHTML =
-      /* Tanlangan yetkazib berish usuli ko'rinib turadi — mijoz to'lash
-         oldidan qayerga kelishini yana bir bor tekshiradi. */
-      (S.delivery
-        ? '<div class="co-recap"><span>' +
-          (isBts ? "📦" : "🚖") +
-          "</span><b>" +
-          esc(S.delivery.summary || S.delivery.address || "") +
-          "</b></div>"
+      payRecap() +
+      payHero(sum) +
+      '<div class="pz-label">To\'lov usulini tanlang</div>' +
+      '<div class="pz-group">' + rows.map(payRow).join("") + "</div>" +
+      (isBts
+        ? '<p class="pz-note">ℹ️ BTS Pochta orqali yuborishdan oldin to\'lov ' +
+          "qilinadi — shu sababli «Naqd» mavjud emas.</p>"
         : "") +
-      `<div class="pay-total">
-         <div><small>To'lov summasi</small><b>${esc(fmt(sum))}</b></div>
-         <span class="pay-total-ico">🛒</span>
-       </div>
-       <div id="pay-options">
-         <button class="pay-card" id="pay-card">
-           <span class="pay-ico blue">💳</span>
-           <span class="pay-txt"><b>Karta orqali o'tkazma</b><small>Uzcard / Humo kartaga</small></span>
-           <span class="pay-go">›</span>
-         </button>
-         <button class="pay-card" id="pay-app">
-           <span class="pay-ico cyan">📱</span>
-           <span class="pay-txt"><b>Ilova orqali to'lash</b><small>Payme, Click yoki boshqa</small></span>
-           <span class="pay-go">›</span>
-         </button>
-         <button class="pay-card${isBts ? " hidden" : ""}" id="pay-cash">
-           <span class="pay-ico green">💵</span>
-           <span class="pay-txt"><b>Naqd pul</b><small>Tovar kelganda to'laysiz</small></span>
-           <span class="pay-go">›</span>
-         </button>
-         ${
-           isBts
-             ? '<p class="dlv-note">ℹ️ BTS Pochta orqali yuborishdan oldin to\'lov qilinadi — shuning uchun "Naqd" mavjud emas.</p>'
-             : ""
-         }
-       </div>
-       <div id="pay-detail" class="hidden"></div>`;
-    $("pay-card").onclick = () => showPayDetail("card");
-    $("pay-app").onclick = () => showPayDetail("app");
-    const cash = $("pay-cash");
-    if (cash) cash.onclick = payCash;
+      '<div class="pz-panel" id="pz-panel"><div class="pz-panel-in" id="pz-panel-in"></div></div>' +
+      '<div class="pz-cta-wrap">' +
+      '<button class="btn btn-primary pz-cta" id="pz-cta" disabled>Usulni tanlang</button>' +
+      '<p class="pz-cta-note" id="pz-cta-note">Usulni tanlaganingizdan keyin davom etamiz.</p>' +
+      "</div>";
+
+    const recap = $("pz-recap");
+    if (recap) recap.onclick = () => coGo(2);
+    rows.forEach((k) => {
+      $("pz-row-" + k).onclick = () => pickPay(k);
+    });
+    $("pz-cta").onclick = payConfirm;
+
+    // Summa 0 dan sanab chiqadi — qadam «tirik» bo'lib ochiladi
+    animateNum("pz-sum", sum, (v) => fmt(v));
+
+    /* Mijoz to'lovga qaytib kelsa (masalan manzilni tuzatib), avval
+       tanlagan usuli JOYIDA qoladi — qaytadan tanlashi shart emas. */
+    if (S.payMethod && rows.indexOf(S.payMethod) !== -1) pickPay(S.payMethod, true);
+  }
+
+  /** Usulni tanlash: belgi, tafsilot va pastdagi tugma birga yangilanadi. */
+  function pickPay(kind, silent) {
+    const m = PAY_METHODS[kind];
+    if (!m) return;
+    S.payMethod = kind;
+    if (!silent) haptic("selection");
+
+    document.querySelectorAll(".pz-row").forEach((r) => {
+      r.classList.toggle("is-on", r.dataset.pay === kind);
+    });
+    renderPayPanel(kind);
+
+    const cta = $("pz-cta");
+    if (cta) {
+      cta.disabled = false;
+      cta.textContent = m.cta;
+    }
+    const note = $("pz-cta-note");
+    if (note) note.textContent = m.note;
+  }
+
+  /** Tanlangan usulning tafsiloti.
+   *
+   *  Balandlik JS dan beriladi (`max-height`), so'ng cheklov olib
+   *  tashlanadi — kontent qanchalik uzun bo'lsa ham qirqilmaydi. Usul
+   *  almashtirilganda panel allaqachon ochiq, shuning uchun balandlik
+   *  erkin qoldiriladi (aks holda yangi matn eski o'lchamga sig'masdi). */
+  function renderPayPanel(kind) {
+    const panel = $("pz-panel");
+    const box = $("pz-panel-in");
+    if (!panel || !box) return;
+
+    const sum = cartSum();
+    const card = (S.pay && S.pay.card) || "";
+    const holder = (S.pay && S.pay.holder) || "";
+
+    if (kind === "cash") {
+      box.innerHTML =
+        '<div class="pz-info"><b>💵 ' + esc(fmt(sum)) + "</b>" +
+        "<small>Kuryer tovarni keltirganda naqd to'laysiz. Iltimos, summani " +
+        "aniq tayyorlab turing — kuryerda qaytim bo'lmasligi mumkin.</small></div>";
+    } else if (!card) {
+      /* Rekvizitlar serverdan kelmagan. YOLG'ON karta ko'rsatmaymiz —
+         mijoz bo'sh raqamga pul o'tkazishga urinishi mumkin edi. */
+      box.innerHTML =
+        '<div class="pz-info is-warn"><b>⚠️ Karta rekvizitlari yuklanmadi</b>' +
+        "<small>Internetni tekshirib ilovani yangilang yoki «Naqd» usulini " +
+        "tanlang.</small></div>";
+    } else {
+      const steps =
+        kind === "card"
+          ? [
+              "Karta raqamini <b>nusxalang</b>",
+              "Bank ilovangizda <b>" + esc(fmt(sum)) + "</b> o'tkazing",
+              "Pastdagi <b>«To'lovni yubordim»</b> tugmasini bosing",
+            ]
+          : [
+              "<b>Payme</b> yoki <b>Click</b> ni ochib, shu kartaga <b>" +
+                esc(fmt(sum)) + "</b> o'tkazing",
+              "So'ng <b>«To'lovni yubordim»</b> tugmasini bosing",
+            ];
+
+      box.innerHTML =
+        '<div class="pz-card">' +
+        '<div class="pz-card-top"><span class="pz-card-chip"></span><em>UZCARD</em></div>' +
+        '<div class="pz-card-num" id="pz-card-num">' + esc(card) + "</div>" +
+        '<div class="pz-card-foot"><span>' + esc(holder || "—") + "</span>" +
+        '<button class="pz-copy" id="pz-copy">📋 Nusxalash</button></div></div>' +
+        /* O'tkaziladigan summa kartaning YONIDA yana bir marta turadi.
+           Tepadagi summa skroll qilinganda ko'rinmay qoladi, mijoz esa
+           bank ilovasiga o'tishdan oldin aynan shu raqamni yozadi. */
+        '<div class="pz-amount"><small>O\'tkaziladigan summa</small><b>' +
+        esc(fmt(sum)) + "</b></div>" +
+        (kind === "app"
+          ? '<div class="pz-apps">' +
+            '<button class="pz-app" id="pz-payme">Payme ochish</button>' +
+            '<button class="pz-app" id="pz-click">Click ochish</button></div>'
+          : "") +
+        '<ol class="pz-steps">' +
+        steps.map((s) => "<li>" + s + "</li>").join("") +
+        "</ol>";
+
+      // Raqamning o'ziga bosish ham nusxalaydi (eski odat saqlanadi)
+      const num = $("pz-card-num");
+      if (num) num.onclick = copyCard;
+      const cp = $("pz-copy");
+      if (cp) cp.onclick = copyCard;
+      const pm = $("pz-payme");
+      if (pm) pm.onclick = () => openPayApp("payme");
+      const ck = $("pz-click");
+      if (ck) ck.onclick = () => openPayApp("click");
+    }
+
+    if (panel.dataset.open === "1") {
+      // Panel allaqachon ochiq — balandlikni erkin qoldiramiz
+      panel.style.maxHeight = "none";
+      return;
+    }
+    panel.dataset.open = "1";
+    panel.style.maxHeight = (box.scrollHeight || 900) + "px";
+    clearTimeout(panel._pzT);
+    panel._pzT = setTimeout(() => {
+      panel.style.maxHeight = "none";
+    }, 420);
   }
 
   const cardDigits = () => ((S.pay && S.pay.card) || "").replace(/\s/g, "");
 
   function copyCard() {
     const digits = cardDigits();
-    const done = () => {
-      haptic("ok");
-      toast("Karta raqami nusxalandi ✅");
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(digits).then(done, () => fallbackCopy(digits, done));
-    } else {
-      fallbackCopy(digits, done);
-    }
-  }
-  function fallbackCopy(text, done) {
-    const t = el("textarea");
-    t.value = text;
-    t.style.position = "fixed";
-    t.style.opacity = "0";
-    document.body.append(t);
-    t.select();
-    try {
-      document.execCommand("copy");
-      done();
-    } catch (_) {}
-    t.remove();
-  }
-
-  function showPayDetail(kind) {
-    haptic();
-    const sum = cartSum();
-    const card = (S.pay && S.pay.card) || "";
-    const holder = (S.pay && S.pay.holder) || "";
-    const label = kind === "card" ? "Karta orqali o'tkazma" : "Ilova orqali (Payme/Click)";
-    const steps =
-      kind === "card"
-        ? `<ol class="pay-steps">
-             <li>Yuqoridagi karta raqamini <b>nusxalang</b> (raqamga bosing)</li>
-             <li>Bank ilovangizda (Apelsin, Click, Payme...) <b>pul o'tkazing</b></li>
-             <li>Pastdagi <b>«To'ladim»</b> tugmasini bosing</li>
-           </ol>`
-        : `<div class="pay-apps">
-             <button class="btn btn-ghost btn-sm" id="open-payme">Payme ochish</button>
-             <button class="btn btn-ghost btn-sm" id="open-click">Click ochish</button>
-           </div>
-           <ol class="pay-steps">
-             <li>Ilovada yuqoridagi <b>kartaga</b> summani o'tkazing</li>
-             <li>So'ng <b>«To'ladim»</b> tugmasini bosing</li>
-           </ol>`;
-
-    $("pay-options").classList.add("hidden");
-    const box = $("pay-detail");
-    box.classList.remove("hidden");
-    box.innerHTML = `
-      <button class="pay-back" id="pay-back">‹ Boshqa usul</button>
-      <div class="bank-card">
-        <div class="bank-chip"></div>
-        <div class="bank-num" id="bank-num">${esc(card)}</div>
-        <div class="bank-bottom"><span>${esc(holder)}</span><em>UZCARD</em></div>
-      </div>
-      <div class="pay-amount"><small>O'tkaziladigan summa</small><b>${esc(fmt(sum))}</b></div>
-      ${steps}
-      <button class="btn btn-primary" id="pay-done">✓ To'ladim</button>
-      <p class="pay-hint">🛡 Admin to'lovni tekshirgach buyurtma tasdiqlanadi.</p>`;
-
-    $("pay-back").onclick = () => {
-      box.classList.add("hidden");
-      box.innerHTML = "";
-      $("pay-options").classList.remove("hidden");
-    };
-    $("bank-num").onclick = copyCard;
-    $("pay-done").onclick = () => placeOrder(label, kind === "card");
-    if (kind === "app") {
-      const pm = $("open-payme");
-      const ck = $("open-click");
-      if (pm) pm.onclick = () => openPayApp("payme");
-      if (ck) ck.onclick = () => openPayApp("click");
-    }
+    if (!digits) return toast("Karta raqami yuklanmadi");
+    // `copyText` ikki yo'lni biladi: `navigator.clipboard` va zaxira
+    // `execCommand` (Telegram WebView'da birinchisi har doim ishlamaydi).
+    copyText(digits, "📋 Karta raqami nusxalandi");
   }
 
   function openPayApp(provider) {
@@ -3265,21 +3446,31 @@
       provider === "payme"
         ? "https://payme.uz/home/main"
         : "https://my.click.uz/app/transfer";
-    try {
-      tg.openLink(url);
-    } catch (_) {
-      window.open(url, "_blank");
-    }
+    openExternal(url);
     toast((provider === "payme" ? "Payme" : "Click") + " ochildi. Kartaga o'tkazing!");
   }
 
-  function payCash() {
-    const sum = cartSum();
-    ask(
-      `Buyurtmani tasdiqlaysizmi?\n\nJami: ${fmt(sum)}\nTo'lov: Naqd pul (yetkazilganda)`
-    ).then((ok) => {
-      if (ok) placeOrder("Naqd pul (yetkazilganda)", false);
-    });
+  /** Yakka tugma: tanlangan usulga qarab buyurtmani yuboradi.
+   *
+   *  Tasdiq oynasi FAQAT pul o'tkazma usullarida so'raladi. Sabab: mijoz
+   *  «to'ladim» deb da'vo qilyapti va admin buni tekshirishga vaqt
+   *  sarflaydi — noto'g'ri bosilishi qimmatga tushadi. Naqdda esa hali
+   *  hech qanday pul harakati yo'q, ortiqcha oyna faqat xalaqit beradi
+   *  (ilgari aynan teskari edi: naqdda so'rardi, kartada — yo'q). */
+  async function payConfirm() {
+    const kind = S.payMethod;
+    const m = PAY_METHODS[kind];
+    if (!m) return toast("To'lov usulini tanlang");
+
+    if (kind !== "cash") {
+      const ok = await ask(
+        "To'lovni amalga oshirdingizmi?\n\n" +
+          "Summa: " + fmt(cartSum()) + "\n\n" +
+          "Admin to'lovni tekshirib buyurtmani tasdiqlaydi."
+      );
+      if (!ok) return;
+    }
+    placeOrder(m.label, !!m.chat);
   }
 
   /** Yakuniy qadam: buyurtmani yuboradi.
@@ -3346,6 +3537,7 @@
         renderCart();
         S.delivery = null;
         S.dlvMethod = null;
+        S.payMethod = null;
         S.coStep = 1; // rasmiylashtirish oynasi keyingi safar 1-qadamdan
         haptic("ok");
         closeSheet();
@@ -4470,8 +4662,11 @@
       document.body.removeChild(ta);
       if (ok) return done();
     } catch (_) {}
-    // Nusxalab bo'lmasa — hech bo'lmasa ko'rsatamiz, mijoz qo'lda oladi
-    toast(String(text), 5000);
+    /* Ikki yo'l ham ishlamadi (ba'zi WebView'larda almashish buferi
+       umuman berilmaydi). Oxirgi chora — matnni EKRANDA ko'rsatamiz:
+       mijoz uni qo'lda ko'chirib yozadi. Jim qolish eng yomon variant
+       bo'lardi: tugma bosildi, lekin hech narsa bo'lmadi. */
+    toast("Nusxalanmadi, qo'lda yozib oling: " + String(text), 6000);
   }
 
   /** Tashqi havolani ochish (xarita). Telegram'da `openLink` ishlatiladi. */
@@ -4740,13 +4935,16 @@
     haptic();
     openSheet(
       "🛡 Kafolat va yetkazib berish",
+      /* DIQQAT: «7 kun ichida qaytarish» bandi ATAYLAB OLIB TASHLANGAN.
+         Bunday shart amalda berilmaydi — yozib qo'yilsa mijoz talab
+         qilishga haqli bo'ladi va bu nizoga olib keladi. */
       `<div class="trust-list">
-         <div class="trust-item"><i>🛡</i><div><b>1 yil kafolat</b>
-           <small>Barcha Bi-LED o'rnatishlarga rasmiy kafolat beriladi.</small></div></div>
-         <div class="trust-item"><i>🚚</i><div><b>Tez yetkazib berish</b>
-           <small>Kuryer (shahar ichida) yoki BTS Pochta (butun O'zbekiston).</small></div></div>
-         <div class="trust-item"><i>↩️</i><div><b>7 kun ichida qaytarish</b>
-           <small>Tovar mos kelmasa 7 kun ichida qaytarib berasiz.</small></div></div>
+         <div class="trust-item"><i>🛡</i><div><b>Kafolat</b>
+           <small>Bi-LED o'rnatishga 1 yil. Do'kon tovarlarida kafolat
+             muddati har tovarning kartochkasida ko'rsatilgan.</small></div></div>
+         <div class="trust-item"><i>🚚</i><div><b>Yetkazib berish</b>
+           <small>Kuryer — ${esc(dcity())} shahar ichida. Boshqa hududlarga
+             BTS Pochta orqali (butun O'zbekiston).</small></div></div>
          <div class="trust-item"><i>🔧</i><div><b>Professional o'rnatish</b>
            <small>Tajribali ustalar va zamonaviy uskunalar bilan.</small></div></div>
        </div>`
@@ -5235,7 +5433,7 @@
         card: cfg.pay_card_number || "",
         holder: cfg.pay_card_holder || "",
         admin: cfg.pay_admin_username || "",
-        city: cfg.delivery_city || "Toshkent",
+        city: cfg.delivery_city || "Samarqand",
       };
       S.me = me;
       // Mijozni tanib qolish uchun keshlaymiz — server o'chganda ismi,
@@ -5292,7 +5490,7 @@
       S.offline = true;
       S.home = null; // loadHome() zanjirdan oladi
       S.currency = offlineConfig().currency;
-      S.pay = { card: "", holder: "", admin: "", city: "Toshkent" };
+      S.pay = { card: "", holder: "", admin: "", city: "Samarqand" };
       S.me = offlineMe();
       scheduleServerRecheck();
     }
@@ -6299,16 +6497,30 @@
     
     $("pm-desc").textContent = product.description || "";
     
-    // Specs (agar bo'lsa)
+    /* XUSUSIYATLAR JADVALI
+       Ilgari bu blok FAQAT `product.specs` ni o'qirdi, lekin bunday maydonni
+       hech kim yaratmaydi (na admin formasi, na Firebase, na API) — ya'ni
+       jadval HAR DOIM BO'SH turardi. Endi haqiqiy maydonlardan yig'iladi;
+       `specs` bo'lsa u ham qo'shiladi (kelajakda kerak bo'lsa). */
     const specs = $("pm-specs");
     specs.innerHTML = "";
+    const rows = [];
+    if (product.warranty) rows.push(["🛡 Kafolat", product.warranty]);
+    if (product.code) rows.push(["🔖 Artikul", product.code]);
+    if (product._cat) rows.push(["🗂 Turkum", product._cat]);
+    if (product.car_name) rows.push(["🚗 Mashina", product.car_name]);
     if (product.specs && typeof product.specs === "object") {
       Object.entries(product.specs).forEach(([key, val]) => {
-        const row = el("div", "pm-spec-row");
-        row.innerHTML = `<span class="pm-spec-label">${esc(key)}</span><span class="pm-spec-value">${esc(val)}</span>`;
-        specs.appendChild(row);
+        if (val) rows.push([key, val]);
       });
     }
+    rows.forEach(([key, val]) => {
+      const row = el("div", "pm-spec-row");
+      row.innerHTML =
+        `<span class="pm-spec-label">${esc(key)}</span>` +
+        `<span class="pm-spec-value">${esc(val)}</span>`;
+      specs.appendChild(row);
+    });
     
     // Yoqtirgan tugmasi
     const wishBtn = $("pm-wishlist");
@@ -6770,6 +6982,7 @@
         renderCart();
         S.delivery = null;
         S.dlvMethod = null;
+        S.payMethod = null;
         S.coStep = 1; // rasmiylashtirish oynasi keyingi safar 1-qadamdan
         haptic("ok");
         closeSheet();
