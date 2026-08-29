@@ -114,6 +114,34 @@
  ],
  "catalog": [
   {
+   "id": 3,
+   "name": "Fara uchun materiallar",
+   "icon": "🧰",
+   "products": [
+    {
+     "id": 900007,
+     "name": "RGB maska. BMW dizaynda",
+     "description": null,
+     "price": 280000,
+     "old_price": 320000,
+     "badge": "Bmw dizayn",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "320 000 so'm",
+     "photo_url": "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+      "https://i.ibb.co/LhxP0J6s/c297be27206b.jpg"
+     ]
+    }
+   ]
+  },
+  {
    "id": 1,
    "name": "Lampalar",
    "icon": "💡",
