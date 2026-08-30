@@ -20,6 +20,7 @@ import time
 from datetime import UTC, datetime
 
 from config import config, remove_runtime_admin, set_runtime_admins
+from database import db
 from database import queries as q
 from services import firebase
 
@@ -1460,6 +1461,23 @@ async def initial_sync(bot=None) -> None:
         # o'z-o'zidan «to'lib» ketardi va yo'q tovar sotuvda turardi.
         # ============================================================
         await import_pending_orders(bot)
+
+        # ============================================================
+        #  DO'KON BO'LIMLARINI TARTIBGA SOLISH — `restore_catalog()` DAN KEYIN
+        #
+        #  `restore_catalog()` bulutdan yozuvlarni tiklaydi va bulutda
+        #  ESKI bo'lim nomlari qolgan bo'lishi mumkin («DRL va lentalar»
+        #  kabi). Ular tiklanib, do'konda ortiqcha chip bo'lib chiqardi.
+        #
+        #  Shu sababli normalizatsiya IKKI marta chaqiriladi: `init_db()`
+        #  da va shu yerda. Funksiya idempotent, ya'ni ikkinchi chaqiruv
+        #  hech narsani buzmaydi. Undan keyin `push_all_catalog()` yangi
+        #  nomlarni bulutga yozadi va bulut ham tozalanadi.
+        # ============================================================
+        try:
+            await db.normalize_shop_categories()
+        except Exception as error:  # noqa: BLE001 — sinxronizatsiya to'xtamasin
+            logger.warning("Do'kon bo'limlari tartibga solinmadi: %s", error)
 
         # …va TESKARI yo'nalish: mahalliy katalogni butunlay bulutga yozamiz.
         # Bu qator bo'lmasa `{root}/catalog` da faqat admin qo'l tekkizgan

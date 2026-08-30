@@ -170,6 +170,10 @@ class Config:
     pay_card_number: str
     pay_card_holder: str
     pay_admin_username: str
+    # Do'kon telefon raqami — «Biz bilan aloqa» da qo'ng'iroq tugmasi
+    # uchun. Maxfiy emas (mijozga ko'rsatiladi), lekin env'da turadi:
+    # raqam o'zgarganda kodni qayta deploy qilish kerak bo'lmasin.
+    shop_phone: str
     delivery_city: str
     # Bulutda uxlab qolmaslik uchun o'ziga ping yuborish
     keep_alive_url: str
@@ -273,7 +277,14 @@ config = Config(
     # ishga tushishda ogohlantirish yoziladi (pastda).
     pay_card_number=os.getenv("PAY_CARD_NUMBER", "").strip(),
     pay_card_holder=os.getenv("PAY_CARD_HOLDER", "").strip(),
-    pay_admin_username=os.getenv("PAY_ADMIN_USERNAME", "").strip().lstrip("@"),
+    # `PAY_ADMIN_USERNAME` bo'sh bo'lsa `SHOP_TELEGRAM` ishlatiladi: ikkisi
+    # ham bir xil odam (chek shu chatga yuboriladi). Shu tufayli faqat
+    # bittasini sozlash yetarli va «chek kimga ketadi?» degan holat
+    # yuzaga kelmaydi.
+    pay_admin_username=(
+        os.getenv("PAY_ADMIN_USERNAME") or os.getenv("SHOP_TELEGRAM") or ""
+    ).strip().lstrip("@"),
+    shop_phone=os.getenv("SHOP_PHONE", "").strip(),
     # Kuryer faqat shu shahar ichida ishlaydi (BTS pochta — boshqa hududlarga).
     delivery_city=os.getenv("DELIVERY_CITY", "Samarqand").strip(),
     # ---- Uyg'oq turish (self-ping) ----

@@ -75,6 +75,14 @@ window.ZIMMER_CONFIG = {
   /* Zaxira rejimda buyurtma berish mumkin emas (ombor kamaytirish va
      adminga xabar serverni talab qiladi). Shu sababli mijozga to'g'ridan
      aloqa yo'li ko'rsatiladi. */
-  SHOP_TELEGRAM: "anvaraxtamov2004",
-  SHOP_PHONE: "+998 88 289 30 30",
+  /* Do'konning aloqa ma'lumotlari.
+   *
+   *  Bu qiymatlar UCH joyda ishlatiladi: «Biz bilan aloqa» oynasi,
+   *  to'lov cheki yuboriladigan chat va zaxira rejimdagi xabar.
+   *
+   *  Server (`/api/config`) o'z qiymatini bersa u USTUN turadi —
+   *  Render'dagi `SHOP_TELEGRAM` / `SHOP_PHONE` / `PAY_ADMIN_USERNAME`.
+   *  Bu yerdagilar zaxira: Render uxlaganda ham aloqa yo'li ko'rinadi. */
+  SHOP_TELEGRAM: "Mehroj088",
+  SHOP_PHONE: "+998 95 370 74 71",
 };

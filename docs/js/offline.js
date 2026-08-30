@@ -572,6 +572,11 @@
           id: cat.id != null ? cat.id : key,
           name: key,
           icon: cat.icon || null,
+          /* `sort` — filtr chiplarining TARTIBI. Server ham shu maydonni
+             yuboradi (`queries.get_catalog`); bulut yo'lida ham bo'lishi
+             kerak, aks holda Render uxlaganda chiplar boshqa tartibda
+             ko'rinardi. */
+          sort: Number(cat.sort) || 0,
           products: [],
         };
         groups.push(index[key]);

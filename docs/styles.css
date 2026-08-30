@@ -2176,7 +2176,70 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .pf-menu-item.danger { border-color: rgba(255, 45, 58, 0.28); }
 .pf-menu-item.danger .left, .pf-menu-item.danger em { color: var(--red); }
 
+/* Qidiruv «aynan topilmadi, o'xshashlar» ogohlantirishi */
+.shop-hint {
+  margin: 0 0 10px; padding: 9px 12px; border-radius: 12px;
+  background: rgba(255, 176, 32, 0.09);
+  border: 1px solid rgba(255, 176, 32, 0.24);
+  font-size: 11.5px; color: var(--amber); line-height: 1.45;
+}
+
 .contact-rows { margin-top: 14px; }
+
+/* ==========================================================================
+   BIZ BILAN ALOQA — telefon va qo'ng'iroq
+
+   Telefon BIRINCHI o'rinda: mijoz uchun eng tez yo'l. Yozib olish emas,
+   BIR BOSISHDA qo'ng'iroq qiladi (`tel:` havolasi).
+   ========================================================================== */
+.ct-phone {
+  display: flex; align-items: center; gap: 10px;
+  margin: 12px 0 10px; padding: 13px 14px; border-radius: 16px;
+  /* Yashil — `--green: #2fd45f` (loyihaning «hammasi joyida» rangi) */
+  background: linear-gradient(150deg, rgba(47, 212, 95, 0.11), rgba(0, 0, 0, 0.24));
+  border: 1px solid rgba(47, 212, 95, 0.28);
+}
+.ct-phone-tx { flex: 1; min-width: 0; }
+.ct-phone-tx small {
+  display: block; font-size: 10px; font-weight: 700; color: var(--muted);
+  letter-spacing: 0.4px; text-transform: uppercase;
+}
+.ct-phone-tx b {
+  display: block; margin-top: 3px; font-size: 17px; font-weight: 900;
+  color: #fff; letter-spacing: 0.2px;
+  /* Raqam bo'linib ketmasin */
+  white-space: nowrap;
+}
+.ct-phone-acts { display: flex; gap: 6px; flex: none; }
+.ct-call {
+  display: flex; align-items: center; gap: 5px;
+  padding: 10px 13px; border-radius: 12px;
+  background: var(--green); color: #06210c;
+  border: none; font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  box-shadow: 0 5px 16px rgba(47, 212, 95, 0.26);
+  transition: transform 0.15s var(--silk);
+}
+.ct-call:active { transform: scale(0.95); }
+.ct-copy {
+  width: 40px; padding: 0; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--muted); font-size: 14px;
+  transition: transform 0.15s var(--silk), color 0.2s;
+}
+.ct-copy:active { transform: scale(0.92); }
+.ct-tg { width: 100%; }
+
+/* Kichik ekranda raqam va tugma bir qatorga sig'masligi mumkin */
+@media (max-width: 359px) {
+  .ct-phone { flex-wrap: wrap; }
+  .ct-phone-acts { width: 100%; }
+  .ct-call { flex: 1; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-call, .ct-copy { transition: none; }
+  .ct-call:active, .ct-copy:active { transform: none; }
+}
 .trust-list { display: grid; gap: 12px; }
 .trust-item {
   display: flex; gap: 13px; align-items: flex-start; padding: 13px 14px;
