@@ -63,6 +63,13 @@
     favLoaded: false, // saqlanganlar serverdan olindimi (Firebase manbasida)
     catIndex: 0,
     shopCat: null, // tanlangan kategoriya (null = hammasi)
+    /* Do'kon qidiruvi va saralash.
+       Ilgari ilovada tovar qidiruvi UMUMAN yo'q edi va tartib qattiq
+       «yangi id avval» bo'lardi. */
+    shopQ: "", // qidiruv matni
+    shopSort: "new", // new | cheap | dear | name
+    shopMyCar: false, // faqat mashinamga mos
+    shopInStock: false, // faqat omborda bor
     cart: loadCart(),
     rings: [], // halqalar (kategoriyalar)
     ringIndex: 0, // joriy halqa
@@ -618,13 +625,7 @@
     // TOVAR boshqaruvi HAR DOIM `ZimmerShop` (brauzerdan to'g'ridan
     // `catalog/products` ga — Avto_A1 modeli). Render bor yoki yo'q,
     // farqi yo'q: yagona manba, yagona dizayn, chalkashlik yo'q.
-    if (page === "admin") {
-      if (window.ZimmerShop) {
-        window.ZimmerShop.open();
-      } else if (window.ZimmerAdmin) {
-        window.ZimmerAdmin.open();
-      }
-    }
+    if (page === "admin") openAdminPanel();
     if (page !== "flow") stopVideos();
 
     // Banner taymeri faqat bosh sahifada kerak — boshqa joyda to'xtatiladi
@@ -640,6 +641,42 @@
     window.scrollTo({ top: saved, behavior: "auto" });
 
     syncBackButton();
+  }
+
+  /** Admin panelini ochadi: kerak bo'lsa avval kodini yuklaydi.
+   *
+   *  Ilgari admin to'plami `index.html` da har bir mijozga yuklanardi va
+   *  bu yerda shunchaki `window.ZimmerShop.open()` chaqirilardi. Endi kod
+   *  faqat shu lahzada keladi, shuning uchun ochilish ASINXRON. */
+  async function openAdminPanel() {
+    const box = $("admin");
+    // Yuklanish davomida bo'sh ekran ko'rinmasin
+    if (box && !window.ZimmerShop && !window.ZimmerAdmin) {
+      box.innerHTML =
+        '<div class="skeleton" style="height:120px;margin-bottom:12px"></div>' +
+        '<div class="skeleton" style="height:220px"></div>';
+    }
+    try {
+      await ensureAdminBundle();
+    } catch (err) {
+      console.error("[admin] panel yuklanmadi:", err);
+      if (box) {
+        box.innerHTML = "";
+        box.append(
+          el(
+            "p",
+            "empty",
+            "Boshqaruv paneli yuklanmadi. Internetni tekshirib, qaytadan urinib ko'ring."
+          )
+        );
+      }
+      return;
+    }
+    // Foydalanuvchi shu orada boshqa bo'limga o'tib ketgan bo'lishi mumkin
+    if (S.page !== "admin") return;
+    if (box) box.innerHTML = "";
+    if (window.ZimmerShop) window.ZimmerShop.open();
+    else if (window.ZimmerAdmin) window.ZimmerAdmin.open();
   }
 
   function syncBackButton() {
@@ -1776,6 +1813,67 @@
 
   const fbOk = () => !!(window.ZimmerFB && window.ZimmerFB.available());
 
+  /* ====================================================================
+     TALAB BO'YICHA SKRIPT YUKLASH (lazy load)
+
+     NEGA KERAK. `index.html` ilgari 12 ta skriptni BLOKLAB yuklardi va
+     ularning ichida 231 KB ADMIN kodi bor edi — u faqat 3-4 admin uchun
+     kerak, lekin HAR BIR MIJOZ yuklab olardi. Ustiga `bts.js` — 61 KB
+     bitta satrdagi JSON (barcha pochta filiallari), u esa faqat
+     rasmiylashtirishda «BTS Pochta» tanlansa ishlatiladi.
+
+     Endi ular kerak bo'lganda yuklanadi. Har bir fayl BIR MARTA
+     yuklanadi: takror chaqiruv o'sha Promise'ni qaytaradi.
+     ==================================================================== */
+
+  const SCRIPT_VERSION = "59"; // index.html dagi `?v=` bilan bir xil bo'lsin
+  const _scripts = new Map();
+
+  function loadScript(src) {
+    if (_scripts.has(src)) return _scripts.get(src);
+
+    const promise = new Promise((resolve, reject) => {
+      const node = document.createElement("script");
+      node.src = `${src}?v=${SCRIPT_VERSION}`;
+      node.async = false; // tartib saqlanadi (bir nechta chaqirilsa muhim)
+      node.onload = () => resolve(src);
+      node.onerror = () => {
+        // Muvaffaqiyatsiz yuklashni KESHDA QOLDIRMAYMIZ — mijoz qayta
+        // urinib ko'rishi mumkin (tarmoq tiklanishi mumkin).
+        _scripts.delete(src);
+        reject(new Error(`Yuklanmadi: ${src}`));
+      };
+      document.body.appendChild(node);
+    });
+
+    _scripts.set(src, promise);
+    return promise;
+  }
+
+  /** Admin panel to'plami (231 KB) — faqat admin ochganda yuklanadi.
+   *  Tartib MUHIM: `admin-crm.js` buyurtmalar quvurini `admin-shop.js`
+   *  dan oladi, shuning uchun ketma-ket yuklanadi. */
+  let _adminBundle = null;
+  function ensureAdminBundle() {
+    if (_adminBundle) return _adminBundle;
+    _adminBundle = (async () => {
+      await loadScript("js/admin.js");
+      await loadScript("js/admin-shop.js");
+      await loadScript("js/admin-crm.js");
+      await loadScript("js/admin-stories.js");
+    })().catch((err) => {
+      _adminBundle = null; // qayta urinishga imkon beramiz
+      throw err;
+    });
+    return _adminBundle;
+  }
+
+  /** BTS pochta filiallari (61 KB) — «BTS Pochta» tanlanganda yuklanadi. */
+  function ensureBts() {
+    if (window.BTS_BRANCHES) return Promise.resolve();
+    return loadScript("js/bts.js");
+  }
+
   /** "hozir" / "5 daqiqa" / "3 soat" / "2 kun oldin". */
   function storyAgo(ms) {
     const t = Number(ms) || 0;
@@ -2727,24 +2825,105 @@
          yo'q edi va narx tugma rangida yo'qolib ketardi.
      ================================================================== */
 
+  /* ==================================================================
+     QIDIRUV, FILTR VA SARALASH
+
+     Qidiruv nom, kod, brend, model va tavsif bo'yicha ishlaydi. Matn
+     "normallashtiriladi": katta-kichik harf farqi yo'q, apostrof
+     ko'rinishlari (' ’ ʻ) bir xil hisoblanadi va lotin/kirill farqi
+     ba'zi harflar uchun tenglashtiriladi — «ochki» yozgan mijoz
+     «Ochki» ni ham topadi.
+     ================================================================== */
+
+  /** Qidiruv uchun matnni solishtirishga tayyorlaydi. */
+  function normText(value) {
+    return String(value == null ? "" : value)
+      .toLowerCase()
+      .replace(/[’ʻʼ`´]/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /** Tovar qidiruv so'roviga mos keladimi. */
+  function matchesQuery(product, terms) {
+    if (!terms.length) return true;
+    const haystack = normText(
+      [
+        product.name,
+        product.code,
+        product.brand,
+        product.model,
+        product.badge,
+        product.description,
+        product.desc,
+        product._cat,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    // HAR BIR so'z topilishi kerak (ya'ni «h4 linza» ikkisini ham izlaydi)
+    return terms.every((t) => haystack.includes(t));
+  }
+
+  /** Filtrlangan va saralangan tovarlar ro'yxati. */
+  function visibleProducts() {
+    const all = S.shopProducts || [];
+    const terms = normText(S.shopQ).split(" ").filter(Boolean);
+    const myCarId = S.me && S.me.car ? S.me.car.id : null;
+
+    let list = all.filter((p) => {
+      if (S.shopCat && p._cat !== S.shopCat) return false;
+      if (S.shopInStock && stockOf(p) <= 0) return false;
+      /* «Mashinamga mos»: tovarda mashina ko'rsatilmagan bo'lsa u
+         UNIVERSAL hisoblanadi va ro'yxatda qoladi — aks holda filtr
+         katalogning yarmini behuda yashirib qo'yardi. */
+      if (S.shopMyCar && myCarId && p.car_id && Number(p.car_id) !== Number(myCarId)) {
+        return false;
+      }
+      return matchesQuery(p, terms);
+    });
+
+    const price = (p) => Number(p.price) || 0;
+    if (S.shopSort === "cheap") list = list.slice().sort((a, b) => price(a) - price(b));
+    else if (S.shopSort === "dear") list = list.slice().sort((a, b) => price(b) - price(a));
+    else if (S.shopSort === "name") {
+      list = list
+        .slice()
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uz"));
+    }
+    // "new" — `buildShopProducts()` allaqachon id bo'yicha kamayish tartibida
+
+    return list;
+  }
+
   function renderCatalog() {
     const all = S.shopProducts || [];
     renderCatChips(all);
+    syncShopTools(all);
 
-    const products = S.shopCat ? all.filter((p) => p._cat === S.shopCat) : all;
+    const products = visibleProducts();
 
     const box = $("products");
     box.innerHTML = "";
 
-    // Bo'sh holat matni: zaxira rejimda sabab boshqacha, shuni aytamiz.
+    // Bo'sh holat matni: sabab har xil bo'ladi, shuni ANIQ aytamiz —
+    // ilgari qidiruv natijasi bo'sh bo'lsa ham «bo'limda mahsulot yo'q»
+    // deb yozilardi va mijoz katalog bo'sh deb o'ylardi.
     const emptyEl = $("products-empty");
     if (emptyEl) {
-      emptyEl.textContent =
-        S.offline && (!S.home || S.home._empty)
-          ? "Katalog hozir yuklanmadi. Server uyg'onganda o'zi paydo bo'ladi."
-          : S.shopCat
-            ? "Bu turkumda hozircha mahsulot yo'q."
-            : "Bu bo'limda hozircha mahsulot yo'q.";
+      let text;
+      if (S.offline && (!S.home || S.home._empty)) {
+        text = "Katalog hozir yuklanmadi. Server uyg'onganda o'zi paydo bo'ladi.";
+      } else if (S.shopQ.trim()) {
+        text = `«${S.shopQ.trim()}» bo'yicha hech narsa topilmadi.`;
+      } else if (S.shopMyCar || S.shopInStock) {
+        text = "Tanlangan filtrlarga mos tovar yo'q. Filtrni bo'shatib ko'ring.";
+      } else if (S.shopCat) {
+        text = "Bu turkumda hozircha mahsulot yo'q.";
+      } else {
+        text = "Bu bo'limda hozircha mahsulot yo'q.";
+      }
+      emptyEl.textContent = text;
       emptyEl.classList.toggle("hidden", products.length > 0);
     }
 
@@ -2756,6 +2935,97 @@
     if (countEl) countEl.textContent = products.length ? products.length + " ta" : "";
 
     products.forEach((p) => box.append(prodCard(p)));
+  }
+
+  /** Qidiruv/filtr/saralash boshqaruvlarini holatga moslaydi. */
+  function syncShopTools(all) {
+    const tools = document.querySelector(".shop-tools");
+    if (!tools) return;
+    // Tovar juda kam bo'lsa qidiruv va filtr faqat joy egallaydi
+    tools.classList.toggle("hidden", (all || []).length < 5);
+
+    const clear = $("shop-q-clear");
+    if (clear) clear.classList.toggle("hidden", !S.shopQ);
+
+    const carBtn = $("shop-f-car");
+    if (carBtn) {
+      // Mashina tanlanmagan bo'lsa filtrning ma'nosi yo'q
+      const hasCar = !!(S.me && S.me.car && S.me.car.id);
+      carBtn.classList.toggle("hidden", !hasCar);
+      carBtn.classList.toggle("on", S.shopMyCar);
+      carBtn.setAttribute("aria-pressed", S.shopMyCar ? "true" : "false");
+      if (hasCar) carBtn.textContent = `🚗 ${S.me.car.name}`;
+    }
+
+    const stockBtn = $("shop-f-stock");
+    if (stockBtn) {
+      stockBtn.classList.toggle("on", S.shopInStock);
+      stockBtn.setAttribute("aria-pressed", S.shopInStock ? "true" : "false");
+    }
+
+    const sort = $("shop-sort");
+    if (sort && sort.value !== S.shopSort) sort.value = S.shopSort;
+  }
+
+  /** Qidiruv, filtr va saralashni bir marta bog'laydi (boot'da chaqiriladi). */
+  function bindShopTools() {
+    const input = $("shop-q");
+    if (input) {
+      /* DEBOUNCE: har harfda butun katalogni qayta chizish shart emas.
+         200 ms — yozish tugashini kutadi, lekin sezilmaydi. */
+      let timer = null;
+      input.addEventListener("input", () => {
+        S.shopQ = input.value || "";
+        const clear = $("shop-q-clear");
+        if (clear) clear.classList.toggle("hidden", !S.shopQ);
+        clearTimeout(timer);
+        timer = setTimeout(() => renderCatalog(), 200);
+      });
+      // Klaviaturadagi «qidirish» tugmasi — darhol va klaviaturani yopadi
+      input.addEventListener("change", () => {
+        clearTimeout(timer);
+        renderCatalog();
+        input.blur();
+      });
+    }
+
+    const clear = $("shop-q-clear");
+    if (clear) {
+      clear.onclick = () => {
+        haptic("light");
+        S.shopQ = "";
+        if (input) input.value = "";
+        clear.classList.add("hidden");
+        renderCatalog();
+      };
+    }
+
+    const carBtn = $("shop-f-car");
+    if (carBtn) {
+      carBtn.onclick = () => {
+        haptic("selection");
+        S.shopMyCar = !S.shopMyCar;
+        renderCatalog();
+      };
+    }
+
+    const stockBtn = $("shop-f-stock");
+    if (stockBtn) {
+      stockBtn.onclick = () => {
+        haptic("selection");
+        S.shopInStock = !S.shopInStock;
+        renderCatalog();
+      };
+    }
+
+    const sort = $("shop-sort");
+    if (sort) {
+      sort.onchange = () => {
+        haptic("selection");
+        S.shopSort = sort.value || "new";
+        renderCatalog();
+      };
+    }
   }
 
   /** Kategoriya chiplari. Ikkitadan kam turkum bo'lsa filtrning ma'nosi yo'q. */
@@ -3447,14 +3717,9 @@
 
        <button class="btn btn-primary co-cta" id="dlv-continue">To'lovga o'tish →</button>`;
 
-    const B = window.BTS_BRANCHES || {};
-    const regSel = $("bts-region");
-    Object.keys(B).forEach((r) => {
-      const o = el("option");
-      o.value = r;
-      o.textContent = r;
-      regSel.append(o);
-    });
+    /* Viloyatlar ro'yxati BU YERDA to'ldirilmaydi — `bts.js` (61 KB)
+       endi talab bo'yicha yuklanadi va u faqat «BTS Pochta» tanlanganda
+       kerak. `fillBtsRegions()` shuni qiladi (`pickDelivery` chaqiradi). */
 
     $("dlv-courier").onclick = () => pickDelivery("courier");
     $("dlv-bts").onclick = () => pickDelivery("bts");
@@ -3489,6 +3754,8 @@
     $("dlv-bts").classList.toggle("on", method === "bts");
     $("dlv-courier-box").classList.toggle("hidden", method !== "courier");
     $("dlv-bts-box").classList.toggle("hidden", method !== "bts");
+    // BTS filiallari (61 KB) faqat SHU YERDA kerak — talab bo'yicha yuklanadi
+    if (method === "bts") fillBtsRegions();
     if (method === "courier") {
       /* «Asosiy» manzil o'zi tanlanadi. Ilgari mijoz saqlangan manzillari
          bo'lsa ham har safar ro'yxatdan bosib tanlashi kerak edi — eng
@@ -3500,6 +3767,42 @@
       }
       renderCourierAddresses();
     }
+  }
+
+  /** Viloyatlar ro'yxatini to'ldiradi (kerak bo'lsa `bts.js` ni yuklaydi). */
+  async function fillBtsRegions() {
+    const regSel = $("bts-region");
+    if (!regSel || regSel.dataset.filled === "1") return;
+
+    if (!window.BTS_BRANCHES) {
+      regSel.innerHTML = '<option value="">Yuklanmoqda…</option>';
+      regSel.disabled = true;
+      try {
+        await ensureBts();
+      } catch (err) {
+        console.error("[bts] filiallar yuklanmadi:", err);
+        regSel.innerHTML = '<option value="">Yuklanmadi — qayta urinib ko\'ring</option>';
+        regSel.disabled = false;
+        return;
+      }
+    }
+
+    // Mijoz shu orada kuryerni tanlagan bo'lishi mumkin
+    if (S.dlvMethod !== "bts") {
+      regSel.disabled = false;
+      return;
+    }
+
+    const B = window.BTS_BRANCHES || {};
+    regSel.innerHTML = '<option value="">— Viloyatni tanlang —</option>';
+    Object.keys(B).forEach((r) => {
+      const o = el("option");
+      o.value = r;
+      o.textContent = r;
+      regSel.append(o);
+    });
+    regSel.disabled = false;
+    regSel.dataset.filled = "1";
   }
 
   function btsRegionChange() {
@@ -6412,6 +6715,7 @@
   if ($("offline-badge")) $("offline-badge").onclick = explainOffline;
 
   bindQuickActions(); // bosh sahifadagi tez o'tish plitkalari
+  bindShopTools(); // do'kon qidiruvi, filtrlar va saralash
 
   /* ---------------------------------------------------- XIZMATLAR bo'limi */
   /* Kartochkalar HAR chizishda qaytadan yasaladi, shuning uchun hodisa

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=58">
+  <link rel="stylesheet" href="styles.css?v=59">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -176,6 +176,46 @@
     <div class="sec-head">
       <h3 class="sec-title">🛍 Mahsulotlar</h3>
       <span class="sec-count" id="products-count"></span>
+    </div>
+    <!-- ====================================================================
+         QIDIRUV VA SARALASH
+
+         ILGARI BUTUN ILOVADA TOVAR QIDIRUVI YO'Q EDI. Mijoz faqat
+         kategoriya chiplari bilan ko'rardi: «H4 linza» kerak bo'lsa
+         qo'lda varaqlab, topmasa ketardi.
+
+         `p.car_id` bazada allaqachon bor va kartochka hatto
+         «✓ Mashinangizga mos» yozuvini CHIZARDI — lekin filtr yo'q edi.
+         ==================================================================== -->
+    <div class="shop-tools">
+      <div class="shop-search">
+        <span class="shop-search-i" aria-hidden="true">🔍</span>
+        <input
+          type="search"
+          id="shop-q"
+          placeholder="Tovar nomi yoki kodi…"
+          autocomplete="off"
+          enterkeyhint="search"
+          aria-label="Tovarlar orasidan qidirish"
+        >
+        <button class="shop-search-x hidden" id="shop-q-clear" type="button" aria-label="Qidiruvni tozalash">✕</button>
+      </div>
+      <div class="shop-filters">
+        <button class="chip chip-f" id="shop-f-car" type="button" aria-pressed="false">
+          🚗 Mashinamga mos
+        </button>
+        <button class="chip chip-f" id="shop-f-stock" type="button" aria-pressed="false">
+          ✅ Faqat bor
+        </button>
+        <label class="shop-sort">
+          <select id="shop-sort" aria-label="Saralash tartibi">
+            <option value="new">Yangi avval</option>
+            <option value="cheap">Arzon avval</option>
+            <option value="dear">Qimmat avval</option>
+            <option value="name">Nom bo'yicha</option>
+          </select>
+        </label>
+      </div>
     </div>
     <!-- Kategoriya chiplari: ilgari `renderCatalog` ularni tozalab
          YASHIRARDI, ya'ni butun katalog bitta uzun ro'yxat edi va filtr
@@ -710,28 +750,41 @@
 <div class="toast hidden" id="toast"></div>
 <div class="burst hidden" id="burst"></div>
 
-<script src="config.js?v=58"></script>
+<!-- ==========================================================================
+     SKRIPTLAR
+
+     NIMA O'ZGARDI VA NEGA
+
+     1. HAMMASIGA `defer` QO'SHILDI.
+        Ilgari 12 ta skript BLOKLAB yuklanardi — birinchi piksel
+        chizilishidan oldin ~680 KB JS kutilardi. `defer` bilan HTML
+        chizilishi to'xtamaydi, skriptlar esa BIR XIL TARTIBDA va DOM
+        tayyor bo'lgandan keyin bajariladi (ya'ni mantiq buzilmaydi).
+
+     2. ADMIN PANELI (231 KB) BU YERDA YUKLANMAYDI.
+        `admin.js` (61 KB) + `admin-shop.js` (103 KB) + `admin-crm.js`
+        (41 KB) + `admin-stories.js` (26 KB) — jami 231 KB. Ular faqat
+        3-4 admin uchun kerak, lekin HAR BIR MIJOZ yuklab olardi.
+        Admin tugmasi `me.is_admin` bo'lmasa yashirilgan, lekin kod
+        baribir tushardi.
+        Endi ular `app.js` dagi `ensureAdminBundle()` orqali, faqat
+        admin panel ochilganda yuklanadi.
+
+     3. BTS FILIALLARI (61 KB) TALAB BO'YICHA.
+        `bts.js` — bitta satrdagi katta JSON (O'zbekistondagi barcha
+        pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
+        tanlanganda kerak, lekin har ochilishda o'qilardi.
+     ========================================================================== -->
+<script defer src="config.js?v=59"></script>
+<!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
+<script defer src="js/fb.js?v=59"></script>
+<!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
+<script defer src="js/upload.js?v=59"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script src="js/fb.js?v=58"></script>
-<!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script src="js/upload.js?v=58"></script>
-<script src="js/offline.js?v=58"></script>
-<script src="js/headlight.js?v=58"></script>
-<script src="js/cars.js?v=58"></script>
-<!-- BTS pochta filiallari (yetkazib berish oynasi uchun) -->
-<script src="js/bts.js?v=58"></script>
-<!-- admin.js app.js dan OLDIN yuklanadi: app.js uni topib, admin bo'lsa yoqadi -->
-<script src="js/admin.js?v=58"></script>
-<!-- Zaxira rejim paneli: Render uxlaganda Worker orqali ishlaydi -->
-<!-- Tovar boshqaruvi: Avto_A1 dizayni, brauzerdan to'g'ridan (yagona manba) -->
-<script src="js/admin-shop.js?v=58"></script>
-<!-- Mijozlar bazasi va statistika. admin-shop.js dan KEYIN yuklanadi:
-     buyurtmalar quvurini (loadKind) va holat lug'atlarini o'sha yerdan oladi. -->
-<script src="js/admin-crm.js?v=58"></script>
-<!-- Stories boshqaruvi: qo'shish, ko'rishlar, reaksiyalar, mijoz javoblari -->
-<script src="js/admin-stories.js?v=58"></script>
-<script src="js/app.js?v=58"></script>
+<script defer src="js/offline.js?v=59"></script>
+<script defer src="js/headlight.js?v=59"></script>
+<script defer src="js/cars.js?v=59"></script>
+<script defer src="js/app.js?v=59"></script>
 </body>
 </html>

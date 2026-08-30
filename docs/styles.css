@@ -7877,3 +7877,146 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 /* O'rindiq chexol — assimetrik burchaklar (tikuv hissi) */
 .sd-hero.sd-l-fabric .sd-ic { border-radius: 22px 34px 22px 34px; }
+
+
+/* ==========================================================================
+   DO'KON: QIDIRUV, FILTR VA SARALASH
+
+   Ilgari katalogda faqat kategoriya chiplari bor edi — tovar qidiruvi
+   BUTUN ILOVADA yo'q edi va tartib qattiq «yangi avval» bo'lardi.
+   ========================================================================== */
+.shop-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 12px;
+  animation: fadeUp 0.35s ease both;
+}
+
+/* ---- qidiruv maydoni ---- */
+.shop-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.shop-search-i {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  opacity: 0.65;
+  pointer-events: none;
+}
+.shop-search input {
+  width: 100%;
+  padding: 11px 38px 11px 36px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  transition: border-color 0.18s, background 0.18s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.shop-search input::placeholder {
+  color: var(--dim);
+}
+.shop-search input:focus {
+  outline: none;
+  border-color: var(--red);
+  background: var(--surface-2);
+}
+/* Klaviatura bilan yurgan foydalanuvchi uchun ko'rinadigan belgi.
+   Ilgari butun stylesheet'da `outline: none` bor edi va o'rniga hech
+   narsa qo'yilmagan — ya'ni fokus qayerdaligi bilinmasdi. */
+.shop-search input:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+/* Brauzerning o'z «✕» belgisini olib tashlaymiz — o'zimizniki bor */
+.shop-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.shop-search-x {
+  position: absolute;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  animation: popIn 0.18s ease both;
+}
+.shop-search-x:active {
+  transform: scale(0.9);
+}
+
+/* ---- filtr va saralash qatori ---- */
+.shop-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.shop-filters::-webkit-scrollbar {
+  display: none;
+}
+.chip-f {
+  white-space: nowrap;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-sort {
+  flex: none;
+  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.shop-sort select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 9px 26px 9px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+}
+.shop-sort select:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+.shop-sort::after {
+  content: "▾";
+  position: absolute;
+  right: 11px;
+  font-size: 10px;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .chip-f {
+    max-width: 44vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-tools,
+  .shop-search-x {
+    animation: none;
+  }
+}
