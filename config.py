@@ -45,6 +45,16 @@ MIN_TELEGRAM_ID = 10_000
 
 _NUMBER_RE = re.compile(r"-?\d+")
 
+# Mini App imzosi (`initData`) qancha soat amal qiladi.
+#
+# Telegram ilova sahifasini keshlaydi va fonda qolgan ilova ERTASI KUNI
+# eski imzoni yuboradi — shu sababli muddat uzun (24 soat kam edi, mijoz
+# «tasdiqlanmadi» ekranida qolib ketardi). Imzoning o'zini qalbakilashtirib
+# bo'lmaydi (HMAC), muddat esa O'G'IRLANGAN satrni qayta ishlatishni
+# cheklaydi — shuning uchun cheksiz qoldirish mumkin emas.
+_DEFAULT_INIT_DATA_HOURS = 24 * 7
+_MAX_INIT_DATA_HOURS = 24 * 30
+
 
 def parse_ids(raw: str | None) -> list[int]:
     """Matndan Telegram ID'larini ajratib oladi — ajratgich qanday bo'lsa ham.
@@ -134,10 +144,36 @@ class Config:
     # Bulutda uxlab qolmaslik uchun o'ziga ping yuborish
     keep_alive_url: str
     keep_alive_interval: int
+    # API'ga qaysi manzillardan murojaat qilish mumkin (CORS)
+    allowed_origins_raw: str
 
     @property
     def has_mini_app(self) -> bool:
         return self.mini_app_url.startswith("https://")
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """CORS uchun ruxsat etilgan manzillar ro'yxati.
+
+        Ilgari API `Access-Control-Allow-Origin: *` qaytarardi — ya'ni
+        ISTALGAN sayt brauzerdan API'ga murojaat qila olardi. O'g'irlangan
+        `initData` satri bilan birlashganda bu butun API'ni boshqarish
+        imkonini berardi.
+
+        Standart holatda faqat Mini App joylashgan manzil ruxsat etiladi
+        (`MINI_APP_URL` dan olinadi). `ALLOWED_ORIGINS` env orqali
+        qo'shimcha manzil berish mumkin; `*` — eski xatti-harakat.
+        """
+        raw = self.allowed_origins_raw.strip()
+        if raw:
+            return [item.strip() for item in raw.split(",") if item.strip()]
+
+        # MINI_APP_URL dan manzil (scheme + host) ajratib olamiz
+        if self.mini_app_url.startswith("https://"):
+            parts = self.mini_app_url.split("/")
+            if len(parts) >= 3 and parts[2]:
+                return [f"https://{parts[2]}"]
+        return []
 
     @property
     def has_firebase(self) -> bool:
@@ -145,8 +181,19 @@ class Config:
 
     @property
     def init_data_max_age(self) -> int:
-        """Mini App `initData` qancha soniya amal qiladi (0 — cheklamasdan)."""
-        return max(0, self.init_data_max_age_hours) * 3600
+        """Mini App `initData` qancha soniya amal qiladi.
+
+        Ilgari `0` — «CHEKLAMASDAN» degani edi. Bu xavfli sozlama: bir marta
+        o'g'irlangan `initData` satri ABADIY ishlatilishi mumkin bo'lardi
+        (u bearer-kalit vazifasini bajaradi). Endi `0` yoki manfiy qiymat
+        standart muddatga (7 kun) qaytadi, yuqori chegara — 30 kun.
+
+        Muddatni butunlay olib tashlash mumkin emas.
+        """
+        hours = self.init_data_max_age_hours
+        if hours <= 0:
+            hours = _DEFAULT_INIT_DATA_HOURS
+        return min(hours, _MAX_INIT_DATA_HOURS) * 3600
 
 
 def _db_path() -> str:
@@ -185,17 +232,26 @@ config = Config(
     # Karta orqali o'tkazma uchun rekvizitlar. Mijoz "Karta orqali" ni
     # tanlasa, shu raqamni ko'radi va nusxalaydi. Chekni yuborish uchun
     # `pay_admin_username` chati ochiladi. Hammasi env'dan boshqariladi.
-    pay_card_number=os.getenv("PAY_CARD_NUMBER", "5614 6818 7479 6349").strip(),
-    pay_card_holder=os.getenv("PAY_CARD_HOLDER", "AXTAMOV ANVARJON").strip(),
-    pay_admin_username=os.getenv("PAY_ADMIN_USERNAME", "anvaraxtamov2004")
-    .strip()
-    .lstrip("@"),
+    # DIQQAT: bu qiymatlar KODDA STANDART SIFATIDA YOZILMAYDI.
+    #
+    # Ilgari haqiqiy karta raqami va egasining ismi shu yerda standart
+    # qiymat bo'lib turardi — ya'ni ular git tarixida abadiy qolgan va
+    # repozitoriyni ko'rgan har kim o'qiy olardi. Endi faqat env'dan
+    # olinadi (Render panelida yoki `.env` da), koddan emas.
+    #
+    # Bo'sh qolsa Mini App «Karta orqali» to'lovni ko'rsatmaydi va
+    # ishga tushishda ogohlantirish yoziladi (pastda).
+    pay_card_number=os.getenv("PAY_CARD_NUMBER", "").strip(),
+    pay_card_holder=os.getenv("PAY_CARD_HOLDER", "").strip(),
+    pay_admin_username=os.getenv("PAY_ADMIN_USERNAME", "").strip().lstrip("@"),
     # Kuryer faqat shu shahar ichida ishlaydi (BTS pochta — boshqa hududlarga).
     delivery_city=os.getenv("DELIVERY_CITY", "Samarqand").strip(),
     # ---- Uyg'oq turish (self-ping) ----
     # Render `RENDER_EXTERNAL_URL` ni o'zi beradi; boshqa joyda qo'lda yozasiz.
     keep_alive_url=(os.getenv("KEEP_ALIVE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip(),
     keep_alive_interval=_int_env("KEEP_ALIVE_INTERVAL", 600),
+    # CORS: bo'sh bo'lsa MINI_APP_URL manzilidan aniqlanadi (yuqoriga qara)
+    allowed_origins_raw=os.getenv("ALLOWED_ORIGINS", "").strip(),
 )
 
 

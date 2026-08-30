@@ -951,19 +951,58 @@ function mergeAdminOrders(pendingNode, dbNode) {
   return orders;
 }
 
+/* ---------------------------------------------------------------------
+   POST /admin/orders — admin uchun buyurtmalar ro'yxati
+
+   `kind` bo'yicha uch xil ro'yxat qaytaradi:
+       "order"   (standart) — pending_orders + orders birlashtirilgan
+       "biled"             — biled_orders
+       "booking"           — bookings
+
+   NEGA `biled` VA `booking` HAM SHU YERGA QO'SHILDI. Ilgari admin paneli
+   ularni BRAUZERDAN to'g'ridan-to'g'ri o'qirdi, ya'ni `biled_orders` va
+   `bookings` tugunlari qoidalarda hammaga ochiq turishi kerak edi. Ularda
+   esa mijozning ISMI va TELEFONI bor — istalgan odam yuklab olardi.
+   Endi tugunlar YOPIQ, ro'yxatni faqat tasdiqlangan admin shu yerdan
+   oladi (`requireAdmin` initData imzosini tekshiradi).
+   --------------------------------------------------------------------- */
 async function handleAdminOrders(request, env) {
   const gate = await requireAdmin(request, env);
   if (gate.error) return gate.error;
   const { c } = gate;
 
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_) {
+    body = {};
+  }
+  const kind = String(body.kind || "order");
   const token = await accessToken(env);
+
+  // Bi-LED va navbat: bitta tugun, xom holda qaytaramiz — panel o'zi
+  // kerakli ko'rinishga o'giradi (`admin-shop.js -> loadKind`).
+  if (kind === "biled" || kind === "booking") {
+    const node = await rtdbGet(c.dbUrl, `${c.root}/${KIND_NODES[kind]}`, token);
+    const rows = [];
+    if (node && typeof node === "object") {
+      for (const key of Object.keys(node)) {
+        const row = node[key];
+        if (!row || typeof row !== "object") continue;
+        rows.push({ ...row, _key: key, id: row.id === undefined ? key : row.id });
+      }
+    }
+    rows.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    return json({ ok: true, kind, orders: rows, count: rows.length });
+  }
+
   const [pendingNode, dbNode] = await Promise.all([
     rtdbGet(c.dbUrl, `${c.root}/pending_orders`, token),
     rtdbGet(c.dbUrl, `${c.root}/orders`, token),
   ]);
 
   const orders = mergeAdminOrders(pendingNode, dbNode);
-  return json({ ok: true, orders, count: orders.length });
+  return json({ ok: true, kind: "order", orders, count: orders.length });
 }
 
 // ---------------------------------------------------------------------

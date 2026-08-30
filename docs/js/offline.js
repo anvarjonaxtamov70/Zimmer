@@ -913,19 +913,33 @@
     return out;
   }
 
-  /** Bazadagi band vaqtlar: [["09:30", 60], ...] */
+  /** Bazadagi band vaqtlar: [["09:30", 60], ...]
+   *
+   *  MANBA — `slots/{sana}` TUGUNI, `bookings` EMAS.
+   *
+   *  NEGA O'ZGARDI. Ilgari bu funksiya BUTUN `bookings` tugunini o'qirdi va
+   *  bandlikni o'zi ajratardi. `bookings` ichida esa mijozning ISMI va
+   *  TELEFONI bor — ya'ni bo'sh vaqtni ko'rsatish uchun butun mijozlar
+   *  ro'yxatini ochiq qilishga to'g'ri kelgan edi. Istalgan odam bitta
+   *  so'rov bilan hammaning telefonini yuklab olardi.
+   *
+   *  Endi bandlik alohida, SHAXSIY MA'LUMOTSIZ tugunda turadi:
+   *      slots/2026-09-01/{navbat_id} = { time: "14:00", duration_min: 60 }
+   *  `bookings` esa qoidalarda o'qish uchun YOPIQ (faqat bot va Worker).
+   *
+   *  Yozuvni bot (`services/sync.py -> push_booking_slot`) va ilovaning
+   *  o'zi (`createBooking`) qo'shadi. Bekor qilinganda o'chiriladi.
+   */
   async function takenSlots(iso) {
-    if (!window.ZimmerFB) return [];
+    if (!window.ZimmerFB || !iso) return [];
     try {
-      var node = await window.ZimmerFB.get("bookings");
+      var node = await window.ZimmerFB.get("slots/" + iso);
       if (!node || typeof node !== "object") return [];
       var out = [];
       Object.keys(node).forEach(function (k) {
-        var b = node[k];
-        if (!b || typeof b !== "object") return;
-        if (b.date !== iso) return;
-        if (b.status === "cancelled") return;
-        out.push([String(b.time || "00:00"), Number(b.duration_min) || SLOT_MIN]);
+        var s = node[k];
+        if (!s || typeof s !== "object" || !s.time) return;
+        out.push([String(s.time), Number(s.duration_min) || SLOT_MIN]);
       });
       return out;
     } catch (_) {
@@ -972,21 +986,59 @@
     }
 
     var key = "b_" + payload.uid + "_" + iso.replace(/-/g, "") + "_" + payload.time.replace(":", "");
-    await fb.put("bookings/" + key, {
-      uid: payload.uid,
-      service_id: payload.service_id,
-      service_name: payload.service_name || "",
-      date: iso,
+    var duration = Number(payload.duration_min) || SLOT_MIN;
+
+    /* BANDLIK BELGISINI BIRINCHI YOZAMIZ.
+       Sabab: `slots` tugunidagi kalit navbat kaliti bilan bir xil, ya'ni
+       ikki mijoz bir vaqtni tanlasa ikkisi ham AYNAN bir kalitga yozadi va
+       ikkinchisi birinchisining ustiga tushadi — bu to'qnashuvni bekitib
+       qo'yardi. Shu sababli yozgandan keyin QAYTA o'qib tekshiramiz: kalit
+       bizniki bo'lmasa (boshqa navbat egallagan) — orqaga qaytamiz.
+
+       To'liq kafolat baza tomonida: bot ko'chirganda `idx_bookings_slot`
+       yagona indeksi dublikatni to'xtatadi (`database/db.py`). */
+    await fb.put("slots/" + iso + "/" + key, {
       time: payload.time,
-      duration_min: payload.duration_min || SLOT_MIN,
-      price: payload.price || 0,
-      name: payload.name || "",
-      phone: payload.phone || "",
-      status: "new",
-      createdAt: Date.now(),
-      imported: false,
-      source: "miniapp",
+      duration_min: duration,
     });
+
+    var check = await takenSlots(iso);
+    var clash = check.filter(function (s) {
+      return s[0] === payload.time;
+    });
+    if (clash.length > 1) {
+      // Boshqa mijoz ham shu vaqtga yozib qo'ygan — o'zimizni olib tashlaymiz.
+      try {
+        await fb.remove("slots/" + iso + "/" + key);
+      } catch (_) {}
+      throw { code: "slot_taken", message: "Bu vaqt shu lahzada band bo'ldi — boshqasini tanlang" };
+    }
+
+    try {
+      await fb.put("bookings/" + key, {
+        uid: payload.uid,
+        service_id: payload.service_id,
+        service_name: payload.service_name || "",
+        date: iso,
+        time: payload.time,
+        duration_min: duration,
+        price: payload.price || 0,
+        name: payload.name || "",
+        phone: payload.phone || "",
+        status: "new",
+        createdAt: Date.now(),
+        imported: false,
+        source: "miniapp",
+      });
+    } catch (err) {
+      // Navbat yozilmadi — bandlik belgisini ham olib tashlaymiz, aks holda
+      // vaqt "band" bo'lib qolardi, lekin navbat yo'q edi.
+      try {
+        await fb.remove("slots/" + iso + "/" + key);
+      } catch (_) {}
+      throw err;
+    }
+
     return { booking: { id: key, date: iso, time: payload.time, label: dateLabel(iso) } };
   }
 
@@ -1233,10 +1285,18 @@
   /* ==================================================================
      MENING BUYURTMALARIM (Worker qabul qilganlari)
 
-     `pending_orders` qoidalarda o'qishga OCHIQ va `uid` bo'yicha
-     indekslangan (`database.rules.json`). Shu sababli mijoz o'z
-     buyurtmalarini to'g'ridan-to'g'ri o'qiy oladi — Worker ham, Render
-     ham kerak bo'lmaydi.
+     MANBA — WORKER `/me`, to'g'ridan Firebase EMAS.
+
+     NEGA O'ZGARDI. Ilgari bu funksiya `pending_orders` tugunini
+     `orderBy="uid"` bilan so'rardi. Lekin Realtime Database'da so'rov
+     uchun BUTUN tugunni o'qish huquqi kerak — ya'ni «faqat o'zimning
+     buyurtmalarim» degan cheklov qoidalar bilan qo'yilmaydi. Natijada
+     `pending_orders` hammaga ochiq turishi kerak edi va u yerda har bir
+     mijozning ISMI, TELEFONI va MANZILI bor.
+
+     Worker esa initData imzosini tekshiradi va xizmat kaliti bilan FAQAT
+     shu mijozning buyurtmalarini qaytaradi (`cloudflare-worker.js` ->
+     `handleMe`). Ya'ni funksiya bir xil ishlaydi, lekin baza yopiq qoladi.
 
      Bu KERAK, chunki bot Worker buyurtmasini SQLite'ga faqat ishga
      tushganda (yoki 2 daqiqalik tekshiruvda) ko'chiradi. Ya'ni mijoz
@@ -1245,49 +1305,39 @@
      ================================================================== */
   async function myOrders(uid) {
     var id = Number(uid) || 0;
-    if (!DB || !id) return [];
-    // `orderBy` + `equalTo` — faqat O'Z buyurtmalarini tortadi.
-    var url =
-      DB +
-      "/" +
-      ROOT +
-      '/pending_orders.json?orderBy="uid"&equalTo=' +
-      id +
-      "&limitToLast=30";
-    var node;
+    if (!id || !WORKER) return [];
+
+    var res;
     try {
-      var res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("pending_orders -> " + res.status);
-      node = await res.json();
+      res = await callWorker("/me", {});
     } catch (err) {
       console.warn("[offline] buyurtmalar o'qilmadi:", err);
       return [];
     }
-    if (!node || typeof node !== "object") return [];
 
-    var out = [];
-    Object.keys(node).forEach(function (key) {
-      var r = node[key];
-      if (!r || typeof r !== "object") return;
-      var total = Number(r.total) || 0;
-      out.push({
-        id: r.code || key, // profil kartochkasida ko'rinadigan belgi
-        code: r.code || key,
-        sqlite_id: r.sqlite_id || null,
-        total: total,
-        total_label: priceLabel(total),
-        status: r.status || "new",
-        items: itemRows(r.items),
-        delivery_info: r.delivery_info || "",
-        payment_method: r.payment_method || "",
-        createdAt: Number(r.createdAt) || 0,
-        _worker: true,
+    var list = (res && res.orders) || [];
+    if (!Array.isArray(list)) list = [];
+
+    return list
+      .map(function (r) {
+        var total = Number(r.total) || 0;
+        return {
+          id: r.code || "", // profil kartochkasida ko'rinadigan belgi
+          code: r.code || "",
+          sqlite_id: r.sqlite_id || null,
+          total: total,
+          total_label: r.total_label || priceLabel(total),
+          status: r.status || "new",
+          items: itemRows(r.items),
+          delivery_info: r.delivery_info || "",
+          payment_method: r.payment_method || "",
+          createdAt: Number(r.createdAt) || 0,
+          _worker: true,
+        };
+      })
+      .sort(function (a, b) {
+        return b.createdAt - a.createdAt;
       });
-    });
-    out.sort(function (a, b) {
-      return b.createdAt - a.createdAt;
-    });
-    return out;
   }
 
   /** `items` ro'yxat yoki lug'at bo'lishi mumkin — ikkisini ham tekislaydi.
@@ -1331,41 +1381,42 @@
      Holatni o'zgartirish esa Worker orqali bo'ladi: mijozga Telegram
      xabarini yuborish uchun bot tokeni kerak, u faqat Worker'da.
      ================================================================== */
+  /* Bi-LED buyurtmalari va navbatlar — WORKER orqali.
+     `biled_orders` va `bookings` tugunlarida mijozning ismi va telefoni bor,
+     shuning uchun ular qoidalarda o'qish uchun YOPIQ. Worker initData
+     imzosini tekshiradi va faqat adminga beradi (`handleAdminOrders`). */
   async function adminBiledOrders() {
-    return await readOrderNode("biled_orders");
+    return await workerAdminList("biled");
   }
 
   async function adminBookings() {
-    return await readOrderNode("bookings");
+    return await workerAdminList("booking");
   }
 
-  async function readOrderNode(node) {
-    if (!DB) return [];
-    var url = DB + "/" + ROOT + "/" + node + ".json";
-    var raw;
-    try {
-      var res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error(node + " -> " + res.status);
-      raw = await res.json();
-    } catch (err) {
-      console.warn("[offline] " + node + " o'qilmadi:", err);
+  async function workerAdminList(kind) {
+    if (!WORKER) {
+      console.warn(
+        "[offline] " + kind + " ro'yxati uchun WORKER_URL kerak " +
+          "(baza tugunlari maxfiylik uchun yopiq)"
+      );
       return [];
     }
-    if (!raw || typeof raw !== "object") return [];
-
-    var out = [];
-    Object.keys(raw).forEach(function (key) {
-      var r = raw[key];
-      if (!r || typeof r !== "object") return;
-      r._key = key;
-      if (r.id === undefined) r.id = isNaN(+key) ? key : +key;
-      out.push(r);
-    });
-    out.sort(function (a, b) {
-      return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
-    });
-    return out;
+    try {
+      var res = await callWorker("/admin/orders", { kind: kind });
+      var list = (res && res.orders) || [];
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      console.warn("[offline] " + kind + " ro'yxati o'qilmadi:", err);
+      return [];
+    }
   }
+
+  /* `readOrderNode()` OLIB TASHLANDI.
+     U buyurtma tugunlarini (`orders`, `biled_orders`, `bookings`) brauzerdan
+     to'g'ridan o'qirdi — ya'ni o'sha tugunlar qoidalarda hammaga ochiq
+     turishi kerak edi va ularda mijozning ismi bilan telefoni bor edi.
+     O'rniga `workerAdminList()` ishlatiladi: Worker imzoni tekshiradi va
+     ro'yxatni faqat adminga beradi. */
 
   window.ZimmerOffline = {
     available: available,

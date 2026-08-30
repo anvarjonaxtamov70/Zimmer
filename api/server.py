@@ -14,29 +14,85 @@ from api.admin import admin_routes
 from api.errors import ApiError
 from api.media import handle_media
 from api.routes import routes
+from config import config
 from utils.helpers import TZ, now
 
 logger = logging.getLogger(__name__)
 
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
+CORS_BASE = {
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Telegram-Init-Data",
     "Access-Control-Max-Age": "86400",
 }
 
+_origin_warned: set[str] = set()
+
+
+def _cors_headers(request: web.Request) -> dict:
+    """So'rov manzili ruxsat etilgan bo'lsa CORS sarlavhalarini qaytaradi.
+
+    Ilgari bu yerda `Access-Control-Allow-Origin: *` qattiq yozilgan edi —
+    ya'ni istalgan sayt brauzerdan API'ga murojaat qila olardi. O'g'irlangan
+    `initData` bilan birlashganda bu butun API'ni boshqarish imkonini berardi.
+
+    Endi faqat Mini App manzili ruxsat etiladi (`config.allowed_origins`).
+    Manzil to'g'ri kelmasa CORS sarlavhasi YUBORILMAYDI va brauzer so'rovni
+    o'zi to'xtatadi. Diagnostika oson bo'lishi uchun rad etilgan manzil
+    log'ga BIR MARTA yoziladi.
+    """
+    headers = dict(CORS_BASE)
+    allowed = config.allowed_origins
+    origin = request.headers.get("Origin")
+
+    # Ro'yxat bo'sh yoki `*` — eski xatti-harakat (hammaga ruxsat)
+    if not allowed or "*" in allowed:
+        headers["Access-Control-Allow-Origin"] = "*"
+        return headers
+
+    if origin is None:
+        # Brauzerdan kelmagan so'rov (bot, monitoring, curl) — CORS kerak emas
+        return headers
+
+    if origin in allowed:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+        return headers
+
+    if origin not in _origin_warned:
+        _origin_warned.add(origin)
+        logger.warning(
+            "CORS: «%s» manzili rad etildi. Ruxsat etilganlar: %s. "
+            "Kerak bo'lsa ALLOWED_ORIGINS env'iga qo'shing.",
+            origin,
+            ", ".join(allowed),
+        )
+    headers["Vary"] = "Origin"
+    return headers
+
 
 @web.middleware
 async def error_and_cors_middleware(request: web.Request, handler):
     """CORS sarlavhalari + barcha xatolarni JSON ko'rinishida qaytarish."""
+    cors = _cors_headers(request)
+
     if request.method == "OPTIONS":
-        return web.Response(status=204, headers=CORS_HEADERS)
+        return web.Response(status=204, headers=cors)
 
     try:
         response = await handler(request)
     except ApiError as error:
         response = error.to_response()
     except web.HTTPException as error:
+        # DIQQAT: yo'naltirishlarni (3xx) O'ZGARTIRMASDAN qaytaramiz.
+        #
+        # Ilgari bu yerda HAR QANDAY `HTTPException` uchun YANGI `json_response`
+        # yasalardi va `Location` sarlavhasi TASHLAB KETILARDI. Natijada
+        # `media.py` va `/api/photo/...` dagi `web.HTTPFound` manzilsiz 302
+        # bo'lib qaytardi — ya'ni tashqi manzilda turgan BARCHA rasmlar
+        # brauzerda ochilmasdi.
+        if 300 <= error.status < 400 or error.status == 304:
+            error.headers.update(cors)
+            return error
         response = web.json_response(
             {"ok": False, "error": {"code": "http_error", "message": error.reason}},
             status=error.status,
@@ -48,7 +104,7 @@ async def error_and_cors_middleware(request: web.Request, handler):
             status=500,
         )
 
-    response.headers.update(CORS_HEADERS)
+    response.headers.update(cors)
     return response
 
 

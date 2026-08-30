@@ -129,10 +129,44 @@ def free_slots(
     return slots
 
 
+# =====================================================================
+#  HTML XAVFSIZLIGI
+#
+#  Bot barcha xabarlarni `parse_mode=HTML` bilan yuboradi. Mijoz kiritgan
+#  matn (ism, manzil, izoh) xabarga TO'G'RIDAN qo'yilsa va ichida `<`
+#  bo'lsa — Telegram butun xabarni RAD ETADI. Natijada:
+#
+#     • adminga «yangi buyurtma» xabari YETIB BORMAYDI;
+#     • `notify_admins` xato ko'taradi va buyurtma jimgina yo'qoladi.
+#
+#  Frontend'da bu to'g'ri qilingan (`esc()` har joyda), backend'da esa
+#  unutilgan edi. Shu funksiya orqali barcha mijoz matni tozalanadi.
+# =====================================================================
+
+
+def html_escape(value) -> str:
+    """Mijoz matnini HTML xabarga qo'yish uchun xavfsiz qiladi."""
+    if value is None:
+        return ""
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def esc(value) -> str:
+    """`html_escape` ning qisqa nomi (frontend'dagi `esc()` bilan bir xil)."""
+    return html_escape(value)
+
+
 def user_link(full_name: str, username: str | None, user_id: int) -> str:
+    """Mijozga havola. Ism HTML uchun tozalanadi."""
+    name = html_escape(full_name) or "Mijoz"
     if username:
-        return f"{full_name} (@{username})"
-    return f'<a href="tg://user?id={user_id}">{full_name}</a>'
+        return f"{name} (@{html_escape(username)})"
+    return f'<a href="tg://user?id={user_id}">{name}</a>'
 
 
 def normalize_phone(raw: str) -> str | None:

@@ -22,7 +22,7 @@ from keyboards.inline import (
 )
 from keyboards.reply import cancel_kb, main_menu
 from states import Checkout
-from utils.helpers import fmt_price, normalize_phone, user_link
+from utils.helpers import fmt_price, html_escape, normalize_phone, user_link
 from utils.texts import BTN_CANCEL, BTN_CART, BTN_PHONE
 from utils.ui import edit_or_send, notify_admins
 
@@ -45,9 +45,9 @@ _PAY_LABELS = {
 
 
 def _item_line(item) -> str:
-    """Buyurtma tarkibidagi bitta qator."""
+    """Buyurtma tarkibidagi bitta qator (tovar nomi HTML uchun tozalanadi)."""
     total = int(item["price"]) * int(item["qty"])
-    return f"• {item['name']} × {item['qty']} = {fmt_price(total)}"
+    return f"• {html_escape(item['name'])} × {item['qty']} = {fmt_price(total)}"
 
 
 async def render_cart(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -58,7 +58,7 @@ async def render_cart(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     lines = ["🧺 <b>Savatchangiz</b>\n"]
     for index, item in enumerate(items, start=1):
         lines.append(
-            f"{index}. <b>{item['name']}</b>\n"
+            f"{index}. <b>{html_escape(item['name'])}</b>\n"
             f"    {fmt_price(item['price'])} × {item['qty']} = "
             f"<b>{fmt_price(item['subtotal'])}</b>"
         )
@@ -267,14 +267,15 @@ async def _checkout_summary(callback: CallbackQuery, state: FSMContext) -> None:
     lines = ["🧾 <b>Buyurtmani tekshiring</b>\n"]
     for index, item in enumerate(items, start=1):
         lines.append(
-            f"{index}. {item['name']} × {item['qty']} = {fmt_price(item['subtotal'])}"
+            f"{index}. {html_escape(item['name'])} × {item['qty']}"
+            f" = {fmt_price(item['subtotal'])}"
         )
     total = sum(int(item["subtotal"]) for item in items)
     lines.append(f"\n💰 <b>Jami: {fmt_price(total)}</b>")
-    lines.append(f"🚚 Yetkazish: {data.get('delivery_label', '-')}")
-    lines.append(f"📍 Manzil: {data.get('address')}")
-    lines.append(f"📞 Telefon: {data.get('phone')}")
-    lines.append(f"💳 To'lov: {data.get('payment_label', '-')}")
+    lines.append(f"🚚 Yetkazish: {html_escape(data.get('delivery_label', '-'))}")
+    lines.append(f"📍 Manzil: {html_escape(data.get('address'))}")
+    lines.append(f"📞 Telefon: {html_escape(data.get('phone'))}")
+    lines.append(f"💳 To'lov: {html_escape(data.get('payment_label', '-'))}")
 
     await callback.message.answer("\n".join(lines), reply_markup=checkout_confirm_kb())
 
@@ -293,7 +294,7 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     if address and address != "-":
         delivery_info = f"{delivery_label}: {address}"
 
-    order_id = await q.create_order(
+    order_id, problems = await q.create_order(
         callback.from_user.id,
         address,
         phone,
@@ -304,19 +305,37 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     await state.clear()
 
     if not order_id:
-        await edit_or_send(callback.message, EMPTY_CART)
+        # Qoldiq yetmasa mijozga ANIQ aytamiz — ilgari "savatcha bo'sh"
+        # degan chalkash xabar chiqardi va savat o'sha holida qolardi.
+        if problems:
+            lines = ["⚠️ <b>Buyurtma o'tmadi — ombor o'zgargan</b>\n"]
+            for problem in problems:
+                name = html_escape(str(problem.get("name") or "Tovar"))
+                available = problem.get("available", 0)
+                lines.append(
+                    f"• {name} — omborda {available} dona qoldi"
+                    if available
+                    else f"• {name} — tugadi"
+                )
+            lines.append("\nSavatchadagi sonni kamaytirib qaytadan urinib ko'ring.")
+            await edit_or_send(callback.message, "\n".join(lines))
+        else:
+            await edit_or_send(callback.message, EMPTY_CART)
         await callback.answer()
         return
 
     items = await q.get_order_items(order_id)
     order = await q.get_order(order_id)
 
-    # Yetkazib berish/to'lov meta-qatorlari
+    # Yetkazib berish/to'lov meta-qatorlari.
+    # Mijoz kiritgan matn HTML uchun tozalanadi — aks holda ichidagi `<`
+    # butun xabarni Telegram'ga rad ettiradi.
+    safe_address = html_escape(address)
     meta_lines = []
     if delivery_info:
-        meta_lines.append(f"🚚 {delivery_info}")
+        meta_lines.append(f"🚚 {html_escape(delivery_info)}")
     if payment_label:
-        meta_lines.append(f"💳 To'lov: <b>{payment_label}</b>")
+        meta_lines.append(f"💳 To'lov: <b>{html_escape(payment_label)}</b>")
     meta_block = ("\n" + "\n".join(meta_lines)) if meta_lines else ""
 
     lines = [
@@ -325,7 +344,7 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     ]
     lines.extend(_item_line(item) for item in items)
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
-    lines.append(f"📍 Manzil: {address}")
+    lines.append(f"📍 Manzil: {safe_address}")
     if meta_block:
         lines.append(meta_block)
     lines.append("\nOperator tez orada siz bilan bog'lanadi. Xaridingiz uchun rahmat! 🎉")
@@ -336,8 +355,8 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
         "🔔 <b>Yangi buyurtma</b>\n",
         f"🆔 #{order_id}",
         f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
-        f"📞 {phone}",
-        f"📍 {address}",
+        f"📞 {html_escape(phone)}",
+        f"📍 {safe_address}",
     ]
     if meta_block:
         admin_lines.append(meta_block)

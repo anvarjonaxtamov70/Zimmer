@@ -6,81 +6,255 @@
     "zimmer": {
       "catalog": {
         ".read": true,
-        ".write": true,
-        "products": {
-          ".indexOn": ["category_id", "car_id", "is_active"]
+
+        "$table": {
+          ".indexOn": ["category_id", "car_id", "is_active"],
+
+          "$row": {
+            ".write": true,
+
+            "id": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "sort": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
+
+            "price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+            "old_price": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000)" },
+            "stock": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000" },
+            "duration_min": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
+            "discount": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 100)" },
+
+            "name": { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "title": { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "subtitle": { ".validate": "newData.isString() && newData.val().length <= 500" },
+            "heading": { ".validate": "newData.isString() && newData.val().length <= 300" },
+            "body": { ".validate": "newData.isString() && newData.val().length <= 4000" },
+            "text": { ".validate": "newData.isString() && newData.val().length <= 4000" },
+            "desc": { ".validate": "newData.isString() && newData.val().length <= 6000" },
+            "description": { ".validate": "newData.isString() && newData.val().length <= 6000" },
+            "badge": { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "tag": { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "code": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "unit": { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "warranty": { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "emoji": { ".validate": "newData.isString() && newData.val().length <= 16" },
+            "category": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "years": { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "note": { ".validate": "newData.isString() && newData.val().length <= 500" },
+            "brand": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "model": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "size": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "kelvin": { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "lumen": { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "style": { ".validate": "newData.isString() && newData.val().length <= 80" },
+            "product_type": { ".validate": "newData.isString() && newData.val().length <= 40" },
+
+            "color_from": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "color_to": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "hex_from": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "hex_to": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "ring_color": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "glow": { ".validate": "newData.isString() && newData.val().matches(/^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/)" },
+            "theme": { ".validate": "newData.isString() && newData.val().length <= 40" },
+
+            "link": { ".validate": "newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/))" },
+            "photo_url": { ".validate": "newData.val() == null || (newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/)))" },
+            "photo2_url": { ".validate": "newData.val() == null || (newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/)))" },
+            "photo3_url": { ".validate": "newData.val() == null || (newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/)))" },
+            "video_url": { ".validate": "newData.val() == null || (newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/)))" },
+            "img": { ".validate": "newData.val() == null || (newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/)))" },
+
+            "photo_id": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+            "photo2_id": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+            "photo3_id": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+            "video_id": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+
+            "images": {
+              "$i": { ".validate": "newData.isString() && (newData.val() == '' || newData.val().matches(/^https:[/][/][^\\s\"']{1,600}$/))" }
+            },
+            "categories": {
+              "$i": { ".validate": "newData.isString() && newData.val().length <= 80" }
+            },
+            "sizes": {
+              "$i": {
+                "size": { ".validate": "newData.isString() && newData.val().length <= 40" },
+                "stock": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000" }
+              }
+            },
+
+            "is_active": { ".validate": "newData.isBoolean() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 1)" },
+            "deleted": { ".validate": "newData.isBoolean() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 1)" },
+            "is_draft": { ".validate": "newData.isBoolean() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 1)" },
+            "has_conflict": { ".validate": "newData.isBoolean() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 1)" },
+
+            "createdAt": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "updatedAt": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "created_at": { ".validate": "newData.isNumber() || newData.isString()" },
+            "updated_at": { ".validate": "newData.isNumber() || newData.isString()" },
+            "status_at": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+
+            "category_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+            "car_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+            "categoryName": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+            "carName": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 200)" },
+            "batch_id": { ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 120)" }
+          }
+        }
+      },
+
+      "slots": {
+        ".read": true,
+
+        "$day": {
+          ".validate": "$day.matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)",
+
+          "$key": {
+            ".write": true,
+            ".validate": "!newData.exists() || newData.hasChildren(['time', 'duration_min'])",
+
+            "time": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{2}:[0-9]{2}$/)" },
+            "duration_min": { ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 1440" },
+            "$other": { ".validate": false }
+          }
+        }
+      },
+
+      "bookings": {
+        ".indexOn": ["uid", "day", "date", "imported"],
+
+        "$key": {
+          ".write": "!data.exists() || !data.child('imported').val()",
+
+          "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "service_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+          "service_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "service": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "date": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)" },
+          "time": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{2}:[0-9]{2}$/)" },
+          "duration_min": { ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 1440" },
+          "price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+          "name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "phone": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "status": { ".validate": "newData.isString() && newData.val().matches(/^(new|confirmed|accepted|done|delivered|cancelled)$/)" },
+          "status_at": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "createdAt": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "source": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "id": { ".validate": "newData.isNumber() || newData.isString()" },
+          "imported": { ".validate": "newData.val() == false" },
+          "sqlite_id": { ".validate": false },
+          "notified_admin": { ".validate": false }
+        }
+      },
+
+      "biled_orders": {
+        ".indexOn": ["uid", "createdAt", "imported"],
+
+        "$key": {
+          ".write": "!data.exists() || !data.child('imported').val()",
+
+          "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
+          "car_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+          "biled_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+          "shroud_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+          "color_id": { ".validate": "newData.val() == null || newData.isNumber()" },
+          "car_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "biled_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "shroud_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "color_name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "biled_price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+          "shroud_price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+          "color_price": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+          "total": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000000" },
+          "name": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "phone": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "comment": { ".validate": "newData.isString() && newData.val().length <= 2000" },
+          "status": { ".validate": "newData.isString() && newData.val().matches(/^(new|confirmed|accepted|done|delivered|cancelled)$/)" },
+          "status_at": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "createdAt": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "source": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "imported": { ".validate": "newData.val() == false" },
+          "sqlite_id": { ".validate": false },
+          "notified_admin": { ".validate": false }
         }
       },
 
       "pending_orders": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["uid", "createdAt", "imported"]
-      },
+        ".indexOn": ["uid", "createdAt", "imported"],
 
-      "pending_products": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["imported", "createdAt"]
-      },
-
-      "pending_edits": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["imported", "updatedAt"]
-      },
-
-      "users": {
-        ".read": true,
-        ".write": true
-      },
-
-      "bookings": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["uid", "day", "imported"]
-      },
-
-      "biled_orders": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["uid", "createdAt", "imported"]
-      },
-
-      "favorites": {
-        ".read": true,
-        ".write": true
-      },
-
-      "products_counter": {
-        ".read": true,
-        ".write": true
-      },
-
-      "stories_counter": {
-        ".read": true,
-        ".write": true
+        "$key": {
+          "status": {
+            ".write": true,
+            ".validate": "newData.isString() && newData.val().matches(/^(new|confirmed|accepted|packed|shipped|done|delivered|cancelled)$/)"
+          },
+          "status_at": {
+            ".write": true,
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          }
+        }
       },
 
       "story_views": {
         ".read": true,
-        ".write": true
+
+        "$story": {
+          "u": {
+            "$uid": {
+              ".write": "!data.exists()",
+              ".validate": "$uid.matches(/^[0-9]{1,20}$/) && newData.isNumber() && newData.val() >= 0"
+            }
+          },
+          "$other": { ".validate": false }
+        }
       },
 
       "story_reactions": {
         ".read": true,
-        ".write": true
+
+        "$story": {
+          "u": {
+            "$uid": {
+              ".write": true,
+              ".validate": "$uid.matches(/^[0-9]{1,20}$/) && newData.isString() && newData.val().length <= 16"
+            }
+          },
+          "$other": { ".validate": false }
+        }
       },
 
-      "story_replies": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["storyId", "createdAt", "imported"]
+      "products_counter": {
+        "n": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
+        }
       },
 
+      "stories_counter": {
+        "n": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
+        }
+      },
+
+      "users": { ".read": false, ".write": false },
+      "favorites": { ".read": false, ".write": false },
       "orders": { ".read": false, ".write": false },
       "products": { ".read": false, ".write": false },
-      "admins": { ".read": false, ".write": false }
+      "admins": { ".read": false, ".write": false },
+      "story_replies": {
+        ".read": false,
+        ".write": false,
+        ".indexOn": ["storyId", "createdAt", "imported"]
+      },
+      "pending_products": {
+        ".read": false,
+        ".write": false,
+        ".indexOn": ["imported", "createdAt"]
+      },
+      "pending_edits": {
+        ".read": false,
+        ".write": false,
+        ".indexOn": ["imported", "updatedAt"]
+      }
     }
   }
 }

@@ -95,7 +95,7 @@ def product_caption(product: dict, admin_view: bool = False) -> str:
     
     # Admin view: ID, stock, status
     if admin_view:
-        lines.append(f"\n<i>━━━━━━━━━━━━━━━</i>")
+        lines.append("\n<i>━━━━━━━━━━━━━━━</i>")
         lines.append(f"\n<code>ID: {product.get('id')}</code>")
         
         stock = product.get("stock", 0)
@@ -113,9 +113,9 @@ def product_caption(product: dict, admin_view: bool = False) -> str:
         # Mijoz ko'rinishi: faqat stock mavjudligi
         stock = product.get("stock", 0)
         if stock > 0:
-            lines.append(f"\n✅ <i>Omborda mavjud</i>")
+            lines.append("\n✅ <i>Omborda mavjud</i>")
         else:
-            lines.append(f"\n⏳ <i>Buyurtma asosida</i>")
+            lines.append("\n⏳ <i>Buyurtma asosida</i>")
     
     return "\n".join(lines)
 

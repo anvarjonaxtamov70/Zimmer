@@ -26,7 +26,14 @@ from services import firebase, orders, sync
 from states import Broadcast
 from utils.commands import apply_admin_commands, reset_user_commands
 from utils.filters import IsAdmin
-from utils.helpers import available_dates, date_label, fmt_price, today_iso, user_link
+from utils.helpers import (
+    available_dates,
+    date_label,
+    fmt_price,
+    html_escape,
+    today_iso,
+    user_link,
+)
 from utils.texts import (
     BILED_STATUS,
     BOOKING_STATUS,
@@ -102,7 +109,7 @@ async def admin_bookings(callback: CallbackQuery) -> None:
         for bk in bookings:
             lines.append(
                 f"🕐 <b>{bk['time']}</b> · {bk['service_name']}\n"
-                f"    👤 {bk['full_name']} · 📞 {bk['phone']}\n"
+                f"    👤 {html_escape(bk['full_name'])} · 📞 {html_escape(bk['phone'])}\n"
                 f"    {BOOKING_STATUS.get(bk['status'], bk['status'])}"
             )
         text = "\n".join(lines)
@@ -120,7 +127,7 @@ def _booking_detail_text(bk) -> str:
     return (
         f"🗓 <b>Navbat #{bk['id']}</b>\n\n"
         f"👤 {user_link(bk['full_name'], bk['username'], bk['user_id'])}\n"
-        f"📞 {bk['phone']}\n"
+        f"📞 {html_escape(bk['phone'])}\n"
         f"🛠 {bk['service_name']} · {fmt_price(bk['price'])}\n"
         f"📅 {date_label(bk['date'])} · 🕐 <b>{bk['time']}</b>\n"
         f"📌 Holat: {BOOKING_STATUS.get(bk['status'], bk['status'])}\n"
@@ -203,7 +210,7 @@ def _biled_detail_text(order) -> str:
     lines = [
         f"🔥 <b>Bi-LED buyurtma #{order['id']}</b>\n",
         f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
-        f"📞 {order['phone'] or '-'}",
+        f"📞 {html_escape(order['phone']) or '-'}",
         f"🚗 Mashina: <b>{order['car_name']}</b> ({order['car_years'] or '-'})",
         f"💡 Linza: <b>{order['biled_name']}</b> — {fmt_price(order['biled_price'])}",
     ]
@@ -212,7 +219,7 @@ def _biled_detail_text(order) -> str:
     if order["color_name"]:
         lines.append(f"🎨 Optika: <b>{order['color_name']}</b> — {fmt_price(order['color_price'])}")
     if order["comment"]:
-        lines.append(f"📝 Izoh: {order['comment']}")
+        lines.append(f"📝 Izoh: {html_escape(order['comment'])}")
     lines.append(f"\n📌 Holat: {BILED_STATUS.get(order['status'], order['status'])}")
     lines.append(f"🕓 {order['created_at']}")
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
@@ -230,7 +237,7 @@ async def admin_biled_orders(callback: CallbackQuery) -> None:
             lines.append(
                 f"🆔 <b>#{order['id']}</b> · {order['car_name']} · {fmt_price(order['total'])}\n"
                 f"    💡 {order['biled_name']}\n"
-                f"    👤 {order['full_name']} · 📞 {order['phone'] or '-'}\n"
+                f"    👤 {html_escape(order['full_name'])} · 📞 {html_escape(order['phone']) or '-'}\n"
                 f"    {BILED_STATUS.get(order['status'], order['status'])} · {order['created_at']}"
             )
         text = "\n".join(lines)
@@ -327,7 +334,7 @@ async def admin_orders(callback: CallbackQuery) -> None:
         for order in orders:
             lines.append(
                 f"🆔 <b>#{order['id']}</b> · {fmt_price(order['total'])}\n"
-                f"    👤 {order['full_name']} · 📞 {order['phone']}\n"
+                f"    👤 {html_escape(order['full_name'])} · 📞 {html_escape(order['phone'])}\n"
                 f"    {ORDER_STATUS.get(order['status'], order['status'])} · {order['created_at']}"
             )
         text = "\n".join(lines)
@@ -350,13 +357,16 @@ async def admin_order_detail(callback: CallbackQuery) -> None:
     lines = [
         f"📦 <b>Buyurtma #{order['id']}</b>\n",
         f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
-        f"📞 {order['phone']}",
-        f"📍 {order['address']}",
+        f"📞 {html_escape(order['phone'])}",
+        f"📍 {html_escape(order['address'])}",
         f"📌 Holat: {ORDER_STATUS.get(order['status'], order['status'])}",
         f"🕓 {order['created_at']}\n",
     ]
     for item in items:
-        lines.append(f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}")
+        lines.append(
+            f"• {html_escape(item['name'])} × {item['qty']}"
+            f" = {fmt_price(item['price'] * item['qty'])}"
+        )
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
 
     await edit_or_send(
@@ -412,12 +422,15 @@ async def admin_order_detail_refresh(callback: CallbackQuery, order_id: int) -> 
     lines = [
         f"📦 <b>Buyurtma #{order['id']}</b>\n",
         f"👤 {user_link(order['full_name'], order['username'], order['user_id'])}",
-        f"📞 {order['phone']}",
-        f"📍 {order['address']}",
+        f"📞 {html_escape(order['phone'])}",
+        f"📍 {html_escape(order['address'])}",
         f"📌 Holat: {ORDER_STATUS.get(order['status'], order['status'])}\n",
     ]
     for item in items:
-        lines.append(f"• {item['name']} × {item['qty']} = {fmt_price(item['price'] * item['qty'])}")
+        lines.append(
+            f"• {html_escape(item['name'])} × {item['qty']}"
+            f" = {fmt_price(item['price'] * item['qty'])}"
+        )
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
     await edit_or_send(
         callback.message, "\n".join(lines), admin_order_actions_kb(order_id, order["status"])
