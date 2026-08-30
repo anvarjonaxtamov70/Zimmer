@@ -3672,6 +3672,33 @@
     });
   }
 
+  /* Kartochkada surat maydonni TO'LIQ to'ldiradi (`object-fit: cover`),
+     ya'ni ortiqcha cheti qirqiladi. Oddiy suratlar uchun bu chiroyli,
+     lekin haddan tashqari cho'ziq surat uchun XAVFLI: 1200x400 banner
+     dan markazdagi 400x400 qoladi va tovarning o'zi kadrdan chiqib
+     ketishi mumkin.
+
+     Shu sababli suratning HAQIQIY nisbati o'lchanadi va chegaradan
+     o'tsa maydonga `fit` klassi qo'yiladi — CSS uni `contain` ga
+     qaytaradi (chetida qorong'i chiziq qoladi, lekin tovar ko'rinadi).
+
+     Chegaralar nega shunday:
+       4:3 (1.33) va 3:4 (0.75) — suratlarning aksariyati, `cover`
+       bilan chetidan ~15% ketadi, bu sezilmaydi -> to'ldiradi;
+       16:9 (1.78) da esa ~44% ketadi -> bu juda ko'p, `contain`. */
+  const RATIO_WIDE = 1.7;
+  const RATIO_TALL = 0.6;
+
+  function markExtremeRatio(img, art) {
+    if (!img || !art) return;
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) return; // hali ma'lum emas — `onload` da qayta chaqiriladi
+    const ratio = w / h;
+    if (ratio > RATIO_WIDE || ratio < RATIO_TALL) art.classList.add("fit");
+    else art.classList.remove("fit");
+  }
+
   /** Bitta tovar kartochkasi. */
   function prodCard(p) {
     const card = el("div", "prod");
@@ -3731,7 +3758,11 @@
     const im = card.querySelector(".prod-img");
     if (im) {
       const art = card.querySelector(".prod-art");
-      im.onload = () => im.classList.add("ready");
+      const shown = () => {
+        im.classList.add("ready");
+        markExtremeRatio(im, art);
+      };
+      im.onload = shown;
       im.onerror = () => {
         im.remove();
         if (art) {
@@ -3740,7 +3771,7 @@
         }
       };
       // Keshdan kelgan rasm `onload` ni o'tkazib yuborishi mumkin
-      if (im.complete && im.naturalWidth) im.classList.add("ready");
+      if (im.complete && im.naturalWidth) shown();
     }
 
     card.onclick = () => openProductModal(p);
