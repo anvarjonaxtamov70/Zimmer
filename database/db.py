@@ -1028,7 +1028,14 @@ _THEME_GUESS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _guess_theme(name: str) -> str | None:
+def guess_theme(name: str) -> str | None:
+    """Xizmat nomidan dizayn kalitini taxmin qiladi.
+
+    OMMAVIY: `api/admin.py` ham shu funksiyani ishlatadi — `theme` ustuni
+    bo'sh bo'lganda video ruxsatini aniqlash uchun. Mini App ham xuddi
+    shunday qiladi (`app.js: themeOf`), shuning uchun uch tomon bir xil
+    qarorga keladi.
+    """
     low = (name or "").lower()
     for needle, theme in _THEME_GUESS:
         if needle in low:
@@ -1063,7 +1070,7 @@ async def _ensure_services() -> None:
     for row in rows:
         patch: dict[str, object] = {}
         if not (row["theme"] or "").strip():
-            guessed = _guess_theme(row["name"] or "")
+            guessed = guess_theme(row["name"] or "")
             if guessed:
                 patch["theme"] = guessed
         if not row["sort"]:

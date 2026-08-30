@@ -38,6 +38,7 @@ from api.errors import bad_request, forbidden, not_found, unauthorized
 from api.media import media_url
 from config import config, is_admin, service_video_allowed
 from database import queries as q
+from database.db import guess_theme
 from handlers.admin_schema import (
     ENTITIES,
     HEX,
@@ -46,6 +47,7 @@ from handlers.admin_schema import (
     form_layout,
     group_of,
     prepare_insert,
+    resolve_choices,
 )
 from services import firebase_storage as fb_storage
 from services import orders, sync
@@ -152,10 +154,9 @@ def _label(entity: Entity, row) -> str:
 
 
 async def _choice_values(field: Field) -> list[dict]:
-    if field.choices is None:
-        return []
+    """Tanlovlar — panelga yuborish uchun. Yiqilmaydi (bo'sh qaytaradi)."""
     try:
-        pairs = await field.choices()
+        pairs = await resolve_choices(field)  # sinxron manbani ham qabul qiladi
     except Exception as error:
         logger.warning("«%s» uchun tanlovlar olinmadi: %s", field.label, error)
         return []
@@ -580,9 +581,7 @@ async def section_update(request: web.Request) -> web.Response:
     # Bitta so'rovda tema va video BIRGA kelishi mumkin. Video cheklovi
     # YANGI tema bo'yicha tekshirilishi kerak, shuning uchun uni tsikldan
     # oldin hisoblab olamiz (payload'da bo'lsa — o'sha, aks holda bazadagi).
-    effective_theme = (
-        str(payload["theme"]).strip() if "theme" in payload else _row_theme(row)
-    )
+    effective_theme = _effective_theme(row, payload)
 
     for column, value in payload.items():
         field = fields.get(column)
@@ -727,8 +726,44 @@ async def section_move(request: web.Request) -> web.Response:
 
 
 def _row_theme(row) -> str | None:
+    """Qatorning AMALDAGI temasi.
+
+    `theme` ustuni bo'sh bo'lsa NOMDAN taxmin qilinadi — Mini App ham
+    aynan shunday qiladi (`app.js: themeOf`).
+
+    NEGA (haqiqiy xato). Ilgari bu funksiya ustunni shundayligicha
+    qaytarardi. Temasi yozilmagan xizmatga («Fara polirovkasi» bo'lsa
+    ham) video yuklash RAD ETILARDI: `service_video_allowed(None)` — False.
+    Mijoz tomonida esa o'sha xizmat to'g'ri dizayn bilan ko'rinardi,
+    ya'ni server va ilova BOSHQA-BOSHQA qarorga kelardi.
+
+    Tema ustuni bo'sh qolishi oddiy hol: eski yozuvlar, bot orqali
+    qo'shilganlar, yoki «Dizayn» maydoni bo'sh qoldirilganlar.
+    """
     keys = row.keys()
-    return row["theme"] if "theme" in keys else None
+    theme = str((row["theme"] if "theme" in keys else None) or "").strip()
+    if theme:
+        return theme
+    name = row["name"] if "name" in keys else None
+    return guess_theme(str(name or ""))
+
+
+def _effective_theme(row, payload: dict | None = None) -> str | None:
+    """So'rovdan KEYINGI tema.
+
+    Bitta so'rovda tema va video BIRGA o'zgarishi mumkin — bunda video
+    ruxsati YANGI tema bo'yicha hal qilinishi kerak. Tema bo'sh qilib
+    yuborilsa nomdan taxmin qilinadi (`_row_theme` bilan bir xil qoida).
+    """
+    if payload is not None and "theme" in payload:
+        given = str(payload["theme"] or "").strip()
+        if given:
+            return given
+        # Tema tozalandi — nom bo'yicha taxmin qilamiz
+        keys = row.keys()
+        name = row["name"] if "name" in keys else None
+        return guess_theme(str(name or ""))
+    return _row_theme(row)
 
 
 def _guard_service_video(entity: Entity, kind: str, theme: str | None) -> None:
@@ -748,10 +783,15 @@ def _guard_service_video(entity: Entity, kind: str, theme: str | None) -> None:
         return
     if service_video_allowed(theme):
         return
+    # Joriy temani ham aytamiz — admin nima uchun rad etilganini bilsin.
+    # Ilgari xabar umumiy edi va «lekin bu fara polirovkasi-ku?» degan
+    # savol tug'ilardi (aslida `theme` ustuni bo'sh bo'lgan holat edi).
+    current = str(theme or "").strip() or "belgilanmagan"
     raise bad_request(
-        "Videoni faqat fara xizmatlariga qo'yish mumkin: "
-        "polirovka, ichini tozalash va shisha almashtirish. "
-        "Kerak bo'lsa avval «Dizayn» maydonini shu turlardan biriga o'zgartiring."
+        f"Videoni bu xizmatga qo'yib bo'lmaydi (dizayni: {current}). "
+        "Video faqat uchta fara xizmatiga qo'yiladi: polirovka, "
+        "ichini tozalash va shisha almashtirish. «Dizayn» maydonidan "
+        "shu uchtadan birini tanlab saqlang, so'ng videoni yuklang."
     )
 
 

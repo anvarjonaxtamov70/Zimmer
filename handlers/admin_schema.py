@@ -5,6 +5,7 @@ qiymat qanday tekshirilishini belgilaydi. `admin_crud.py` shu tavsif asosida
 barcha bo'limlar uchun bitta universal interfeys yasaydi.
 """
 
+import inspect
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -137,6 +138,39 @@ def form_layout(entity: Entity) -> list[tuple[str, str, str, str, list[Field]]]:
 
 
 # ------------------------------------------------------------- tanlov manbalari
+
+
+async def resolve_choices(field: Field) -> list[tuple]:
+    """Maydonning tanlov ro'yxatini oladi.
+
+    Manba SINXRON ham, ASINXRON ham bo'lishi mumkin va ikkisi ham to'g'ri.
+
+    NEGA BU KERAK BO'LDI (haqiqiy xato).
+    Chaqiruv joylarida faqat `await field.choices()` yozilgan edi. Bazadan
+    o'qiydigan manbalar (`car_choices`, `category_choices`) `async def`,
+    lekin STATIK ro'yxat qaytaradiganlarni (`coming_soon_choices`,
+    `service_theme_choices`) `async` qilishning ma'nosi yo'q — ular hech
+    narsani kutmaydi.
+
+    Sinxron funksiya `await` qilinsa `TypeError: object list can't be
+    used in 'await' expression` chiqadi. U chaqiruv joyida ushlanib BO'SH
+    ro'yxat qaytarilardi va xato JIMGINA yo'qolardi. Natija zanjiri:
+
+      1. «Dizayn» va «Holat» ro'yxatlari ilovada BO'SH ko'rinardi;
+      2. bo'sh ro'yxatda faqat «— tanlanmagan —» qolib, saqlanganda
+         xizmatning `theme` ustuni NULL bo'lardi;
+      3. temasi yo'q xizmatga esa video yuklash RAD ETILARDI —
+         ya'ni birinchi xato ikkinchisini keltirib chiqarardi.
+
+    Barcha chaqiruv joylari shu funksiyaga o'tdi (`api/admin.py` va
+    `handlers/admin_crud.py`), shuning uchun xato takrorlanmaydi.
+    """
+    if field.choices is None:
+        return []
+    result = field.choices()
+    if inspect.isawaitable(result):
+        result = await result
+    return list(result or [])
 
 
 async def category_choices() -> list[tuple[str, str]]:

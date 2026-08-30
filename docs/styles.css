@@ -1341,6 +1341,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .adm-count.is-near { color: var(--amber); }
 
+/* Variantlari yuklanmagan tanlov — o'chirilgan holatda turadi va
+   qiymatni tozalab yubormaydi (`admin.js: renderField`). */
+.adm-hint.is-warn { color: var(--amber); }
+.adm-field-off select[disabled] { opacity: 0.6; }
+
 /* ---- yopishqoq saqlash paneli ----
    Ilgari tugma oxirgi maydondan keyin turardi: uzun formada uni ko'rish
    uchun oxirigacha skroll qilish kerak edi. */
