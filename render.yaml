@@ -45,6 +45,39 @@ services:
       - key: PAY_ADMIN_USERNAME
         sync: false
 
+      # ——— AI yordamchi (Groq) ———
+      # KALIT MAXFIY (sync: false) — Render panelida qo'lda kiritiladi va
+      # GitHub'ga TUSHMAYDI. Bo'sh qoldirilsa AI shunchaki O'CHIQ bo'ladi
+      # (bot oldingidek ishlaydi, xato bermaydi).
+      #
+      # NEGA BU YERDA E'LON QILINADI, agar qiymati panelda bo'lsa ham:
+      # bu fayl — Render uchun "blueprint". Xizmat shu fayldan yaratiladi
+      # va faylda YO'Q o'zgaruvchi keyingi blueprint sinxronizatsiyasida
+      # tushib qolishi mumkin. `sync: false` esa Render'ga «bu o'zgaruvchi
+      # bor, qiymati panelda» deb aytadi — ya'ni qiymat SAQLANADI va
+      # bu yerda hujjatlashtirilgan ham bo'ladi.
+      - key: GROQ_API_KEY
+        sync: false
+      # Modellar. Groq modellarni vaqti-vaqti bilan O'CHIRADI, shuning
+      # uchun ular env orqali beriladi: model o'chsa kodni emas, shu
+      # qiymatni almashtirish kifoya. Holatni botda `/ai` ko'rsatadi.
+      - key: GROQ_TEXT_MODEL
+        value: "openai/gpt-oss-120b"
+      - key: GROQ_VISION_MODEL
+        value: "qwen/qwen3.6-27b"
+      # «Xo'jayin» — AI shu ID'ga «xo'jayin» deb murojaat qiladi,
+      # qolgan adminlarga «admin». Bo'sh qoldirilsa CORE_ADMINS dagi
+      # BIRINCHI ID xo'jayin bo'ladi. O'z ID'ingizni botda `/id` yoki
+      # `/ai` ko'rsatadi.
+      - key: OWNER_ID
+        sync: false
+
+      # ——— Aloqa (Mini App'dagi «Aloqa» bo'limi) ———
+      - key: SHOP_PHONE
+        sync: false
+      - key: SHOP_TELEGRAM
+        sync: false
+
       # ——— Mini App qaysi manzildan murojaat qilishi mumkin (CORS) ———
       # Bo'sh qoldirilsa MINI_APP_URL manzilidan o'zi aniqlanadi.
       # Bir nechta manzil vergul bilan. `*` — hammaga (TAVSIYA ETILMAYDI).

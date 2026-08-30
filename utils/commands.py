@@ -29,6 +29,11 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="stories", description="Stories qo'shish (bo'limlar ro'yxati)"),
     BotCommand(command="adminlar", description="Adminlar ro'yxati"),
     BotCommand(command="firebase", description="Doimiy saqlash holati"),
+    # AI va musiqa buyruqlari MENYUDA turishi kerak: ular kodda bor edi,
+    # lekin ro'yxatga qo'shilmagani uchun botda KO'RINMASDI — ya'ni ular
+    # borligini faqat qo'llanmani o'qigan odam bilardi.
+    BotCommand(command="ai", description="AI holati (kalit, model, sinov)"),
+    BotCommand(command="musiqa", description="Mini App fon musiqasi"),
 ]
 
 
