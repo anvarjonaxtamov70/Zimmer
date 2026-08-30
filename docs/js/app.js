@@ -41,6 +41,10 @@
      telefondan ikki akkaunt kirsa ma'lumot aralashmasligi uchun.
      ==================================================================== */
   const CART_KEY = "zimmer_cart";
+  /* Fon musiqasi yoqilganmi. Foydalanuvchiga bog'lanmaydi (`userKey`
+     ishlatilmaydi): bu qurilma sozlamasi, bir telefondan ikki kishi
+     kirsa ham ovoz kutilmaganda yonib ketmasligi kerak. */
+  const MUSIC_KEY = "zimmer_music_on";
   const ADDR_KEY = "zimmer_addresses";
   const SEEN_KEY = "zimmer_seen";
   const FAV_KEY = "zimmer_favorites";
@@ -2781,6 +2785,223 @@
       const next = box.scrollLeft + step >= box.scrollWidth - 10 ? 0 : box.scrollLeft + step;
       box.scrollTo({ left: next, behavior: "smooth" });
     }, 5200);
+  }
+
+  /* ==================================================================
+     FON MUSIQASI
+
+     Admin botga audio tashlaydi (`handlers/music.py`), Mini App esa
+     uni orqa fonda eshittiradi.
+
+     ENG MUHIM CHEKLOV — BRAUZER OVOZNI O'ZI BOSHLAMAYDI.
+     Chrome va Safari qoidasi: ovozli media foydalanuvchi sahifaga
+     TEGINMAGUNCHA o'ynatilmaydi (`NotAllowedError`). Bu Zimmer
+     kamchiligi emas va uni chetlab o'tishning to'g'ri yo'li YO'Q.
+
+     Shu sababli:
+       * musiqa FAQAT 🎵 tugmasi bosilganda boshlanadi (bu — teginish);
+       * tanlov qurilmada eslab qolinadi (`MUSIC_KEY`);
+       * keyingi kirishda darhol boshlashga urinamiz, brauzer rad etsa
+         BIRINCHI teginishni kutamiz va shundan keyin davom etadi.
+
+     Ya'ni mijoz bir marta yoqsa, boshqa hech narsa bosishi shart emas.
+     ================================================================== */
+
+  /** Musiqa holati. `el` — `<audio>`, kerak bo'lganda yasaladi. */
+  const MU = { el: null, tracks: [], index: 0, on: false, armed: false, loaded: false };
+
+  const musicWanted = () => {
+    try {
+      return localStorage.getItem(MUSIC_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const rememberMusic = (on) => {
+    try {
+      localStorage.setItem(MUSIC_KEY, on ? "1" : "0");
+    } catch (_) {}
+  };
+
+  /** Treklarni bir marta yuklaydi. */
+  async function loadMusic() {
+    if (MU.loaded) return MU.tracks;
+    MU.loaded = true;
+    try {
+      const res = S.offline
+        ? await ZimmerOffline.music()
+        : await api("/api/music");
+      MU.tracks = (res && res.tracks) || [];
+    } catch (_) {
+      /* Server javob bermadi — bulutdan urinamiz. Bulut yo'lida faqat
+         tashqi havolali treklar bo'ladi (`file_id` ni brauzer o'qiy
+         olmaydi), shuning uchun ro'yxat bo'sh chiqishi ham normal. */
+      try {
+        if (window.ZimmerOffline && ZimmerOffline.music) {
+          const res = await ZimmerOffline.music();
+          MU.tracks = (res && res.tracks) || [];
+        }
+      } catch (_) {
+        MU.tracks = [];
+      }
+    }
+    if (!Array.isArray(MU.tracks)) MU.tracks = [];
+    return MU.tracks;
+  }
+
+  /** `<audio>` elementini yasaydi (faqat bir marta). */
+  function musicEl() {
+    if (MU.el) return MU.el;
+    const el = document.createElement("audio");
+    el.id = "bg-music";
+    el.preload = "none";
+    el.loop = false; // navbatdagi trekka o'tish uchun `ended` kerak
+    /* Telefonda ovoz balandligini tizim boshqaradi, lekin fon musiqasi
+       suhbatni bosib ketmasligi kerak — shuning uchun pasaytirilgan. */
+    el.volume = 0.35;
+    el.addEventListener("ended", () => {
+      if (!MU.tracks.length) return;
+      MU.index = (MU.index + 1) % MU.tracks.length;
+      playCurrent();
+    });
+    el.addEventListener("error", () => {
+      /* Bitta trek ochilmasa keyingisiga o'tamiz. Hammasi ishlamasa
+         musiqani o'chiramiz — mijozga xato ko'rsatishning ma'nosi yo'q. */
+      if (MU.tracks.length > 1) {
+        MU.index = (MU.index + 1) % MU.tracks.length;
+        playCurrent();
+      } else {
+        setMusic(false, { remember: false });
+      }
+    });
+    document.body.appendChild(el);
+    MU.el = el;
+    return el;
+  }
+
+  /** Joriy trekni o'ynatadi. Brauzer rad etsa `false` qaytaradi. */
+  async function playCurrent() {
+    const track = MU.tracks[MU.index];
+    if (!track || !track.url) return false;
+    const el = musicEl();
+    const src = abs(track.url);
+    if (el.src !== src) {
+      el.src = src;
+      el.load();
+    }
+    try {
+      await el.play();
+      return true;
+    } catch (_) {
+      /* `NotAllowedError` — foydalanuvchi hali teginmagan. Xato EMAS,
+         kutilgan holat: birinchi teginishda qayta urinamiz. */
+      return false;
+    }
+  }
+
+  /** Musiqani yoqadi/o'chiradi va tugmani yangilaydi. */
+  async function setMusic(on, opts) {
+    const remember = !opts || opts.remember !== false;
+    MU.on = !!on;
+    if (remember) rememberMusic(MU.on);
+
+    if (!MU.on) {
+      if (MU.el) {
+        try {
+          MU.el.pause();
+        } catch (_) {}
+      }
+      paintMusicBtn();
+      return;
+    }
+
+    await loadMusic();
+    if (!MU.tracks.length) {
+      MU.on = false;
+      if (remember) rememberMusic(false);
+      paintMusicBtn();
+      return;
+    }
+
+    const started = await playCurrent();
+    if (!started) armMusic();
+    paintMusicBtn();
+  }
+
+  /** Birinchi teginishni kutib, shundan keyin boshlaydi.
+   *
+   *  Aynan shu — «mijoz bir marta yoqsa, keyingi kirishlarda o'zi
+   *  davom etadi» xatti-harakatini beradigan qism. */
+  function armMusic() {
+    if (MU.armed) return;
+    MU.armed = true;
+
+    const kick = async () => {
+      if (!MU.on) return unarm();
+      const started = await playCurrent();
+      if (started) unarm();
+    };
+    const unarm = () => {
+      MU.armed = false;
+      document.removeEventListener("pointerdown", kick);
+      document.removeEventListener("touchstart", kick);
+      document.removeEventListener("keydown", kick);
+    };
+
+    // `passive` — sahifa aylanishiga xalaqit bermasin
+    document.addEventListener("pointerdown", kick, { passive: true });
+    document.addEventListener("touchstart", kick, { passive: true });
+    document.addEventListener("keydown", kick);
+  }
+
+  /** Tugma ko'rinishini holatga moslaydi. */
+  function paintMusicBtn() {
+    const btn = $("music-btn");
+    if (!btn) return;
+    // Trek yo'q bo'lsa tugma umuman ko'rinmaydi
+    const has = MU.tracks.length > 0;
+    btn.classList.toggle("hidden", !has);
+    if (!has) return;
+    btn.classList.toggle("on", MU.on);
+    btn.textContent = MU.on ? "🎵" : "🔇";
+    btn.setAttribute("aria-pressed", MU.on ? "true" : "false");
+    btn.setAttribute(
+      "aria-label",
+      MU.on ? "Fon musiqasini o'chirish" : "Fon musiqasini yoqish"
+    );
+    btn.title = MU.on ? "Musiqa yoniq" : "Musiqa o'chiq";
+  }
+
+  /** Boot'da bir marta chaqiriladi. */
+  async function initMusic() {
+    const btn = $("music-btn");
+    if (btn) {
+      btn.onclick = () => {
+        haptic("light");
+        setMusic(!MU.on);
+      };
+    }
+
+    await loadMusic();
+    paintMusicBtn();
+
+    // Mijoz ilgari yoqib qo'ygan bo'lsa — davom etamiz
+    if (MU.tracks.length && musicWanted()) await setMusic(true, { remember: false });
+
+    /* Ilova fonga o'tsa musiqani to'xtatamiz: batareya va trafik
+       behuda ketmasin, boshqa ilovadagi ovoz ustiga chiqmasin.
+       Qaytganda — mijoz yoqib qo'ygan bo'lsa davom etadi. */
+    document.addEventListener("visibilitychange", () => {
+      if (!MU.on || !MU.el) return;
+      if (document.hidden) {
+        try {
+          MU.el.pause();
+        } catch (_) {}
+      } else {
+        playCurrent();
+      }
+    });
   }
 
   function stopBannerTimer() {
@@ -7638,6 +7859,10 @@
 
   bindQuickActions(); // bosh sahifadagi tez o'tish plitkalari
   bindShopTools(); // do'kon qidiruvi, filtrlar va saralash
+  /* Fon musiqasi. `await` QILINMAYDI: musiqa ilovaning ishga tushishini
+     kutib turmasligi kerak — server javob bermasa ham do'kon ochilishi
+     shart. Xato bo'lsa jim qoladi (tugma ko'rinmaydi). */
+  initMusic().catch(() => {});
 
   /* ---------------------------------------------------- XIZMATLAR bo'limi */
   /* Kartochkalar HAR chizishda qaytadan yasaladi, shuning uchun hodisa

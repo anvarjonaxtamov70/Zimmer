@@ -35,6 +35,8 @@ MEDIA_TABLES = {
     # (`config.VIDEO_SERVICE_THEMES`), lekin proksi jadval darajasida
     # ochiladi — cheklov yuklashda tekshiriladi, ko'rsatishda emas.
     "services",
+    # Mini App fon musiqasi (`audio` turi)
+    "music",
 }
 
 CONTENT_TYPES = {
@@ -42,6 +44,10 @@ CONTENT_TYPES = {
     "photo2": "image/jpeg",  # mahsulotning 2-rasmi
     "photo3": "image/jpeg",  # mahsulotning 3-rasmi
     "video": "video/mp4",
+    # Fon musiqasi. Telegram audio odatda mp3 yoki m4a bo'ladi; `audio/mpeg`
+    # ikkisini ham brauzerda ochadi. `Range` qo'llab-quvvatlangani uchun
+    # musiqa boshidan to'liq yuklanishini kutmaydi.
+    "audio": "audio/mpeg",
 }
 CACHE = "public, max-age=86400"
 

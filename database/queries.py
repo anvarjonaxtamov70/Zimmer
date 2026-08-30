@@ -1433,6 +1433,38 @@ async def get_promos() -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
+# ------------------------------------------------------------- fon musiqasi
+
+
+async def get_music(active_only: bool = True) -> list[aiosqlite.Row]:
+    """Mini App'dagi fon musiqasi ro'yxati (tartib bo'yicha)."""
+    db = get_db()
+    sql = "SELECT * FROM music"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort, id"
+    async with db.execute(sql) as cur:
+        return await cur.fetchall()
+
+
+async def add_music(
+    title: str,
+    audio_id: str | None = None,
+    audio_url: str | None = None,
+    duration: int = 0,
+) -> int:
+    """Yangi trek qo'shadi va uni ro'yxat OXIRIGA qo'yadi."""
+    db = get_db()
+    sort = await admin_next_sort("music")
+    cur = await db.execute(
+        "INSERT INTO music (title, audio_id, audio_url, duration, sort)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (title, audio_id, audio_url, int(duration or 0), sort),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
 async def add_banner(
     title: str, subtitle: str | None, tag: str | None, photo_id: str | None
 ) -> int:
@@ -1619,6 +1651,8 @@ EDITABLE: dict[str, set[str]] = {
         "link",
     },
     "promos": {"title", "text", "discount", "until_date", "sort", "is_active"},
+    # Fon musiqasi. `audio_id` — Telegram file_id, `audio_url` — tashqi manzil.
+    "music": {"title", "audio_id", "audio_url", "duration", "sort", "is_active"},
 }
 
 
@@ -1859,6 +1893,7 @@ CATALOG_KEY: dict[str, str] = {
     "banners": "title",
     "stories": "title",
     "promos": "title",
+    "music": "title",
 }
 
 # Boshqa jadvalga bog'langan ustunlar: ustun -> (jadval, bulutdagi nom kaliti).
@@ -1886,6 +1921,9 @@ CATALOG_ORDER = (
     "banners",
     "stories",
     "promos",
+    # Fon musiqasi ham bulutga ko'chiriladi: qayta deployda yo'qolmasin
+    # va zaxira rejimda (tashqi URL bo'lsa) eshitilishda davom etsin.
+    "music",
 )
 
 
