@@ -158,15 +158,43 @@ async def remove_admin(user_id: int) -> bool:
 # -------------------------------------------------------------------- xizmatlar
 
 
-async def get_services(active_only: bool = True) -> list[aiosqlite.Row]:
+async def get_services(
+    active_only: bool = True, bookable_only: bool = False
+) -> list[aiosqlite.Row]:
+    """Xizmatlar ro'yxati.
+
+    bookable_only -- «Tez kunda» xizmatlarni TASHLAB ketadi. Bot navbat
+        olish ro'yxatida shu rejimni ishlatadi: narxi belgilanmagan
+        xizmatni tanlab bo'lmaydi. Mini App esa hammasini oladi — u
+        «Tez kunda» ni alohida ko'rinishda ko'rsatadi (mijoz yo'nalish
+        borligini bilishi kerak).
+    """
     db = get_db()
-    sql = "SELECT * FROM services"
+    where = []
     if active_only:
-        sql += " WHERE is_active = 1"
+        where.append("is_active = 1")
+    if bookable_only:
+        where.append("COALESCE(coming_soon, 0) = 0")
+    sql = "SELECT * FROM services"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     # Tartibni admin `sort` bilan boshqaradi (Mini App shu tartibda chizadi).
     sql += " ORDER BY sort, id"
     async with db.execute(sql) as cur:
         return await cur.fetchall()
+
+
+async def get_bookable_service(service_id: int) -> aiosqlite.Row | None:
+    """Navbat olish mumkin bo'lgan xizmat (yo'q yoki «tez kunda» -> None)."""
+    row = await get_service(service_id)
+    if row is None:
+        return None
+    keys = row.keys()
+    if not row["is_active"]:
+        return None
+    if "coming_soon" in keys and row["coming_soon"]:
+        return None
+    return row
 
 
 async def get_service(service_id: int) -> aiosqlite.Row | None:
@@ -1517,6 +1545,12 @@ EDITABLE: dict[str, set[str]] = {
     "services": {
         "name", "duration_min", "price", "warranty", "description",
         "theme", "sort", "is_active",
+        # Xizmat videosi va «Tez kunda» holati.
+        # DIQQAT: bu ro'yxat Firebase'ga saqlanadigan ustunlarni ham
+        # belgilaydi (`catalog_columns`) — yangi maydon shu yerga
+        # qo'shilmasa, bulutga tushmaydi va qayta deployda yo'qoladi.
+        "photo_id", "photo_url", "video_id", "video_url",
+        "coming_soon",
     },
     "banners": {
         "title", "subtitle", "tag", "color_from", "color_to", "car_id",
