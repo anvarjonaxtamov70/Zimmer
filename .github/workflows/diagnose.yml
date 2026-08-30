@@ -134,7 +134,19 @@ jobs:
           if [ -n "$miss" ]; then
             echo "::error title=Worker sozlamalari to'liq emas::Kiritilmagan: $miss — Cloudflare -> Worker -> Settings -> Variables and Secrets"
           else
-            echo "✅ Worker ISHLAYAPTI va to'liq sozlangan — Render o'chsa ham buyurtma qabul qilinadi."
+            echo "✅ Worker sozlamalari to'liq (BOT_TOKEN, Firebase kaliti, adminlar)."
+          fi
+
+          # ---- Cloudflare'da ESKI nusxa turganini aniqlash ----
+          # Cloudflare GitHub'dan O'ZI yangilanmaydi. Sozlamalar to'liq
+          # bo'lsa ham kod eski bo'lishi mumkin — o'sha holatda ilova
+          # JIMGINA yarim ishlaydi, shuning uchun alohida tekshiramiz.
+          old=$(python3 scripts/check_worker_version.py cloudflare-worker.js /tmp/w.json || true)
+
+          if [ -n "$old" ]; then
+            echo "::error title=Cloudflare'da Worker'ning ESKI nusxasi turibdi::Yetishmayotgan imkoniyatlar: $old. Repodagi cloudflare-worker.js faylini Cloudflare -> Workers & Pages -> Worker -> Edit code ga TO'LIQ qo'yib «Deploy» bosing. Secret'larga tegmaysiz. Ko'rsatma: WORKER_SETUP.md"
+          else
+            echo "✅ Worker'ning YANGI nusxasi turibdi — kodni qayta qo'yish kerak emas."
           fi
 
       - name: 4) GitHub Pages — ilova fayllari
