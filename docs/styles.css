@@ -3639,6 +3639,53 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   line-height: 1.45;
 }
 
+/* Sarlavhadagi kichik zaxira-rejim belgisi.
+   Katta chiziq o'rniga: joy egallamaydi, lekin holat ko'rinib turadi. */
+.offline-badge {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: 6px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(255, 170, 60, 0.12);
+  border: 1px solid rgba(255, 170, 60, 0.3);
+  color: #ffd9a0;
+  cursor: pointer;
+  animation: offBadgeIn 0.3s ease both, offBadgePulse 2.6s ease-in-out 0.3s infinite;
+}
+
+@keyframes offBadgeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes offBadgePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 170, 60, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 170, 60, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offline-badge {
+    animation: none;
+  }
+}
+
 
 /* ==========================================================================
    TOVAR BOSHQARUVI (admin-shop.js) — Avto_A1 dizayni, Zimmer ranglari
