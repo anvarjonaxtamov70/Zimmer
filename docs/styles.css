@@ -3329,12 +3329,16 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   box-shadow: 0 0 12px var(--red-glow);
 }
 
-/* Rasm galereyasi */
+/* Rasm galereyasi.
+   DIQQAT: bu — ESKI e'lon. Amalda pastdagi ikkinchi `.pm-gallery`
+   bloki g'olib bo'ladi (bir xil aniqlik, keyin turadi). Fon shu yerda
+   ham qorong'i qilib qo'yildi: ilgari `#ffffff` edi va tartib
+   o'zgarganda oq kvadrat qaytib kelishi mumkin edi. */
 .pm-gallery {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: #ffffff;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -3352,13 +3356,17 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   display: none;
 }
 
+/* DIQQAT: bu — ESKI e'lon; amaldagisi pastda (`.pm-slider img,
+   .pm-slider .pm-shot`). Ilgari bu yerda `object-fit: cover` turardi,
+   ya'ni tartib o'zgarsa rasm QIRQILA boshlardi. Shu sababli u ham
+   `contain` qilib qo'yildi — ikki e'lon bir-biriga qarshi turmasin. */
 .pm-slider img {
   flex: 0 0 100%;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   scroll-snap-align: start;
-  padding: 12px;
+  padding: 6px;
   box-sizing: border-box;
 }
 
@@ -6134,11 +6142,21 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
    ular kartochkani shovqinli qilardi. */
 .prod::before, .prod::after { content: none; }
 
-/* ---- rasm maydoni: OCH "plita".
-   Tovar suratlari ko'pincha oq fonda olinadi, shuning uchun maydon och
-   qoldiriladi (qora fonda oq surat quti bo'lib ko'rinardi). Lekin endi u
-   YALANG'OCH oq slab emas: yumshoq gradient, burchaklari yumaloq va
-   ichki chegarasi bor. */
+/* ---- rasm maydoni: QORONG'I "plita".
+   Ilgari maydon OCH edi — sabab: tovar suratlari ko'pincha oq fonda
+   olinadi va qorong'i plitada oq surat «quti» bo'lib suzib ko'rinardi.
+
+   Endi plita qorong'i (ilova rangida), lekin o'sha muammo YUZAGA
+   KELMAYDI, chunki bo'sh joy ham deyarli olib tashlandi (`padding`
+   9px -> 3px, pastda). Natijada:
+
+     * kvadrat surat (eng ko'p uchraydigan hol) plitani TO'LIQ to'ldiradi
+       — hech qanday oq quti suzib turmaydi, surat o'zi plita bo'ladi;
+     * kvadrat bo'lmagan surat chetlarida qorong'i chiziq qoladi, lekin
+       u qorong'i plitada QASDAN qilingan «letterbox» kabi ko'rinadi,
+       och plitadagi begona yorug' slab kabi emas.
+
+   `object-fit: contain` SAQLANADI — surat qirqilmaydi. */
 /* Kvadrat `padding-top` hiylasi bilan yasaladi (`aspect-ratio` emas):
    eski WebView'da `aspect-ratio` qo'llanmasa maydon balandligi NOLGA
    tushib, kartochka buzilardi. */
@@ -6170,8 +6188,13 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   font-size: 32px;
   border-radius: 14px;
   overflow: hidden;
-  background: linear-gradient(158deg, #f7f8fa 0%, #e8eaef 100%);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  /* Kartochka fonidan (`--surface: #121317`) bir pog'ona QORONG'IROQ —
+     shu tufayli rasm maydoni «ichkariga cho'kkan» ko'rinadi va
+     kartochkaga singib ketmaydi. */
+  background: linear-gradient(158deg, #15171d 0%, #0d0e12 100%);
+  /* Chegara YORUG' bo'lishi kerak: qorong'i fonda qora hairline
+     (`rgba(0,0,0,...)`) umuman ko'rinmasdi. */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 .prod-art.empty {
   background: var(--surface-2);
@@ -6187,7 +6210,10 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   inset: 0;
   width: 100%;
   height: 100%;
-  padding: 9px;
+  /* 9px -> 3px. Qorong'i plitada bo'sh joy KERAK EMAS va zararli:
+     u oq fonli suratni «quti» qilib ko'rsatardi. Kichik padding bilan
+     kvadrat surat plitani to'liq to'ldiradi. */
+  padding: 3px;
   box-sizing: border-box;
   object-fit: contain;
   opacity: 0;
@@ -6242,7 +6268,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   font-size: 11px;
   padding: 5px 12px;
 }
-.prod-art.is-out img.ready { opacity: 0.4; }
+/* Tugagan tovar — xiralashadi. 0.4 -> 0.5: plita OCHDAN QORONG'IGA
+   o'tgani uchun bir xil shaffoflik boshqacha ko'rinadi. Och plitada
+   qorong'i tovar 0.4 da ham ajralib turardi (kontrast bor edi);
+   qorong'i plitada esa u deyarli ko'rinmay qolardi. */
+.prod-art.is-out img.ready { opacity: 0.5; }
 .prod-play {
   position: absolute;
   bottom: 8px;
@@ -6383,7 +6413,9 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   -webkit-backdrop-filter: none;
 }
 
-/* Galereya: qora ramka ichidagi och "plita".
+/* Galereya: qorong'i plita — kartochkadagi bilan BIR XIL.
+   Ikkisi boshqacha bo'lsa mijoz kartochkani bosganda rasm «boshqa
+   tovarga» o'xshab ko'rinardi.
    Ilgari bu butun ekran bo'ylab YALANG'OCH oq kvadrat edi va rasm
    `object-fit: cover` bilan QIRQILARDI. */
 .pm-gallery {
@@ -6401,8 +6433,9 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   border-radius: 18px;
   overflow: hidden;
   overflow-x: auto;
-  background: linear-gradient(158deg, #f7f8fa 0%, #e8eaef 100%);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.07);
+  /* Kartochkadagi plita bilan bir xil (`.prod-art`) */
+  background: linear-gradient(158deg, #15171d 0%, #0d0e12 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 /* MUHIM: `contain` — tovar to'liq ko'rinadi, chetlari kesilmaydi */
 .pm-slider img,
@@ -6410,7 +6443,9 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   flex: 0 0 100%;
   width: 100%;
   height: 100%;
-  padding: 14px;
+  /* 14px -> 6px: kartochkadagi kabi, qorong'i plitada bo'sh joy
+     kerak emas. Modal kattaroq, shuning uchun 3 emas 6. */
+  padding: 6px;
   box-sizing: border-box;
   object-fit: contain;
   scroll-snap-align: start;
@@ -8577,10 +8612,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .saved-thumb img {
   aspect-ratio: 1 / 1;
 }
-.pm-slide img {
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-}
+/* `.pm-slide` (birlikda) QOIDASI OLIB TASHLANDI.
+   Bunday klass loyihada HECH QAYERDA yo'q — ishlatiladigani
+   `.pm-slider` (oxirida `r` bilan). Qoidada `object-fit: cover` turardi,
+   ya'ni JS'da bitta harf xato yozilsa rasm jimgina QIRQILA boshlardi.
+   Bo'lmagan klass uchun xavfli qoida saqlab turishning ma'nosi yo'q. */
 /* Bannerlar — keng format */
 .banner {
   aspect-ratio: 16 / 7;
