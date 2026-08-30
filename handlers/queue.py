@@ -51,7 +51,9 @@ async def start_booking(message: Message, state: FSMContext) -> None:
         await message.answer(NOT_REGISTERED)
         return
 
-    services = await q.get_services()
+    # «Tez kunda» xizmatlar ro'yxatga TUSHMAYDI — narxi yo'q, ya'ni
+    # ularga navbat olish mumkin emas.
+    services = await q.get_services(bookable_only=True)
     if not services:
         await message.answer(
             "Hozircha xizmatlar qo'shilmagan. Keyinroq urinib ko'ring.",
@@ -67,7 +69,7 @@ async def start_booking(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "back:svc")
 async def back_to_services(callback: CallbackQuery) -> None:
-    services = await q.get_services()
+    services = await q.get_services(bookable_only=True)
     await edit_or_send(
         callback.message,
         "🗓 <b>Navbat olish</b>\n\nQaysi xizmat uchun navbat olasiz?",
@@ -83,7 +85,7 @@ async def back_to_services(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("back:dates:"))
 async def choose_date(callback: CallbackQuery) -> None:
     service_id = int(callback.data.split(":")[-1])
-    service = await q.get_service(service_id)
+    service = await q.get_bookable_service(service_id)
     if not service:
         await callback.answer("Xizmat topilmadi", show_alert=True)
         return
@@ -106,7 +108,7 @@ async def choose_date(callback: CallbackQuery) -> None:
 async def choose_time(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     service_id, date_iso = int(parts[-2]), parts[-1]
-    service = await q.get_service(service_id)
+    service = await q.get_bookable_service(service_id)
     if not service:
         await callback.answer("Xizmat topilmadi", show_alert=True)
         return
@@ -133,9 +135,11 @@ async def choose_time(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("tm:"))
 async def confirm_booking(callback: CallbackQuery) -> None:
     _, sid, date_iso, time_enc = callback.data.split(":")
-    service = await q.get_service(int(sid))
+    service = await q.get_bookable_service(int(sid))
     if not service:
-        await callback.answer("Xizmat topilmadi", show_alert=True)
+        await callback.answer(
+            "Bu xizmat hozir navbat qabul qilmaydi", show_alert=True
+        )
         return
     time_str = decode_time(time_enc)
 
@@ -158,7 +162,7 @@ async def confirm_booking(callback: CallbackQuery) -> None:
 async def save_booking(callback: CallbackQuery, bot: Bot) -> None:
     _, sid, date_iso, time_enc = callback.data.split(":")
     service_id, time_str = int(sid), decode_time(time_enc)
-    service = await q.get_service(service_id)
+    service = await q.get_bookable_service(service_id)
     if not service:
         await callback.answer("Xizmat topilmadi", show_alert=True)
         return

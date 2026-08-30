@@ -11,7 +11,7 @@ from aiohttp import web
 from api.auth import extract_init_data, validate_init_data
 from api.errors import ApiError, bad_request, not_found, phone_required, unauthorized
 from api.media import media_fields
-from config import config, is_admin
+from config import config, is_admin, service_video_allowed
 from database import queries as q
 from keyboards.inline import (
     admin_new_biled_kb,
@@ -95,6 +95,29 @@ async def _json_body(request: web.Request) -> dict:
 async def _taken_slots(date_iso: str) -> list[tuple[str, int]]:
     rows = await q.get_day_bookings(date_iso)
     return [(row["time"], int(row["duration_min"])) for row in rows]
+
+
+async def _bookable_service(service_id: int):
+    """Navbat olish MUMKIN bo'lgan xizmatni qaytaradi.
+
+    «Tez kunda» xizmatga navbat OLINMAYDI: uning narxi hali belgilanmagan,
+    ya'ni buyurtma tushsa mijoz ham, admin ham qancha pul haqida gap
+    ketayotganini bilmaydi. Ilova tugmani ko'rsatmaydi, lekin server ham
+    tekshirishi SHART — aks holda eski keshdagi ilova yoki qo'lda
+    yuborilgan so'rov orqali narxsiz navbat yaratilishi mumkin edi.
+    """
+    service = await q.get_service(service_id)
+    if not service or not service["is_active"]:
+        raise not_found("Xizmat topilmadi")
+    keys = service.keys()
+    if "coming_soon" in keys and service["coming_soon"]:
+        raise ApiError(
+            409,
+            "coming_soon",
+            f"«{service['name']}» xizmati tez kunda ishga tushadi. "
+            "Hozircha navbat olinmaydi.",
+        )
+    return service
 
 
 def _media_from_raw(table: str, row_id: int, raw_url, has_file: bool, kind: str) -> tuple:
@@ -601,24 +624,57 @@ async def api_home(request: web.Request) -> web.Response:
 async def api_services(request: web.Request) -> web.Response:
     await _current_user(request)
     services = await q.get_services()
-    return web.json_response(
-        [
-            {
-                "id": svc["id"],
-                "name": svc["name"],
-                "duration_min": int(svc["duration_min"]),
-                "price": int(svc["price"]),
-                "price_label": fmt_price(svc["price"]),
-                # Mini App «Xizmatlar» bo'limi uchun: kafolat, tavsif va
-                # kartochka dizayni kaliti (`app.js: SERVICE_THEMES`).
-                "warranty": svc["warranty"],
-                "description": svc["description"],
-                "theme": svc["theme"],
-                "sort": int(svc["sort"] or 0),
-            }
-            for svc in services
-        ]
-    )
+    return web.json_response([_service_json(svc) for svc in services])
+
+
+def _service_json(svc) -> dict:
+    """Mini App uchun bitta xizmat.
+
+    VIDEO. Faqat uchta fara xizmatiga qo'yiladi (`VIDEO_SERVICE_THEMES`).
+    Qoida SERVER tomonida hisoblanadi va `video_allowed` sifatida
+    yuboriladi — shunda frontend qoidani TAKRORLAMAYDI (ikki joyda
+    saqlansa ular albatta bir-biridan ajralib ketadi).
+
+    «TEZ KUNDA». `coming_soon = 1` bo'lsa narx yuborilmaydi: mijoz
+    tayyor bo'lmagan narxni ko'rmasligi kerak. Frontend narx o'rniga
+    «Tez kunda» yozadi va navbat tugmasini ko'rsatmaydi.
+    """
+    keys = svc.keys()
+    theme = svc["theme"] if "theme" in keys else None
+    soon = bool(svc["coming_soon"]) if "coming_soon" in keys else False
+    allowed = service_video_allowed(theme)
+
+    video_url = None
+    video_external = False
+    if allowed:
+        raw = svc["video_url"] if "video_url" in keys else None
+        has_file = bool(svc["video_id"]) if "video_id" in keys else False
+        video_url, video_external = _media_from_raw(
+            "services", svc["id"], raw, has_file, "video"
+        )
+
+    return {
+        "id": svc["id"],
+        "name": svc["name"],
+        "duration_min": int(svc["duration_min"]),
+        # «Tez kunda» xizmatda narx YO'Q (0 emas — yo'q). Frontend `null`
+        # ni «Tez kunda» deb ko'rsatadi, `0` esa «bepul» degan ma'no
+        # berib qolishi mumkin edi.
+        "price": None if soon else int(svc["price"]),
+        "price_label": None if soon else fmt_price(svc["price"]),
+        # Mini App «Xizmatlar» bo'limi uchun: kafolat, tavsif va
+        # kartochka dizayni kaliti (`app.js: SERVICE_THEMES`).
+        "warranty": svc["warranty"],
+        "description": svc["description"],
+        "theme": theme,
+        "sort": int(svc["sort"] or 0),
+        "coming_soon": soon,
+        # Videoni ko'rsatish/yuklash mumkinmi (qoida serverda)
+        "video_allowed": allowed,
+        "video_url": video_url,
+        "video_external": video_external,
+        "has_video": bool(video_url),
+    }
 
 
 @routes.get("/api/dates")
@@ -629,9 +685,7 @@ async def api_dates(request: web.Request) -> web.Response:
     except ValueError as error:
         raise bad_request("service_id ko'rsatilmagan") from error
 
-    service = await q.get_service(service_id)
-    if not service:
-        raise not_found("Xizmat topilmadi")
+    service = await _bookable_service(service_id)
 
     result = []
     for date_iso in available_dates():
@@ -658,9 +712,7 @@ async def api_slots(request: web.Request) -> web.Response:
     if date_iso not in available_dates():
         raise bad_request("Sana noto'g'ri yoki juda uzoq")
 
-    service = await q.get_service(service_id)
-    if not service:
-        raise not_found("Xizmat topilmadi")
+    service = await _bookable_service(service_id)
 
     slots = free_slots(date_iso, int(service["duration_min"]), await _taken_slots(date_iso))
     return web.json_response({"date": date_iso, "label": date_label(date_iso), "slots": slots})
@@ -679,9 +731,7 @@ async def api_create_booking(request: web.Request) -> web.Response:
     date_iso = str(body.get("date", ""))
     time_str = str(body.get("time", ""))
 
-    service = await q.get_service(service_id)
-    if not service or not service["is_active"]:
-        raise not_found("Xizmat topilmadi")
+    service = await _bookable_service(service_id)
     if date_iso not in available_dates():
         raise bad_request("Sana noto'g'ri")
 

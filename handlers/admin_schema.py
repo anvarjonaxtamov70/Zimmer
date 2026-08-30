@@ -83,6 +83,41 @@ MEDIA = (
 )
 
 
+def coming_soon_choices() -> list[tuple[str, str]]:
+    """«Tez kunda» holati.
+
+    Alohida `bool` turi qo'shilmadi: u forma chizishni (`admin.js`),
+    tekshirishni (`api/admin.py`) va bot formasini — uchta joyni
+    o'zgartirishni talab qiladi. `choice` esa allaqachon ishlaydi va
+    ro'yxat ko'rinishida chiqadi, ya'ni admin 0/1 ni eslab yurmaydi.
+    """
+    return [("0", "✅ Ishlaydi (narx ko'rinadi)"), ("1", "🕒 Tez kunda")]
+
+
+def _service_label(row) -> str:
+    """Xizmat ro'yxatidagi bitta qator.
+
+    «Tez kunda» xizmatda narx YO'Q, shuning uchun `fmt_price(0)` — ya'ni
+    «0 so'm» — chiqishi kerak emas: admin ro'yxatga qarab «narxni
+    qo'yishni unutdimmi?» deb o'ylardi. O'sha holatda holatning o'zi
+    yoziladi.
+    """
+    keys = row.keys()
+    soon = bool(row["coming_soon"]) if "coming_soon" in keys else False
+    if soon:
+        return f"{row['name']} · 🕒 Tez kunda"
+
+    parts = [str(row["name"])]
+    if row["duration_min"]:
+        parts.append(f"{row['duration_min']} daq")
+    parts.append(fmt_price(row["price"]))
+    # Video FAQAT uchta fara xizmatida bo'ladi — bor/yo'qligi ro'yxatdan
+    # ko'rinsin, aks holda admin har bir xizmatni ochib tekshirardi.
+    if ("video_id" in keys and row["video_id"]) or ("video_url" in keys and row["video_url"]):
+        parts.append("🎬")
+    return " · ".join(parts)
+
+
 ENTITIES: dict[str, Entity] = {
     "led": Entity(
         key="led",
@@ -196,16 +231,50 @@ ENTITIES: dict[str, Entity] = {
             Field("price", "Narx", "money"),
             # Kafolat MATN: "1 yil", "3 oy", "19 kun" — xohlagan muddat.
             Field("warranty", "Kafolat muddati"),
-            Field("description", "Tavsif"),
+            Field("description", "Tavsif", "long"),
             # Mini App kartochkasining dizayni. Bo'sh bo'lsa nom bo'yicha
             # o'zi tanlanadi, shuning uchun majburiy emas.
             Field(
                 "theme",
-                "Dizayn (config/biled/polish/glass/clean/wheel/seat)",
+                "Dizayn",
+                hint="config/biled/polish/glass/clean/wheel/seat/"
+                "laminate/tint/armor — bo'sh bo'lsa nom bo'yicha tanlanadi",
+            ),
+            # «Tez kunda»: narx ko'rsatilmaydi va navbat olinmaydi.
+            # `required=True` — «— tanlanmagan —» varianti CHIQMASLIGI
+            # uchun. Ustun `NOT NULL DEFAULT 0`, ya'ni bo'sh qiymat
+            # yuborilsa baza xato berardi. Yaratishda ham so'ralmaydi
+            # (`create` ro'yxatida yo'q), demak har doim 0 dan boshlanadi.
+            Field(
+                "coming_soon",
+                "Holat",
+                "choice",
+                choices=coming_soon_choices,
+                required=True,
+                hint="«Tez kunda» tanlansa mijoz narxni ko'rmaydi va "
+                "navbat olmaydi — yo'nalishni oldindan e'lon qilish uchun",
+            ),
+            # XIZMAT VIDEOSI.
+            #
+            # Faqat uchta FARA xizmatiga saqlanadi (`config.
+            # VIDEO_SERVICE_THEMES`: polish / clean / glass). Boshqa
+            # xizmatga yuborilsa server RAD ETADI — chalkashmasin.
+            #
+            # UZUN VA SIFATLI VIDEO UCHUN: faylni Telegram orqali
+            # yuborish 50 MB bilan cheklangan (bot API chegarasi).
+            # Shundan uzunrog'i kerak bo'lsa videoni Firebase Storage
+            # yoki boshqa xostingga qo'yib, shu maydonga https:// URL
+            # yozing — hajm cheklovi bo'lmaydi.
+            Field(
+                "video_id",
+                "Video (faqat fara xizmatlari)",
+                "video",
+                hint="Video yuboring (50 MB gacha) yoki uzun/sifatli video "
+                "uchun https:// URL yozing",
             ),
             Field("sort", "Tartib", "int"),
         ),
-        label=lambda r: f"{r['name']} · {r['duration_min']} daq · {fmt_price(r['price'])}",
+        label=_service_label,
         create=("name", "duration_min", "price"),
     ),
     "ban": Entity(
