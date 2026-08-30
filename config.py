@@ -180,10 +180,30 @@ class Config:
     keep_alive_interval: int
     # API'ga qaysi manzillardan murojaat qilish mumkin (CORS)
     allowed_origins_raw: str
+    # ---- AI yordamchi (Groq) ----
+    #
+    # DIQQAT: `groq_api_key` — MAXFIY. Faqat env'dan olinadi va kodda
+    # standart qiymati YO'Q. Karta raqami bilan bo'lgan xatoni
+    # takrorlamaymiz: repozitoriyga tushgan kalit git tarixida abadiy
+    # qoladi va uni ko'rgan har kim ishlatishi mumkin.
+    groq_api_key: str
+    # Modellar env orqali sozlanadi. Sabab: Groq modellarni vaqti-vaqti
+    # bilan O'CHIRADI (masalan `llama-3.3-70b-versatile` 2026-yil
+    # iyunida). Model o'chirilsa kodni o'zgartirmasdan, Render'dagi
+    # qiymatni almashtirish yetarli bo'lishi kerak.
+    groq_text_model: str
+    groq_vision_model: str
+    # «Xo'jayin» — bosh admin. AI unga boshqacha murojaat qiladi.
+    owner_id: int
 
     @property
     def has_mini_app(self) -> bool:
         return self.mini_app_url.startswith("https://")
+
+    @property
+    def ai_enabled(self) -> bool:
+        """AI yordamchi ishlaydimi. Kalit bo'lmasa — o'chiq (xato emas)."""
+        return bool(self.groq_api_key)
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -293,6 +313,23 @@ config = Config(
     keep_alive_interval=_int_env("KEEP_ALIVE_INTERVAL", 600),
     # CORS: bo'sh bo'lsa MINI_APP_URL manzilidan aniqlanadi (yuqoriga qara)
     allowed_origins_raw=os.getenv("ALLOWED_ORIGINS", "").strip(),
+    # ---- AI yordamchi ----
+    # Kalit Render panelida kiritiladi: Environment -> GROQ_API_KEY.
+    # Bo'sh bo'lsa AI o'chadi, bot esa oldingidek ishlashda davom etadi.
+    groq_api_key=os.getenv("GROQ_API_KEY", "").strip(),
+    groq_text_model=os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-120b").strip(),
+    # Rasmni «ko'radigan» model. Bo'sh qoldirilsa rasm tahlili o'chadi,
+    # lekin matnli suhbat ishlashda davom etadi.
+    #
+    # DIQQAT — MODELLAR O'CHIRILADI. Groq bepul tarifda
+    # `meta-llama/llama-4-scout-17b-16e-instruct` ni 2026-yil 17-iyulda
+    # o'chirdi va o'rniga rasmni ko'radigan `qwen/qwen3.6-27b` ni
+    # tavsiya qildi. Shuning uchun standart qiymat — o'sha
+    # (`DEPLOY_ALT.md` dagi Avto_A1 sozlamasi bilan ham bir xil).
+    # Kelajakda bu ham o'chirilsa, env'dagi qiymatni almashtirish yetarli.
+    groq_vision_model=os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.6-27b").strip(),
+    # Bosh admin. Ko'rsatilmasa — `CORE_ADMINS` dagi birinchisi.
+    owner_id=_int_env("OWNER_ID", CORE_ADMINS[0]),
 )
 
 
@@ -328,6 +365,18 @@ def all_admins() -> list[int]:
 
 def is_admin(user_id: int | None) -> bool:
     return user_id is not None and user_id in _admin_index
+
+
+def is_owner(user_id: int | None) -> bool:
+    """Bosh adminmi («xo'jayin»)?
+
+    AI yordamchi murojaat shaklini shu bilan tanlaydi: xo'jayinga
+    «xo'jayin», boshqa adminlarga «admin», mijozlarga ismi bilan.
+
+    `OWNER_ID` env orqali beriladi; ko'rsatilmasa `CORE_ADMINS` dagi
+    birinchi ID ishlatiladi.
+    """
+    return user_id is not None and user_id == config.owner_id
 
 
 def is_core_admin(user_id: int) -> bool:

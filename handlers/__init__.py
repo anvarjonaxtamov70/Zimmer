@@ -14,6 +14,7 @@ def get_routers() -> list:
         admin_import,
         admin_products,
         admin_product_actions,
+        ai_chat,
         cart,
         fallback,
         orders,
@@ -38,5 +39,19 @@ def get_routers() -> list:
         # avval o'sha oqimga tushishi kerak (u holat bilan filtrlangan).
         admin_crud.router,
         stories.router,
+        # ---- AI yordamchi ----
+        #
+        # `fallback` DAN OLDIN, qolgan hammasidan KEYIN.
+        #
+        # Sabab: `fallback` — «Tushunmadim» javobi, ya'ni hech kim
+        # ushlamagan xabar. AI aynan o'shalarni olishi kerak. Agar
+        # oldinroq tursa menyu tugmalari va admin oqimlarini o'ziga
+        # tortib olardi; `fallback` dan keyin tursa esa umuman navbatga
+        # yetib kelmasdi (aiogram birinchi mos handler'da to'xtaydi).
+        #
+        # AI o'chirilgan yoki javob bermaydigan holatda handler
+        # `fallback` funksiyasini O'ZI chaqiradi — shu tufayli mijoz
+        # har holatda javob oladi.
+        ai_chat.router,
         fallback.router,
     ]

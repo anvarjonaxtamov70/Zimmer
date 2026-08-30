@@ -7,6 +7,7 @@ from aiogram.types import Message
 
 from config import VERSION, config, is_admin
 from database import queries as q
+from handlers import ai_chat
 from keyboards.inline import open_app_kb
 from keyboards.reply import cancel_kb, main_menu, phone_kb
 from services import admins as admin_registry
@@ -29,6 +30,9 @@ router = Router(name="start")
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
+    # AI suhbatini ham boshidan boshlaymiz: `/start` — «qaytadan
+    # boshlaymiz» degani, eski kontekst yangi savolga xalaqit bermasin.
+    ai_chat.reset_talk(message.from_user.id)
     user = await q.get_user(message.from_user.id)
     if user and user["phone"]:
         await message.answer(
