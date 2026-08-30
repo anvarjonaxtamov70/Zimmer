@@ -52,8 +52,19 @@ class AiReply:
 
     ok: bool
     text: str
-    # Xatoning texnik turi (jurnal uchun): "no_key" | "rate" | "timeout" |
-    # "http" | "empty" | "network" | "no_vision"
+    # Xatoning texnik turi. MIJOZGA ko'rsatilmaydi — u `/ai` tekshiruvida
+    # va jurnalda ishlatiladi:
+    #   "no_key"  — kalit sozlanmagan
+    #   "auth"    — kalit noto'g'ri yoki bekor qilingan (401/403)
+    #   "model"   — model topilmadi, Groq o'chirgan bo'lishi mumkin (404)
+    #   "rate"    — chegaradan oshdi (429)
+    #   "http"    — boshqa HTTP xatosi
+    #   "timeout" | "network" | "empty"
+    #
+    # NEGA "auth" va "model" AJRATILDI: ikkisi ham ilgari "http" edi va
+    # jurnal ham, tekshiruv ham «nimadir ishlamadi» deb qolardi. Holbuki
+    # yechim BUTUNLAY boshqa: birida kalitni almashtirish, ikkinchisida
+    # model nomini.
     reason: str = ""
 
 
@@ -139,6 +150,14 @@ async def ask(
                 if response.status >= 400:
                     body = (await response.text())[:400]
                     logger.warning("AI: HTTP %s — %s", response.status, body)
+                    # Kalit noto'g'ri / bekor qilingan
+                    if response.status in (401, 403):
+                        logger.warning(
+                            "AI: kalit qabul qilinmadi (HTTP %s). Render -> "
+                            "Environment -> GROQ_API_KEY ni tekshiring.",
+                            response.status,
+                        )
+                        return AiReply(False, _friendly_error(), "auth")
                     # 404 — model o'chirilgan bo'lishi mumkin (Groq shunday qiladi)
                     if response.status == 404:
                         logger.warning(
@@ -147,6 +166,7 @@ async def ask(
                             "ni yangilang.",
                             payload["model"],
                         )
+                        return AiReply(False, _friendly_error(), "model")
                     return AiReply(False, _friendly_error(), "http")
 
                 data = await response.json()

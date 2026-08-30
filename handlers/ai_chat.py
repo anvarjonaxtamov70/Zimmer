@@ -32,11 +32,11 @@ import logging
 import time
 
 from aiogram import F, Router
-from aiogram.filters import StateFilter
+from aiogram.filters import Command, StateFilter
 from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import config
+from config import config, is_owner
 from database import queries as q
 from services import ai, ai_brain
 from utils import texts
@@ -129,6 +129,25 @@ async def _user_name(message: Message, db_user) -> str:
         if name:
             return str(name).strip()
     return (message.from_user.first_name or "").strip()
+
+
+async def _may_chat(message: Message, db_user, is_admin: bool) -> bool:
+    """AI bu odam bilan gaplashishi mumkinmi.
+
+    ADMIN UCHUN RO'YXAT TALAB QILINMAYDI. Sabab — bu haqiqiy to'siq edi:
+    Render bepul tarifida disk saqlanmaydi, ya'ni har qayta deployda
+    SQLite fayli tozalanadi. Telefon raqami Firebase'dan tiklanmasa
+    (yoki admin umuman `/start` da raqam bermagan bo'lsa) `_registered`
+    `None` qaytarardi va AI adminga — ya'ni aynan uni sinab ko'ruvchi
+    odamga — HECH QANDAY javob bermasdi. Tashqaridan bu «AI ishlamayapti»
+    bo'lib ko'rinardi, holbuki kalit ham, model ham joyida edi.
+
+    Mijoz uchun talab QOLADI: raqamsiz buyurtma ham, navbat ham olib
+    bo'lmaydi, ya'ni suhbatning oxiri baribir ro'yxatga olib keladi.
+    """
+    if is_admin:
+        return True
+    return await _registered(message, db_user) is not None
 
 
 async def _registered(message: Message, db_user):
@@ -241,6 +260,115 @@ async def _guarded(message: Message, db_user, content) -> None:
 
 
 # =====================================================================
+#  /ai — TEKSHIRUV (faqat admin)
+# =====================================================================
+#
+# NEGA KERAK. AI ataylab JIM yiqiladi: mijozga texnik xato ko'rsatilmaydi,
+# o'rniga «hozir javob bera olmadim» deyiladi (`_friendly_error`). Bu
+# mijoz uchun to'g'ri, lekin EGASI uchun yomon: kalit noto'g'rimi, model
+# o'chirilganmi, chegaradan oshdimi — bilib bo'lmaydi. Render jurnalini
+# ochib o'qish esa telefonda deyarli imkonsiz.
+#
+# Shu buyruq bitta haqiqiy so'rov yuboradi va NATIJANI ko'rsatadi.
+#
+# DIQQAT: bu handler `ai_text` dan YUQORIDA turishi SHART — aiogram
+# handlerlarni e'lon tartibida sinaydi va pastdagi `F.text` HAMMA
+# matnni oladi.
+_REASON_HINTS = {
+    "no_key": (
+        "Render'da <b>GROQ_API_KEY</b> yo'q yoki deploy hali tugamagan.\n"
+        "Render → Environment → qiymatni qo'shib <b>Save</b>, so'ng "
+        "deploy tugashini kutish kerak."
+    ),
+    "auth": (
+        "Kalit <b>qabul qilinmadi</b> (noto'g'ri yoki bekor qilingan).\n"
+        "console.groq.com da yangi kalit olib Render'ga qo'ying."
+    ),
+    "model": (
+        "<b>Model topilmadi</b> — Groq uni o'chirgan bo'lishi mumkin.\n"
+        "Render → Environment → <b>GROQ_TEXT_MODEL</b> (yoki "
+        "<b>GROQ_VISION_MODEL</b>) da model nomini yangilang."
+    ),
+    "rate": "So'rov <b>chegarasidan oshdi</b>. Bir daqiqadan keyin qayta sinab ko'ring.",
+    "http": (
+        "Groq <b>xato qaytardi</b> (kalit va model joyida ko'rinadi).\n"
+        "Bu odatda vaqtinchalik — bir oz keyin qayta sinab ko'ring. "
+        "Takrorlanaversa Render jurnalida «AI: HTTP» satrini qidiring."
+    ),
+    "timeout": "Groq javob <b>bermadi</b> (kechikdi). Qayta sinab ko'ring.",
+    "network": "Render Groq'ga <b>ulanolmadi</b>. Qayta sinab ko'ring.",
+    "empty": "Groq <b>bo'sh javob</b> qaytardi. Modelni almashtirib ko'ring.",
+}
+
+
+@router.message(Command("ai"))
+async def ai_status(message: Message, db_user=None, is_admin: bool = False) -> None:
+    if not is_admin:
+        return await _pass_through(message, db_user)
+
+    user_id = message.from_user.id
+    owner = is_owner(user_id)
+
+    lines = ["🤖 <b>AI holati</b>", ""]
+
+    # KALIT HECH QACHON CHOP ETILMAYDI — faqat bor/yo'q va uzunligi.
+    # Bot suhbati ham, Telegram bulutidagi nusxasi ham abadiy qoladi.
+    if config.ai_enabled:
+        lines.append(f"Kalit: ✅ bor ({len(config.groq_api_key)} belgi)")
+    else:
+        lines.append("Kalit: ❌ <b>yo'q</b>")
+
+    lines += [
+        f"Matn modeli: <code>{html.escape(config.groq_text_model)}</code>",
+        f"Rasm modeli: <code>{html.escape(config.groq_vision_model)}</code>",
+        "",
+        f"Sizning ID: <code>{user_id}</code>",
+        f"Xo'jayin ID: <code>{config.owner_id}</code>",
+        "Sizga murojaat: "
+        + ("<b>«xo'jayin»</b> ✅" if owner else "«admin» — xo'jayin emas"),
+    ]
+    if not owner:
+        # AYNAN SHU eng ko'p uchraydigan tushunmovchilik: «AI menga
+        # xo'jayin demayapti». Sababi — env sozlanmagan, kod emas.
+        lines.append(
+            f"↳ Xo'jayin bo'lish uchun: Render → Environment → "
+            f"<b>OWNER_ID</b> = <code>{user_id}</code>"
+        )
+
+    if not config.ai_enabled:
+        lines += ["", "❌ " + _REASON_HINTS["no_key"]]
+        await message.answer("\n".join(lines))
+        return
+
+    # Haqiqiy so'rov. Qisqa savol va kichik `max_tokens` — tekshiruv
+    # bepul tarif chegarasini yemasin.
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    started = time.monotonic()
+    reply = await ai.ask(
+        [{"role": "user", "content": "Faqat «ishlayapti» deb javob ber."}],
+        max_tokens=20,
+        temperature=0.0,
+    )
+    took = time.monotonic() - started
+
+    lines.append("")
+    if reply.ok:
+        lines += [
+            f"So'rov: ✅ <b>ishlayapti</b> ({took:.1f}s)",
+            f"Javob: <i>{html.escape(reply.text[:120])}</i>",
+        ]
+    else:
+        hint = _REASON_HINTS.get(reply.reason, "Sabab aniqlanmadi.")
+        lines += [
+            f"So'rov: ❌ <b>xato</b> ({took:.1f}s, turi: <code>{reply.reason}</code>)",
+            "",
+            hint,
+        ]
+
+    await message.answer("\n".join(lines))
+
+
+# =====================================================================
 #  MATNLI XABAR
 # =====================================================================
 @router.message(StateFilter(None), F.text)
@@ -259,7 +387,7 @@ async def ai_text(message: Message, db_user=None, is_admin: bool = False) -> Non
     if not ai.is_enabled():
         return await _pass_through(message, db_user)
 
-    if await _registered(message, db_user) is None:
+    if not await _may_chat(message, db_user, is_admin):
         return await _pass_through(message, db_user)
 
     await _guarded(message, db_user, text)
@@ -269,10 +397,10 @@ async def ai_text(message: Message, db_user=None, is_admin: bool = False) -> Non
 #  RASM
 # =====================================================================
 @router.message(StateFilter(None), F.photo)
-async def ai_photo(message: Message, db_user=None) -> None:
+async def ai_photo(message: Message, db_user=None, is_admin: bool = False) -> None:
     if not ai.is_vision_enabled():
         return await _pass_through(message, db_user)
-    if await _registered(message, db_user) is None:
+    if not await _may_chat(message, db_user, is_admin):
         return await _pass_through(message, db_user)
 
     user_id = message.from_user.id

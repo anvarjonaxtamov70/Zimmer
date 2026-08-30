@@ -26,6 +26,40 @@ oldingidek ishlaydi.
 > boshqa joyda ko'rinib qolgan bo'lsa — Groq konsolida o'chirib yangi
 > yasang, so'ng Render'dagi qiymatni almashtiring. Kod o'zgarmaydi.
 
+### Ishlayotganini qanday bilish — `/ai`
+
+Botga **`/ai`** deb yozing (faqat adminlar uchun). Bitta haqiqiy so'rov
+yuboriladi va natija ko'rsatiladi:
+
+```
+🤖 AI holati
+
+Kalit: ✅ bor (56 belgi)
+Matn modeli: openai/gpt-oss-120b
+Rasm modeli: qwen/qwen3.6-27b
+
+Sizning ID: 483425630
+Xo'jayin ID: 483425630
+Sizga murojaat: «xo'jayin» ✅
+
+So'rov: ✅ ishlayapti (0.9s)
+Javob: ishlayapti
+```
+
+Xato bo'lsa **sababi va yechimi** yoziladi:
+
+| `/ai` nima deydi | Nima qilish kerak |
+| --- | --- |
+| Kalit: ❌ yo'q | Render → Environment → `GROQ_API_KEY` qo'shilmagan yoki deploy tugamagan |
+| turi: `auth` | Kalit qabul qilinmadi — console.groq.com da yangi kalit oling |
+| turi: `model` | Groq modelni o'chirgan — `GROQ_TEXT_MODEL` ni yangilang |
+| turi: `rate` | So'rov chegarasidan oshdi — bir daqiqa kutib qayta yozing |
+| turi: `timeout` / `network` | Vaqtinchalik — qayta sinab ko'ring |
+
+> Nega alohida buyruq kerak: AI **mijozga** texnik xato ko'rsatmaydi
+> («hozir javob bera olmadim» deydi). Bu mijoz uchun to'g'ri, lekin
+> egasi uchun sabab yashirin qolardi.
+
 ### Kim kim
 
 | Kim | AI qanday murojaat qiladi |
@@ -35,11 +69,20 @@ oldingidek ishlaydi.
 | Mijozlar | ismi bilan, «siz» deb |
 
 Bosh admin standart holatda `CORE_ADMINS` dagi birinchi ID
-(`5105291033`). Boshqa odam bo'lsa Render'ga qo'shing:
+(`5105291033`). **Agar siz boshqa ID'da bo'lsangiz, AI sizga «admin»
+deydi — «xo'jayin» demaydi.** Bu kod xatosi emas, sozlama.
+
+Tuzatish: botda **`/ai`** yozing — u sizning ID'ingizni va aynan nima
+qilish kerakligini ko'rsatadi. So'ng Render → Environment:
 
 ```
-OWNER_ID = 483425630
+OWNER_ID = <sizning ID>
 ```
+
+> AI **adminlar** bilan ro'yxatdan o'tishni talab qilmasdan gaplashadi.
+> Sabab: Render bepul tarifida har deployda baza tozalanadi va telefon
+> raqami tiklanmasa AI aynan sinab ko'ruvchi odamga javob bermay
+> qolardi. Mijoz uchun ro'yxat talabi qoladi.
 
 ### AI nima qiladi
 
