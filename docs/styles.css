@@ -3366,7 +3366,8 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   height: 100%;
   object-fit: contain;
   scroll-snap-align: start;
-  padding: 6px;
+  /* Pastdagi amaldagi e'londa ham 0 — ikkisi qarshi turmasin */
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -6142,21 +6143,29 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
    ular kartochkani shovqinli qilardi. */
 .prod::before, .prod::after { content: none; }
 
-/* ---- rasm maydoni: QORONG'I "plita".
-   Ilgari maydon OCH edi — sabab: tovar suratlari ko'pincha oq fonda
-   olinadi va qorong'i plitada oq surat «quti» bo'lib suzib ko'rinardi.
+/* ---- rasm maydoni: PLITA YO'Q, rasm maydonni TO'LIQ to'ldiradi.
+   Bu — mijoz tanlagan ko'rinish: kartochkada surat chetdan chetga
+   to'la o'tiradi, atrofida hech qanday «plita» (och yoki qorong'i
+   ramka) ko'rinmaydi.
 
-   Endi plita qorong'i (ilova rangida), lekin o'sha muammo YUZAGA
-   KELMAYDI, chunki bo'sh joy ham deyarli olib tashlandi (`padding`
-   9px -> 3px, pastda). Natijada:
+   Buning uchun ikki narsa kerak:
+     * `object-fit: cover` — surat kvadratni to'ldiradi, ortiqcha
+       cheti QIRQILADI (pastda);
+     * `padding: 0` — bo'sh joy qolsa fon ko'rinib, yana ramka
+       paydo bo'lardi.
 
-     * kvadrat surat (eng ko'p uchraydigan hol) plitani TO'LIQ to'ldiradi
-       — hech qanday oq quti suzib turmaydi, surat o'zi plita bo'ladi;
-     * kvadrat bo'lmagan surat chetlarida qorong'i chiziq qoladi, lekin
-       u qorong'i plitada QASDAN qilingan «letterbox» kabi ko'rinadi,
-       och plitadagi begona yorug' slab kabi emas.
+   SHU TUFAYLI oldingi «oq quti» muammosi umuman yo'q: fon hech
+   qachon ko'rinmaydi (faqat surat yuklanayotgan payt va rasmsiz
+   holatda), shuning uchun uning rangi ahamiyatsiz.
 
-   `object-fit: contain` SAQLANADI — surat qirqilmaydi. */
+   XAVFSIZLIK CHEGARASI. `cover` — qirqadi, ya'ni juda cho'ziq surat
+   (masalan 1200x400 banner) markazidan faqat uchdan bir qismi
+   ko'rinib, tovarning o'zi kadrdan CHIQIB KETISHI mumkin. Shuning
+   uchun `prodCard` suratning haqiqiy nisbatini o'lchaydi va haddan
+   tashqari cho'ziq bo'lsa maydonga `fit` klassini qo'yadi — o'sha
+   kamdan-kam holatda surat `contain` bilan to'liq ko'rsatiladi
+   (`.prod-art.fit img`, pastda). Oddiy (kvadratga yaqin, 4:3, 3:4)
+   suratlar — ya'ni katalogning deyarli hammasi — to'liq to'ldiradi. */
 /* Kvadrat `padding-top` hiylasi bilan yasaladi (`aspect-ratio` emas):
    eski WebView'da `aspect-ratio` qo'llanmasa maydon balandligi NOLGA
    tushib, kartochka buzilardi. */
@@ -6188,21 +6197,40 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   font-size: 32px;
   border-radius: 14px;
   overflow: hidden;
-  /* Kartochka fonidan (`--surface: #121317`) bir pog'ona QORONG'IROQ —
-     shu tufayli rasm maydoni «ichkariga cho'kkan» ko'rinadi va
-     kartochkaga singib ketmaydi. */
+  /* Bu fon SURAT USTIDA emas, ORQASIDA: rasm `cover` bilan maydonni
+     to'liq yopadi. Ya'ni fon faqat ikki holatda ko'rinadi:
+       1) surat hali yuklanmagan payt (0.3 s);
+       2) `fit` klassi qo'yilgan cho'ziq surat chetlarida.
+     Ikkisida ham qorong'i rang to'g'ri: yorug' fon yuklanish paytida
+     «chaqnab» ketardi va qorong'i kartochkada begona ko'rinardi. */
   background: linear-gradient(158deg, #15171d 0%, #0d0e12 100%);
-  /* Chegara YORUG' bo'lishi kerak: qorong'i fonda qora hairline
-     (`rgba(0,0,0,...)`) umuman ko'rinmasdi. */
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
+/* Chegara SURAT USTIDAN chiziladi (`::after`), `box-shadow: inset`
+   bilan emas: rasm — `position: absolute` bo'lgan BOLA element,
+   shuning uchun u inset soyani YOPIB ketardi va chegara ko'rinmasdi.
+   Chegara kerak: chetlari qorong'i surat kartochka fonida erib
+   ketmasin. z-index 2 — yorliqlar (3) ustida turmaydi. */
+.prod-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+/* Rasmsiz holat — chegarasi `::after` dan keladi, shuning uchun
+   bu yerda takrorlanmaydi (ilgari `box-shadow: inset` turardi). */
 .prod-art.empty {
   background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--line);
 }
-/* MUHIM: `contain` — butun tovar ko'rinadi, chetlari kesilmaydi.
-   Modal galereyasi ilgari `cover` ishlatardi va shu sababli kartochkada
-   to'liq ko'ringan tovar "kattalashtirganda" qirqilardi. */
+/* MUHIM: `cover` — surat maydonni TO'LIQ to'ldiradi, ortiqcha cheti
+   qirqiladi. `padding` NOL bo'lishi shart: 1px bo'sh joy ham fonni
+   ochib, atrofda ramka ko'rsatib qo'yadi.
+
+   DIQQAT: bu faqat KARTOCHKA uchun. Modal galereyasi (`.pm-slider img`)
+   `contain` bo'lib QOLADI — mijoz tovarni ochganda uni to'liq ko'rishi
+   kerak, aks holda qirqilgan surat bilan qaror qabul qiladi. */
 .prod-art img,
 .prod-art .prod-img,
 .prod-art .card-img-lazy {
@@ -6210,15 +6238,22 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   inset: 0;
   width: 100%;
   height: 100%;
-  /* 9px -> 3px. Qorong'i plitada bo'sh joy KERAK EMAS va zararli:
-     u oq fonli suratni «quti» qilib ko'rsatardi. Kichik padding bilan
-     kvadrat surat plitani to'liq to'ldiradi. */
-  padding: 3px;
+  padding: 0;
   box-sizing: border-box;
-  object-fit: contain;
+  object-fit: cover;
   opacity: 0;
   transform: scale(1.02);
   transition: opacity 0.32s var(--silk), transform 0.32s var(--silk);
+}
+/* HADDAN TASHQARI CHO'ZIQ SURAT — `prodCard` o'lchab `fit` qo'yadi.
+   `cover` bunday suratni shafqatsiz qirqadi (1200x400 dan markazdagi
+   400x400 qoladi), tovar butunlay kadrdan chiqib ketishi mumkin.
+   Bunda `contain` ga qaytamiz: chetlarida qorong'i chiziq qoladi,
+   lekin tovar KO'RINADI. Bu — kamdan-kam hol, katalogdagi oddiy
+   suratlarga ta'sir qilmaydi. */
+.prod-art.fit img {
+  object-fit: contain;
+  padding: 4px;
 }
 .prod-art img.ready { opacity: 1; transform: none; }
 .prod-art-ph {
@@ -6268,10 +6303,10 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   font-size: 11px;
   padding: 5px 12px;
 }
-/* Tugagan tovar — xiralashadi. 0.4 -> 0.5: plita OCHDAN QORONG'IGA
-   o'tgani uchun bir xil shaffoflik boshqacha ko'rinadi. Och plitada
-   qorong'i tovar 0.4 da ham ajralib turardi (kontrast bor edi);
-   qorong'i plitada esa u deyarli ko'rinmay qolardi. */
+/* Tugagan tovar — xiralashadi. 0.4 EMAS 0.5: surat endi butun maydonni
+   to'ldiradi va orqasida qorong'i fon turadi, ya'ni shaffoflik to'g'ridan
+   to'g'ri qorong'ilikka aylanadi. 0.4 da surat deyarli ko'rinmay qolardi;
+   maqsad — «bu tovar yo'q» degan ishora, suratni O'CHIRISH emas. */
 .prod-art.is-out img.ready { opacity: 0.5; }
 .prod-play {
   position: absolute;
@@ -6413,9 +6448,16 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   -webkit-backdrop-filter: none;
 }
 
-/* Galereya: qorong'i plita — kartochkadagi bilan BIR XIL.
-   Ikkisi boshqacha bo'lsa mijoz kartochkani bosganda rasm «boshqa
-   tovarga» o'xshab ko'rinardi.
+/* Galereya: RAMKA YO'Q — surat to'g'ridan to'g'ri modal fonida turadi.
+   Kartochkada plita olib tashlangani uchun bu yerda ham «plita»
+   qoldirish mantiqsiz bo'lardi.
+
+   LEKIN bu yerda `cover` ISHLATILMAYDI (kartochkadan farqli). Sabab:
+   kartochka — ro'yxatdagi ko'rinish, uni chiroyli bo'lishi uchun
+   qirqish mumkin; modal esa mijoz TOVARNI KO'RIB QAROR QILADIGAN joy,
+   qirqilgan surat bilan u nimani sotib olayotganini bilmaydi.
+   Modal kartochkadan KO'PROQ ko'rsatadi — bu do'konlarda odatiy hol.
+
    Ilgari bu butun ekran bo'ylab YALANG'OCH oq kvadrat edi va rasm
    `object-fit: cover` bilan QIRQILARDI. */
 .pm-gallery {
@@ -6433,19 +6475,21 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   border-radius: 18px;
   overflow: hidden;
   overflow-x: auto;
-  /* Kartochkadagi plita bilan bir xil (`.prod-art`) */
-  background: linear-gradient(158deg, #15171d 0%, #0d0e12 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  /* Fon SHAFFOF va chegara YO'Q: shu tufayli surat modal fonida
+     «suzib» turadi, atrofida ramka ko'rinmaydi. `--bg` ni qattiq
+     yozib qo'yish o'rniga shaffof qoldirildi — mavzu rangi
+     o'zgarsa ham o'zi moslashadi. */
+  background: transparent;
 }
-/* MUHIM: `contain` — tovar to'liq ko'rinadi, chetlari kesilmaydi */
+/* MUHIM: `contain` — tovar to'liq ko'rinadi, chetlari kesilmaydi.
+   Ramka olib tashlangani uchun `padding` ham 0: bo'sh joy endi
+   hech narsa bermaydi (fon shaffof), faqat suratni kichraytirardi. */
 .pm-slider img,
 .pm-slider .pm-shot {
   flex: 0 0 100%;
   width: 100%;
   height: 100%;
-  /* 14px -> 6px: kartochkadagi kabi, qorong'i plitada bo'sh joy
-     kerak emas. Modal kattaroq, shuning uchun 3 emas 6. */
-  padding: 6px;
+  padding: 0;
   box-sizing: border-box;
   object-fit: contain;
   scroll-snap-align: start;
