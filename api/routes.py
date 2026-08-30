@@ -215,6 +215,8 @@ async def api_config(request: web.Request) -> web.Response:
             "pay_card_number": config.pay_card_number,
             "pay_card_holder": config.pay_card_holder,
             "pay_admin_username": config.pay_admin_username,
+            # «Biz bilan aloqa» dagi qo'ng'iroq tugmasi uchun
+            "shop_phone": config.shop_phone,
             "delivery_city": config.delivery_city,
         }
     )
