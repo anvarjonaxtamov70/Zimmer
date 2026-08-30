@@ -25,6 +25,9 @@ class Field:
     required: bool = False
     hint: str = ""
     choices: Callable | None = None  # -> [(qiymat, yozuv)]
+    # Formada maydon qaysi KARTOCHKAGA tushadi (`FORM_GROUPS` kaliti).
+    # Bo'sh bo'lsa tur bo'yicha o'zi tanlanadi (`_auto_group`).
+    group: str = ""
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,101 @@ class Entity:
     fields: tuple[Field, ...]
     label: Callable
     create: tuple[str, ...] = dc_field(default_factory=tuple)
+    # Ro'yxatdagi GURUH sarlavhalari: (guruh raqami, ikonka, nom).
+    #
+    # Guruh raqamini `database/queries.py: row_group()` beradi. Hozircha
+    # faqat `services` da guruh bor (konfigurator / oddiy / «Tez kunda»),
+    # qolgan bo'limlarda hammasi 0-guruh va sarlavha chizilmaydi.
+    #
+    # Sarlavha KODDA emas, shu yerda turadi — admin paneli faqat
+    # serverdan kelgan nomni ko'rsatadi.
+    row_groups: tuple[tuple[int, str, str], ...] = dc_field(default_factory=tuple)
+    # Formadagi kartochkalar TARTIBI (`FORM_GROUPS` kalitlari). Bo'sh
+    # bo'lsa `FORM_GROUP_ORDER` dagi umumiy tartib ishlatiladi.
+    form_groups: tuple[str, ...] = dc_field(default_factory=tuple)
+
+
+# =====================================================================
+#  FORMANI KARTOCHKALARGA BO'LISH
+#
+#  MUAMMO. Forma barcha maydonlarni BITTA uzun ustunda chizardi: 12 ta
+#  bir xil kulrang input ketma-ket. Xizmat qo'shayotgan admin qaysi
+#  maydon nimaga tegishli ekanini ajratib olmaydi — narx, video, tartib
+#  va tavsif hammasi bir xil ko'rinadi.
+#
+#  YECHIM. Maydonlar MA'NOSI bo'yicha kartochkalarga bo'linadi, har
+#  birida ikonka va sarlavha bor. Aynan shu tuzilma «Yangi tovar
+#  qo'shish» oynasida allaqachon bor va u ancha tushunarli ko'rinadi.
+#
+#  MUHIM: guruh KO'RSATISHGA tegishli, saqlashga emas. Guruhlarni
+#  o'zgartirish ma'lumotga ta'sir qilmaydi — faqat forma boshqacha
+#  chiziladi.
+# =====================================================================
+
+# Guruh kaliti -> (ikonka, sarlavha, kichik izoh)
+FORM_GROUPS: dict[str, tuple[str, str, str]] = {
+    "main": ("📝", "Asosiy ma'lumot", "Nomi va ko'rinishi"),
+    "price": ("💰", "Narx va muddat", "Mijoz shu raqamni ko'radi"),
+    "state": ("🕒", "Holat", "Xizmat ishlayaptimi yoki tez kundami"),
+    "text": ("💬", "Tavsif", "Mijozga qisqa tushuntirish"),
+    "media": ("🖼", "Rasm va video", "Fayl yuklang yoki havola yozing"),
+    "link": ("🔗", "Bog'lanish", "Boshqa bo'limlar bilan aloqasi"),
+    "order": ("🔢", "Tartib", "Ro'yxatda qaysi o'rinda tursin"),
+}
+
+# Guruh berilmagan bo'limlar uchun umumiy tartib.
+FORM_GROUP_ORDER: tuple[str, ...] = ("main", "price", "state", "text", "media", "link", "order")
+
+
+def _auto_group(field: Field) -> str:
+    """Guruh ko'rsatilmagan maydon uchun uni TURI bo'yicha tanlaydi.
+
+    Shu tufayli har bir bo'limga qo'lda guruh yozish SHART EMAS: yangi
+    maydon qo'shilsa ham o'zi mos kartochkaga tushadi. Faqat muhim
+    bo'limlarda (masalan xizmatlar) guruh qo'lda aniqlashtiriladi.
+    """
+    if field.kind in ("photo", "video"):
+        return "media"
+    if field.column == "sort":
+        return "order"
+    if field.kind == "long":
+        return "text"
+    if field.kind == "money" or field.column in ("price", "old_price", "duration_min"):
+        return "price"
+    if field.column.endswith("_id") and field.kind == "choice":
+        return "link"
+    return "main"
+
+
+def group_of(field: Field) -> str:
+    """Maydonning guruhi (qo'lda ko'rsatilgani ustun turadi)."""
+    key = (field.group or "").strip()
+    if key and key in FORM_GROUPS:
+        return key
+    return _auto_group(field)
+
+
+def form_layout(entity: Entity) -> list[tuple[str, str, str, str, list[Field]]]:
+    """Forma tuzilishi: (kalit, ikonka, sarlavha, izoh, maydonlar).
+
+    BO'SH guruhlar tushib qoladi — ya'ni bo'limda video maydoni bo'lmasa
+    «Rasm va video» kartochkasi umuman chizilmaydi.
+    """
+    buckets: dict[str, list[Field]] = {}
+    for field in entity.fields:
+        buckets.setdefault(group_of(field), []).append(field)
+
+    # Tartib: bo'limning o'zi bergani, keyin umumiy tartib, keyin
+    # ro'yxatda qolgan notanish guruhlar (hech narsa yo'qolmasin).
+    order = [key for key in entity.form_groups if key in buckets]
+    order += [key for key in FORM_GROUP_ORDER if key in buckets and key not in order]
+    order += [key for key in buckets if key not in order]
+
+    layout = []
+    for key in order:
+        icon, title, note = FORM_GROUPS.get(key, ("📄", key, ""))
+        layout.append((key, icon, title, note, buckets[key]))
+    return layout
 
 
 # ------------------------------------------------------------- tanlov manbalari
@@ -81,6 +179,39 @@ MEDIA = (
     Field("photo_id", "Rasm", "photo", hint="Rasm yuboring yoki URL yozing"),
     Field("video_id", "Video", "video", hint="Video yuboring yoki URL yozing"),
 )
+
+
+# Xizmat kartochkasining dizayn kalitlari.
+#
+# DIQQAT: `docs/js/app.js: SERVICE_THEMES` bilan bir xil bo'lishi kerak.
+# Notanish kalit yozilsa Mini App zaxira dizaynga o'tadi — ya'ni xizmat
+# yo'qolmaydi, lekin ikonkasi tasodifiy bo'ladi.
+#
+# Ilgari bu maydon ERKIN MATN edi va hint'da kalitlar vergul bilan
+# sanalgan edi. Admin ularni qo'lda yozardi: bitta harf xato bo'lsa
+# (`polirovka` / `polish`) dizayn jimgina buzilardi. Endi ro'yxatdan
+# tanlanadi va har biri ikonkasi bilan ko'rinadi.
+#
+# «Video mumkin» belgisi ATAYLAB yozib qo'yilgan: video faqat uchta fara
+# xizmatiga qo'yiladi (`config.VIDEO_SERVICE_THEMES`) va admin buni
+# temani tanlash paytida bilishi kerak.
+SERVICE_THEMES: tuple[tuple[str, str], ...] = (
+    ("config", "💡 Konfigurator — har doim birinchi"),
+    ("biled", "🔧 Bi-LED o'rnatish"),
+    ("polish", "✨ Fara polirovkasi (video mumkin)"),
+    ("glass", "🪟 Fara shishasi (video mumkin)"),
+    ("clean", "🧼 Fara ichini tozalash (video mumkin)"),
+    ("wheel", "🕹 Rul chexoli"),
+    ("seat", "🪑 O'rindiq chexoli"),
+    ("laminate", "🪞 Laminat salon"),
+    ("tint", "🌓 Tanirovka"),
+    ("armor", "🛡 Broni plyonka"),
+)
+
+
+def service_theme_choices() -> list[tuple[str, str]]:
+    """Xizmat dizayni. Bo'sh variant — nom bo'yicha o'zi tanlanadi."""
+    return [("", "🎲 Nom bo'yicha o'zi tanlasin"), *SERVICE_THEMES]
 
 
 def coming_soon_choices() -> list[tuple[str, str]]:
@@ -226,19 +357,34 @@ ENTITIES: dict[str, Entity] = {
         title="Xizmatlar (navbat)",
         icon="🔧",
         fields=(
-            Field("name", "Nomi", required=True),
-            Field("duration_min", "Davomiyligi (daqiqa)", "int", required=True),
-            Field("price", "Narx", "money"),
+            Field("name", "Nomi", required=True, group="main"),
+            Field(
+                "duration_min",
+                "Davomiyligi (daqiqa)",
+                "int",
+                required=True,
+                group="price",
+                hint="Navbat shu vaqtga band qilinadi. Masalan: 60",
+            ),
+            Field("price", "Narx", "money", group="price"),
             # Kafolat MATN: "1 yil", "3 oy", "19 kun" — xohlagan muddat.
-            Field("warranty", "Kafolat muddati"),
-            Field("description", "Tavsif", "long"),
+            Field(
+                "warranty",
+                "Kafolat muddati",
+                group="price",
+                hint="Masalan: 1 yil, 3 oy, 20 kun",
+            ),
+            Field("description", "Tavsif", "long", group="text"),
             # Mini App kartochkasining dizayni. Bo'sh bo'lsa nom bo'yicha
             # o'zi tanlanadi, shuning uchun majburiy emas.
             Field(
                 "theme",
                 "Dizayn",
-                hint="config/biled/polish/glass/clean/wheel/seat/"
-                "laminate/tint/armor — bo'sh bo'lsa nom bo'yicha tanlanadi",
+                "choice",
+                choices=service_theme_choices,
+                group="main",
+                hint="Kartochka ko'rinishi va ikonkasi. Bo'sh qoldirsangiz "
+                "nom bo'yicha o'zi tanlanadi",
             ),
             # «Tez kunda»: narx ko'rsatilmaydi va navbat olinmaydi.
             # `required=True` — «— tanlanmagan —» varianti CHIQMASLIGI
@@ -251,6 +397,7 @@ ENTITIES: dict[str, Entity] = {
                 "choice",
                 choices=coming_soon_choices,
                 required=True,
+                group="state",
                 hint="«Tez kunda» tanlansa mijoz narxni ko'rmaydi va "
                 "navbat olmaydi — yo'nalishni oldindan e'lon qilish uchun",
             ),
@@ -269,13 +416,33 @@ ENTITIES: dict[str, Entity] = {
                 "video_id",
                 "Video (faqat fara xizmatlari)",
                 "video",
+                group="media",
                 hint="Video yuboring (50 MB gacha) yoki uzun/sifatli video "
                 "uchun https:// URL yozing",
             ),
-            Field("sort", "Tartib", "int"),
+            Field(
+                "sort",
+                "Tartib",
+                "int",
+                group="order",
+                hint="Kichik raqam yuqorida turadi. Ro'yxatdagi ↑/↓ "
+                "tugmalari buni o'zi hisoblaydi — qo'lda yozish shart emas",
+            ),
         ),
         label=_service_label,
         create=("name", "duration_min", "price"),
+        # Formadagi kartochkalar tartibi. «Holat» narxdan KEYIN turadi:
+        # admin avval narxni yozadi, keyin «tez kunda» ekanini belgilaydi.
+        form_groups=("main", "price", "state", "text", "media", "order"),
+        # Mini App'da xizmatlar uch guruhga bo'linib ko'rsatiladi va
+        # AYNAN shu tartibda turadi. Admin paneli ham shunday ko'rsatadi —
+        # aks holda «yuqoriga ko'chirish» tugmasi tushunarsiz ishlardi:
+        # panelda yozuv ko'tariladi, do'konda esa joyi o'zgarmaydi.
+        row_groups=(
+            (0, "🧮", "Konfigurator — har doim birinchi"),
+            (1, "🔧", "Xizmatlar"),
+            (2, "🕒", "Tez kunda — har doim oxirida"),
+        ),
     ),
     "ban": Entity(
         key="ban",
