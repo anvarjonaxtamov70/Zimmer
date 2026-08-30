@@ -119,6 +119,14 @@
        ikki chaqiruv bir-birining natijasini ustiga yozardi. */
     homeLoading: null,
     homeAt: 0, // katalog qachon yuklangani (ms) — `isHomeStale()` uchun
+    /* ---- 🎓 SHOGIRD (ilova ichidagi yordamchi) ----
+       `msgs` — yozishma (faqat xotirada: bo'limlar orasida yurganda
+       saqlanadi, lekin ilova qayta ochilsa toza boshlanadi — serverdagi
+       xotira ham 30 daqiqada o'chadi, ya'ni ikkisi mos keladi).
+       `aiOn` — `/api/config: ai_enabled`. `false` bo'lsa Shogird
+       serverga bezovta qilmasdan, to'g'ridan-to'g'ri mahalliy bilimdan
+       javob beradi. */
+    sg: { msgs: [], busy: false, aiOn: true },
     // Zaxira rejim: server javob bermaydi, katalog Firebase'dan o'qilgan.
     // Bu holatda faqat KO'RISH mumkin — buyurtma/navbat bloklanadi.
     offline: false,
@@ -667,6 +675,8 @@
       "services",
       // Bitta xizmatning alohida oynasi (plitka bosilganda)
       "service",
+      // 🎓 Shogird — yordamchi bilan yozishma
+      "shogird",
       // Kabinetning ichki oynalari: buyurtmalarim (uch bo'lim) va manzillarim.
       "orders",
       "addresses",
@@ -686,6 +696,10 @@
        aksincha, «Qayta buyurtma» dan keyin darhol savatga o'tishi kerak.
        Navbar yashirilsa, u faqat «‹» orqali kabinetga, keyin savatga —
        ikki bosishga majbur bo'lardi. */
+    /* «🎓 Shogird» ATAYLAB yo'q: u yozishma oynasi va pastda yozish
+       maydoni turadi. Navbar ham qolsa, klaviatura ochilganda uch qatlam
+       (klaviatura + yozish maydoni + navbar) ekranni siqib qo'yardi va
+       yozgan matn ko'rinmasdi. Chiqish uchun tepada «‹» tugmasi bor. */
     const navVisible =
       ["home", "cart", "saved", "profile", "admin", "orders", "addresses", "services"].includes(
         page
@@ -707,6 +721,7 @@
     if (page === "addresses") renderAddressPage();
     if (page === "services") renderServicesPage(false);
     if (page === "service") renderServicePage();
+    if (page === "shogird") sgOpen();
     /* Bo'lim (`S.moKind`) `openMyOrders()` da o'rnatiladi va shundan keyin
        `show("orders")` chaqiriladi — chizish shu yerda, bitta joyda. */
     if (page === "orders") renderMyOrdersPage();
@@ -818,7 +833,7 @@
       (S.page === "flow" && S.step > 1) ||
       [
         "cart", "saved", "profile", "checkout",
-        "orders", "addresses", "services", "service",
+        "orders", "addresses", "services", "service", "shogird",
       ].includes(S.page);
     if (need) tg.BackButton.show();
     else tg.BackButton.hide();
@@ -872,6 +887,9 @@
        bilan), ro'yxat esa → bosh menyu. */
     if (S.page === "service") return closeService();
     if (S.page === "services") return show("home");
+    /* Shogird — alohida oyna: orqaga bosilsa bosh menyuga. Yozishma
+       `S.sg.msgs` da qoladi, ya'ni qaytib kirsa suhbat davom etadi. */
+    if (S.page === "shogird") return show("home");
     /* Kabinetning ichki oynalari har doim KABINETGA qaytadi (bosh sahifaga
        emas) — mijoz qaysi bo'limdan kelganini yo'qotmasin. Xarita va
        manzil oynalari ustma-ust turgan bo'lsa, avval ular yopiladi. */
@@ -1528,6 +1546,10 @@
       pay_admin_username: c.SHOP_TELEGRAM || "",
       shop_phone: c.SHOP_PHONE || "",
       delivery_city: "Samarqand",
+      /* Zaxira rejimda AI ishlamaydi (server o'chgan). Shogird buni
+         bilib turib mahalliy bilimga o'tadi — mijoz har savolda
+         kutib, keyin xato ko'rmasin. */
+      ai_enabled: false,
     };
   }
 
@@ -1972,7 +1994,7 @@
      yuklanadi: takror chaqiruv o'sha Promise'ni qaytaradi.
      ==================================================================== */
 
-  const SCRIPT_VERSION = "59"; // index.html dagi `?v=` bilan bir xil bo'lsin
+  const SCRIPT_VERSION = "60"; // index.html dagi `?v=` bilan bir xil bo'lsin
   const _scripts = new Map();
 
   function loadScript(src) {
@@ -7648,6 +7670,583 @@
     if (meta) meta.setAttribute("content", bg);
   }
 
+  /* ======================================================================
+     🎓 SHOGIRD — ILOVA ICHIDAGI YORDAMCHI
+
+     NIMA UCHUN BU BOTDAGI AI EMAS
+     Botdagi yordamchining butun maqsadi — mijozni ilovaga olib kirish
+     («Do'konni ochish» tugmasi har javob ostida turadi). Ilova ICHIDA bu
+     javob ma'nosiz. Shogirdning ko'rsatmasi shu sababli boshqa
+     (`services/shogird.py`): u mijoz ilovada turganini biladi va uni
+     BO'LIMLAR bo'ylab yo'naltiradi.
+
+     UCHTA QAROR, QOLGANLARI SHUNDAN KELIB CHIQADI
+
+     1) MODEL FAQAT MATN YOZADI, KARTOCHKANI SERVER TANLAYDI.
+        Javob ostidagi xizmat va tovar kartochkalari model «tanlagani»
+        emas — server javob matnini BAZADAGI nomlar bilan solishtirib
+        topadi (`services/shogird.py: _match_*`). Ya'ni mavjud bo'lmagan
+        tovar hech qachon ko'rsatilmaydi va narx modeldan emas, bazadan
+        keladi. Model narxni o'ylab topsa ham kartochkadagi raqam haqiqiy.
+
+     2) SHOGIRD HECH QACHON JIM QOLMAYDI.
+        `GROQ_API_KEY` sozlanmagan, Groq chegarasi tugagan yoki Render
+        uxlagan bo'lishi mumkin — bularning hammasi HAQIQIY holat. Shu
+        sababli pastda mahalliy bilim bor (`SG_FAQ`): yetkazib berish,
+        kafolat, to'lov, manzil, ish vaqti, narxlar va katalog qidiruvi.
+        Bu ma'lumot ilovada allaqachon bor (`S.pay`, `S.services`,
+        `S.home`), shunchaki bir joyga yig'ilgan. Mijoz javob o'rniga
+        qizil xato ko'rmaydi.
+
+     3) SHOGIRD MIJOZ NOMIDAN HECH NARSA QILMAYDI.
+        Buyurtma bermaydi, navbat olmaydi, savatga qo'shmaydi. Kartochkada
+        tugma bor, lekin uni MIJOZ bosadi. Aks holda «shogird noto'g'ri
+        tovar buyurdi» degan holat paydo bo'lardi va uni tekshirishning
+        yo'li yo'q edi.
+     ====================================================================== */
+
+  /** «Nima bo'ldi?» plitkalari.
+   *
+   *  Har plitka — TAYYOR SAVOL. Sabab: bo'sh yozishma oynasi mijozni
+   *  qotib qoldiradi («nima deb yozsam?»), ayniqsa yordamchiga birinchi
+   *  marta kirganda. Matnlar mijozning O'Z tilida yozilgan («faram
+   *  xira»), xizmat nomida emas («polirovka») — mijoz xizmat nomini
+   *  bilmasligi mumkin, muammosini esa biladi. */
+  const SG_TOPICS = [
+    {
+      ic: "🔅",
+      t: "Faram xira",
+      q: "Faram xira bo'lib qolgan, sarg'aygan. Nima qilish kerak va qancha turadi?",
+    },
+    {
+      ic: "💧",
+      t: "Ichida bug'",
+      q: "Fara ichida bug' va namlik yig'ilib qolgan. Buni tuzatasizmi, narxi qancha?",
+    },
+    {
+      ic: "💡",
+      t: "Yorug'lik kam",
+      q: "Faramning yorug'ligi kam, kechasi yo'l yaxshi ko'rinmaydi. Bi-LED linza yordam beradimi?",
+    },
+    {
+      ic: "🪟",
+      t: "Shisha yorilgan",
+      q: "Fara shishasi yorilgan. Almashtirib berasizmi, qancha turadi?",
+    },
+    {
+      ic: "🪑",
+      t: "Chexollar",
+      q: "Rul va o'rindiq chexollari haqida ma'lumot bering.",
+    },
+    { ic: "💰", t: "Narxlar", q: "Xizmatlaringizning narxlari qanday?" },
+    { ic: "🚚", t: "Yetkazib berish", q: "Tovarni qanday yetkazib berasiz?" },
+    { ic: "🛡", t: "Kafolat", q: "Ishlaringizga kafolat berasizmi, qancha muddat?" },
+  ];
+
+  /** Modeldan kelgan matnni tozalaydi.
+   *
+   *  Ko'rsatmada «markdown ishlatma» deb yozilgan, lekin model ba'zan
+   *  baribir `**qalin**` yoki `### sarlavha` yozadi. Pufakcha ichida bu
+   *  yulduzchalar bo'lib ko'rinadi va javob qo'pol chiqadi, shuning uchun
+   *  belgilar olib tashlanadi (matn O'ZI qoladi). */
+  function sgClean(text) {
+    return String(text || "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*\n]+)\*/g, "$1")
+      .replace(/^#{1,6}\s*/gm, "")
+      .replace(/^\s*[-•]\s+/gm, "• ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  /** Yozishmani eng pastga suradi (yangi xabar ko'rinib turishi kerak).
+   *
+   *  DIQQAT: bu yerda SAHIFA suriladi, `#sg-log` emas. Yozishma o'z
+   *  skrolliga ega bo'lsa ikki qatlam paydo bo'lardi (sahifa ham,
+   *  ro'yxat ham) — telefonda bu eng bezovta qiluvchi holat. */
+  function sgScroll(smooth) {
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }
+
+  /** Bo'sh holat (salom + plitkalar) ko'rinsinmi. */
+  function sgPaintHero() {
+    const empty = !(S.sg.msgs || []).length;
+    const hero = $("sg-hero");
+    if (hero) hero.classList.toggle("hidden", !empty);
+    const reset = $("sg-reset");
+    if (reset) reset.classList.toggle("hidden", empty);
+  }
+
+  function sgRenderTopics() {
+    const box = $("sg-topics");
+    if (!box || box.dataset.ready === "1") return;
+    box.innerHTML = SG_TOPICS.map(
+      (topic, i) =>
+        '<button class="sg-topic" type="button" data-sg-topic="' +
+        i +
+        '" style="--d:' +
+        Math.min(i, 8) * 40 +
+        'ms"><i>' +
+        topic.ic +
+        "</i><span>" +
+        esc(topic.t) +
+        "</span></button>"
+    ).join("");
+    box.dataset.ready = "1";
+  }
+
+  /** Bitta pufakcha. `role`: "me" | "sg". */
+  function sgBubble(role, text) {
+    const row = el("div", "sg-row sg-" + role);
+    if (role === "sg") row.append(el("span", "sg-face", "🎓"));
+    const bubble = el("div", "sg-msg");
+    // `textContent` — matn ichidagi `<`, `&` xavfsiz qoladi; qatorlar
+    // esa CSS `white-space: pre-wrap` bilan saqlanadi.
+    bubble.textContent = text;
+    row.append(bubble);
+    return row;
+  }
+
+  /** «Yozmoqda…» belgisi. Javob 5-15 soniya kelishi mumkin — belgisiz
+   *  mijoz ilova qotib qolgan deb o'ylaydi. */
+  function sgTyping(on) {
+    const log = $("sg-log");
+    if (!log) return;
+    const old = log.querySelector(".sg-wait");
+    if (old) old.remove();
+    if (!on) return;
+    const row = el("div", "sg-row sg-sg sg-wait");
+    row.append(el("span", "sg-face", "🎓"));
+    row.append(el("div", "sg-msg sg-msg-wait", '<span class="typing-dots"><i></i><i></i><i></i></span>'));
+    log.append(row);
+    sgScroll();
+  }
+
+  /** Tovar ID'si bo'yicha ilovadagi HAQIQIY tovarni topadi.
+   *
+   *  Server faqat id va nomni yuboradi — rasm, qoldiq va tavsif esa
+   *  ilovada allaqachon bor (`S.home.catalog`). Shu tufayli kartochka
+   *  do'kondagi bilan bir xil ko'rinadi va «Savatga qo'shish» haqiqiy
+   *  qoldiqni tekshiradi. */
+  function sgFindProduct(id) {
+    const groups = (S.home && S.home.catalog) || [];
+    for (const group of groups) {
+      const hit = (group.products || []).find((p) => String(p.id) === String(id));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /** Xizmat ID'si bo'yicha `S.services` dagi o'rnini (indeksini) topadi.
+   *  `openService()` aynan indeks bilan ishlaydi. */
+  function sgServiceIndex(id) {
+    const list = S.services || [];
+    const idx = list.findIndex((s) => String(s.id) === String(id));
+    return idx >= 0 ? idx : -1;
+  }
+
+  /** Javob ostidagi kartochkalar: xizmat → oynasi, tovar → savat. */
+  function sgAttach(reply) {
+    const services = reply.services || [];
+    const products = reply.products || [];
+    if (!services.length && !products.length) return null;
+
+    const box = el("div", "sg-attach");
+
+    services.forEach((svc) => {
+      const card = el("button", "sg-card sg-card-svc");
+      card.type = "button";
+      card.dataset.sgSvc = svc.id;
+      card.innerHTML =
+        '<span class="sg-card-ic">🛠</span>' +
+        '<span class="sg-card-tx"><b>' +
+        esc(svc.name || "Xizmat") +
+        "</b><small>" +
+        (svc.coming_soon
+          ? "Tez kunda"
+          : esc(svc.price_label || "") +
+            (svc.warranty ? " · 🛡 " + esc(svc.warranty) : "")) +
+        "</small></span>" +
+        '<span class="sg-card-go">' +
+        (svc.coming_soon ? "›" : "Ochish ›") +
+        "</span>";
+      box.append(card);
+    });
+
+    products.forEach((item) => {
+      const real = sgFindProduct(item.id);
+      const photo = real ? abs(real.photo_url) : null;
+      const stock = real ? Number(real.stock || 0) : Number(item.stock || 0);
+      const price = real ? real.price_label : item.price_label;
+
+      const card = el("div", "sg-card sg-card-prod");
+      card.innerHTML =
+        '<span class="sg-card-img">' +
+        (photo ? img(photo, "", item.name) : '<i class="sg-card-ph">🛍</i>') +
+        "</span>" +
+        '<span class="sg-card-tx"><b>' +
+        esc(item.name || "Tovar") +
+        "</b><small>" +
+        esc(price || "") +
+        (stock > 0 ? "" : " · tugagan") +
+        "</small></span>" +
+        '<button class="sg-card-btn" type="button" data-sg-open="' +
+        esc(item.id) +
+        '">Ko\'rish</button>' +
+        (stock > 0
+          ? '<button class="sg-card-btn is-add" type="button" data-sg-add="' +
+            esc(item.id) +
+            '" aria-label="Savatga qo\'shish">＋</button>'
+          : "");
+      box.append(card);
+    });
+
+    return box;
+  }
+
+  /** Javobdan keyingi savol chiplari. */
+  function sgSuggest(list) {
+    const items = (list || []).filter(Boolean);
+    if (!items.length) return null;
+    const box = el("div", "sg-sugs");
+    items.forEach((text) => {
+      const chip = el("button", "sg-sug", esc(text));
+      chip.type = "button";
+      chip.dataset.sgAsk = text;
+      box.append(chip);
+    });
+    return box;
+  }
+
+  /** Shogirdning javobini yozishmaga qo'yadi. */
+  function sgPush(reply) {
+    const log = $("sg-log");
+    if (!log) return;
+    const text = sgClean(reply.text);
+    const row = sgBubble("sg", text);
+    log.append(row);
+
+    const attach = sgAttach(reply);
+    if (attach) log.append(attach);
+    const sugs = sgSuggest(reply.suggests);
+    if (sugs) log.append(sugs);
+
+    S.sg.msgs.push({ role: "sg", ...reply, text: text });
+    sgPaintHero();
+    sgScroll(true);
+  }
+
+  /* ------------------------------------------------- mahalliy bilim (zaxira)
+
+     Bu ro'yxat AI O'RNINI BOSMAYDI — u faqat tez-tez so'raladigan
+     savollarga javob beradi. Lekin aynan shu savollar eng ko'p beriladi,
+     shuning uchun AI o'chirilgan bo'lsa ham Shogird foydali bo'lib
+     qoladi.
+
+     MA'LUMOT QAYERDAN: `S.pay` (`/api/config`), `S.services`
+     (`/api/services`) va `S.home.catalog`. Ya'ni matnda QATTIQ yozilgan
+     narx yoki telefon YO'Q — admin o'zgartirsa javob ham o'zgaradi. */
+
+  function sgContactLine() {
+    const out = [];
+    if (S.pay && S.pay.phone) out.push("📞 " + S.pay.phone);
+    if (S.pay && S.pay.admin) out.push("✍️ @" + S.pay.admin);
+    return out.join("   ");
+  }
+
+  function sgServiceList() {
+    const list = (S.services || []).filter((s) => !svcSoon(s));
+    if (!list.length) return "";
+    return list
+      .slice(0, 8)
+      .map((s) => "• " + s.name + " — " + (s.price_label || "narxi so'rov bo'yicha"))
+      .join("\n");
+  }
+
+  const SG_FAQ = [
+    {
+      k: ["yetkaz", "dostavka", "kuryer", "pochta", "bts", "jo'nat", "jonat", "olib kel"],
+      a: () =>
+        "Yetkazib berish ikki xil:\n" +
+        "• " +
+        ((S.pay && S.pay.city) || "Samarqand") +
+        " bo'ylab — kuryer\n" +
+        "• Boshqa viloyatlarga — BTS Pochta\n\n" +
+        "Usulni 🧺 Savatcha → «Rasmiylashtirish» qadamida tanlaysiz, " +
+        "narxi shu yerda ko'rinadi.",
+    },
+    {
+      k: ["kafolat", "garantiya", "garanti"],
+      a: () =>
+        "Kafolat ish va tovarga qarab beriladi — har xizmatning o'z muddati bor " +
+        "(masalan Bi-LED o'rnatishga 1 yil, polirovkaga 3 oy).\n\n" +
+        "Aniq muddat 🛠 Xizmatlar bo'limida xizmat ustiga bosilganda va tovar " +
+        "kartochkasida 🛡 belgisi bilan yozilgan.",
+    },
+    {
+      k: ["qayer", "manzil", "adres", "joylash", "kelsam", "lokatsiya"],
+      a: () =>
+        "Ustaxonamiz " +
+        ((S.pay && S.pay.city) || "Samarqand") +
+        "da. Aniq manzil va mo'ljalni bering deb yozsangiz, usta joylashuvni " +
+        "yuboradi:\n" +
+        (sgContactLine() || "Aloqa ma'lumoti kabinetdagi «Biz bilan aloqa» da."),
+    },
+    {
+      k: ["to'lov", "tolov", "karta", "naqd", "plastik", "bo'lib to'lash", "nasiya"],
+      a: () =>
+        "To'lov usullari: naqd, plastik karta va ilova orqali o'tkazma.\n" +
+        "Usulni 🧺 Savatcha → «Rasmiylashtirish» ning oxirgi qadamida tanlaysiz. " +
+        "Karta rekvizitlari shu yerda ko'rinadi.",
+    },
+    {
+      k: ["navbat", "band qil", "yozil", "qachonga", "vaqt olsam", "zapis"],
+      a: () =>
+        "Navbat shunday olinadi:\n" +
+        "1) 🛠 Xizmatlar bo'limiga o'ting\n" +
+        "2) Kerakli xizmatni bosing\n" +
+        "3) «🗓 Navbat olish» → kun va soatni tanlang\n\n" +
+        "Navbatlaringiz 👤 Kabinet → «Navbatlarim» da turadi.",
+    },
+    {
+      k: ["narx", "qancha tur", "pul", "price", "prays", "skolko"],
+      a: () => {
+        const list = sgServiceList();
+        return list
+          ? "Xizmat narxlari:\n" +
+              list +
+              "\n\nTovar narxlari 🏠 Asosiy bo'limidagi katalogda. " +
+              "Aniq narx usta ko'rgandan keyin tasdiqlanadi."
+          : "Har xizmatning narxi 🛠 Xizmatlar bo'limida, tovar narxlari esa " +
+              "🏠 Asosiy bo'limidagi katalogda turadi.";
+      },
+    },
+    {
+      k: ["ish vaqti", "soat necha", "qachon ochiq", "dam olish", "ishlaysiz"],
+      a: () =>
+        "Navbat olish mumkin bo'lgan kunlar va bo'sh soatlar 🛠 Xizmatlar → " +
+        "xizmat → «🗓 Navbat olish» da ko'rinadi — band bo'lgan vaqtlar " +
+        "ro'yxatda chiqmaydi.\n" +
+        (sgContactLine() ? "Shoshilinch bo'lsa: " + sgContactLine() : ""),
+    },
+    {
+      k: ["telefon", "aloqa", "bog'lan", "boglan", "admin", "usta bilan", "operator"],
+      a: () =>
+        "Biz bilan bog'lanish:\n" +
+        (sgContactLine() || "👤 Kabinet → «Biz bilan aloqa»") +
+        "\n\nUstaga rasm yuborsangiz, holatni ko'rib aniq javob beradi.",
+    },
+    {
+      k: ["buyurtma qanday", "qanday sotib", "savat", "zakaz qil"],
+      a: () =>
+        "Buyurtma berish:\n" +
+        "1) 🏠 Asosiy bo'limidan tovarni tanlab «Savatga qo'shish»\n" +
+        "2) 🧺 Savatcha → «Rasmiylashtirish»\n" +
+        "3) Manzil va to'lov usulini tanlang\n\n" +
+        "Buyurtmalaringiz 👤 Kabinet → «Buyurtmalarim» da kuzatiladi.",
+    },
+  ];
+
+  /** Mijoz savolidan tovar qidiradi (mahalliy katalog bo'yicha). */
+  function sgLocalProducts(question) {
+    const low = String(question || "").toLowerCase().replace(/[’ʻ`]/g, "'");
+    const words = low.match(/[a-z0-9']+/g) || [];
+    const keys = words.filter((w) => w.length >= 4 || /\d/.test(w));
+    if (!keys.length) return [];
+
+    const out = [];
+    ((S.home && S.home.catalog) || []).forEach((group) => {
+      (group.products || []).forEach((p) => {
+        const name = String(p.name || "").toLowerCase().replace(/[’ʻ`]/g, "'");
+        const code = String(p.code || "").toLowerCase();
+        const hit =
+          keys.filter((k) => name.includes(k)).length + (code && low.includes(code) ? 2 : 0);
+        if (hit > 0) out.push({ hit: hit, p: p });
+      });
+    });
+
+    out.sort((a, b) => b.hit - a.hit || (a.p.price || 0) - (b.p.price || 0));
+    return out.slice(0, 3).map((x) => ({
+      id: x.p.id,
+      name: x.p.name,
+      price_label: x.p.price_label,
+      stock: x.p.stock,
+    }));
+  }
+
+  /** AI ishlamaganda javob. Har doim BIROR foydali narsa qaytaradi. */
+  function sgLocal(question) {
+    const low = String(question || "").toLowerCase().replace(/[’ʻ`]/g, "'");
+    const hit = SG_FAQ.find((row) => row.k.some((needle) => low.includes(needle)));
+
+    if (hit) {
+      return {
+        text: hit.a(),
+        products: [],
+        services: [],
+        suggests: ["Navbat qanday olinadi?", "Kafolat qancha?"],
+        local: true,
+      };
+    }
+
+    const products = sgLocalProducts(question);
+    if (products.length) {
+      return {
+        text: "Shu tovarlar mos keldi — narxi va qoldig'i quyida:",
+        products: products,
+        services: [],
+        suggests: ["Yetkazib berish qanday?", "Kafolat qancha?"],
+        local: true,
+      };
+    }
+
+    return {
+      text:
+        "Bu savolga aniq javob berish uchun ustaning o'zi ko'rishi kerak.\n" +
+        (sgContactLine() ? sgContactLine() + "\n" : "") +
+        "\nShu vaqtda: 🛠 Xizmatlar bo'limida narx va kafolat, 🏠 Asosiy " +
+        "bo'limida esa butun katalog turadi.",
+      products: [],
+      services: [],
+      suggests: ["Xizmat narxlari qanday?", "Yetkazib berish qanday?", "Kafolat qancha?"],
+      local: true,
+    };
+  }
+
+  /* ------------------------------------------------------------- so'rov */
+
+  function sgSetBusy(on) {
+    S.sg.busy = !!on;
+    const send = $("sg-send");
+    const box = $("sg-in");
+    if (send) send.disabled = !!on;
+    if (box) box.disabled = !!on;
+    const sub = $("sg-sub");
+    if (sub) sub.textContent = on ? "O'ylayapti…" : sgSubText();
+  }
+
+  function sgSubText() {
+    if (S.sg.aiOn === false) return "Asosiy ma'lumotlar rejimi";
+    return "Ustaxona yordamchisi";
+  }
+
+  /** Savol yuborish — yozishmaning yagona kirish nuqtasi. */
+  async function sgAsk(question) {
+    const text = String(question || "").trim();
+    if (!text || S.sg.busy) return;
+
+    const log = $("sg-log");
+    if (!log) return;
+
+    haptic("light");
+    S.sg.msgs.push({ role: "me", text: text });
+    log.append(sgBubble("me", text));
+    sgPaintHero();
+
+    const box = $("sg-in");
+    if (box) {
+      box.value = "";
+      sgGrow();
+    }
+
+    sgSetBusy(true);
+    sgTyping(true);
+
+    /* Xizmatlar ro'yxati mahalliy javob uchun ham, kartochkani ochish
+       uchun ham kerak (`openService()` indeks bilan ishlaydi). Fonda
+       yuklanadi — javobni kutib turmaydi. */
+    if (!S.services) loadServices(false).catch(() => {});
+
+    let reply = null;
+    if (!S.offline && S.sg.aiOn !== false) {
+      try {
+        const res = await api("/api/shogird", { method: "POST", body: { text: text } });
+        if (res && res.ok) {
+          reply = res;
+        } else if (res && res.reason === "no_key") {
+          // Kalit sozlanmagan — boshqa savollarda ham so'ramaymiz
+          S.sg.aiOn = false;
+        }
+      } catch (err) {
+        /* Bu yerda `onError()` ATAYLAB chaqirilmaydi: u qizil xato
+           chiqaradi va suhbat uzilib qoladi. «Juda tez» holatida esa
+           mijozga kutish kerakligini aytamiz. */
+        if (err && (err.code === "too_fast" || err.code === "busy")) {
+          sgTyping(false);
+          sgSetBusy(false);
+          toast(err.message || "Bir oz kuting");
+          return;
+        }
+        if (err && err.code === "phone_required") {
+          // Savol berish uchun telefon KERAK EMAS, lekin imzo eskirgan
+          // bo'lsa shu xato kelishi mumkin — mahalliy javobga o'tamiz.
+          console.warn("[shogird] server javob bermadi:", err.code);
+        }
+      }
+    }
+
+    /* Mahalliy javobga o'tayotgan bo'lsak, xizmatlar ro'yxatini KUTAMIZ:
+       «Narxlar» savoliga javob aynan shundan yasaladi. Kutmasak,
+       yordamchiga birinchi kirgan mijoz narxlar o'rniga «Xizmatlar
+       bo'limiga o'ting» degan bo'sh javob olardi. */
+    if (!reply && !S.services) {
+      try {
+        await loadServices(false);
+      } catch (_) {}
+    }
+    if (!reply) reply = sgLocal(text);
+
+    sgTyping(false);
+    sgSetBusy(false);
+    sgPush(reply);
+  }
+
+  /** Yozish maydoni matn bilan birga o'sadi (~5 qatorgacha).
+   *
+   *  `+2` — chegaralar (border) uchun: `box-sizing: border-box` bo'lgani
+   *  uchun ular balandlikning ichida. Qo'shilmasa matn bir pikselga
+   *  sig'may, maydonda KERAKSIZ skroll chizig'i paydo bo'ladi.
+   *  Eng kichigi 48px — CSS dagi boshlang'ich balandlik (tugma bilan
+   *  bir xil), aks holda birinchi harfda maydon sakrab kichrayardi. */
+  function sgGrow() {
+    const box = $("sg-in");
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = Math.max(48, Math.min(box.scrollHeight + 2, 118)) + "px";
+  }
+
+  /** Suhbatni tozalaydi. Server xotirasi ham tozalanadi — aks holda
+   *  model eski mavzuga (oldingi mashina, oldingi muammo) qaytib ketardi. */
+  function sgReset() {
+    haptic();
+    S.sg.msgs = [];
+    const log = $("sg-log");
+    if (log) log.innerHTML = "";
+    sgPaintHero();
+    if (!S.offline) api("/api/shogird/reset", { method: "POST" }).catch(() => {});
+    toast("Suhbat tozalandi");
+  }
+
+  /** Bo'lim ochilganda (`show("shogird")`). */
+  function sgOpen() {
+    S.sg = S.sg || { msgs: [], busy: false, aiOn: true };
+    sgRenderTopics();
+    sgPaintHero();
+    const hi = $("sg-hi");
+    if (hi) {
+      const name = ((S.me && (S.me.first_name || S.me.full_name)) || "").split(" ")[0];
+      hi.textContent = name ? "Assalomu alaykum, " + name : "Assalomu alaykum";
+    }
+    const sub = $("sg-sub");
+    if (sub && !S.sg.busy) sub.textContent = sgSubText();
+    /* Klaviatura O'ZI ochilmaydi: mijoz avval plitkalarni ko'rishi kerak.
+       Avtomatik fokus ekranning yarmini klaviatura bilan yopib qo'yardi. */
+    if ((S.sg.msgs || []).length) sgScroll();
+  }
+
   async function boot() {
     let carsReady = Promise.resolve(); // mashinalar so'rovi (parallel yuklanadi)
     if (tg) {
@@ -7756,6 +8355,10 @@
         phone: cfg.shop_phone || local.SHOP_PHONE || "",
         city: cfg.delivery_city || "Samarqand",
       };
+      /* Shogird: AI kaliti sozlanganmi. `false` bo'lsa har savolda
+         serverga borib xato kutib o'tirmaydi — darhol mahalliy bilimdan
+         javob beradi (`sgLocal`). */
+      S.sg.aiOn = cfg.ai_enabled !== false;
       S.me = me;
       // Mijozni tanib qolish uchun keshlaymiz — server o'chganda ismi,
       // telefoni va mashinasi eslanadi.
@@ -7783,6 +8386,11 @@
       if (me.is_admin) {
         const adminBtn = $("nav-admin");
         if (adminBtn) adminBtn.classList.remove("hidden");
+        /* Adminda tugma YETTITA bo'ladi («🎓 Shogird» qo'shilgandan
+           keyin). Yozuvlar sig'ishi uchun panel ixchamlashadi — aks
+           holda «Xizmatlar» va «Saqlangan» uch nuqtaga aylanardi. */
+        const nav = $("nav");
+        if (nav) nav.classList.add("is-wide");
       }
 
     // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
@@ -7914,6 +8522,77 @@
     haptic("light");
     renderServicesPage(true); // serverdan qaytadan o'qiladi
   };
+
+  /* ------------------------------------------------------ 🎓 SHOGIRD */
+  /* Yozishma ichidagi tugmalar HAR javobda qaytadan yasaladi, shuning
+     uchun hodisa ota elementda tutiladi — bir marta bog'lanadi. */
+  $("sg-back").onclick = () => {
+    haptic();
+    show("home");
+  };
+  $("sg-reset").onclick = sgReset;
+
+  $("sg-topics").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-sg-topic]");
+    if (!btn) return;
+    const topic = SG_TOPICS[Number(btn.dataset.sgTopic)];
+    if (topic) sgAsk(topic.q);
+  });
+
+  $("sg-log").addEventListener("click", (e) => {
+    // Keyingi savol chipi
+    const chip = e.target.closest("[data-sg-ask]");
+    if (chip) return sgAsk(chip.dataset.sgAsk);
+
+    // Xizmat kartochkasi → xizmatning alohida oynasi
+    const svc = e.target.closest("[data-sg-svc]");
+    if (svc) {
+      const idx = sgServiceIndex(svc.dataset.sgSvc);
+      if (idx < 0) return toast("Xizmat ro'yxati yuklanmadi — qayta urinib ko'ring");
+      return openService(idx);
+    }
+
+    // Tovarni ko'rish → do'kondagi bir xil oyna
+    const open = e.target.closest("[data-sg-open]");
+    if (open) {
+      const product = sgFindProduct(open.dataset.sgOpen);
+      if (!product) return toast("Tovar topilmadi — katalogni yangilang");
+      return openProductModal(product);
+    }
+
+    /* Savatga qo'shish. Tovar `S.home` dan olinadi — ya'ni qoldiq va
+       narx do'kondagi bilan BIR XIL manbadan. Shogird yuborgan
+       ma'lumotga ishonib qo'shilsa, eskirgan narx savatga tushishi
+       mumkin edi. */
+    const add = e.target.closest("[data-sg-add]");
+    if (add) {
+      const product = sgFindProduct(add.dataset.sgAdd);
+      if (!product) return toast("Tovar topilmadi — katalogni yangilang");
+      addToCart(product, 1, add);
+      return toast("Savatga qo'shildi");
+    }
+  });
+
+  (function bindShogirdForm() {
+    const form = $("sg-form");
+    const box = $("sg-in");
+    if (!form || !box) return;
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      sgAsk(box.value);
+    });
+
+    box.addEventListener("input", sgGrow);
+    /* Enter — yuborish, Shift+Enter — yangi qator. Telefonda
+       `enterkeyhint="send"` tufayli klaviaturada «yuborish» ko'rinadi. */
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sgAsk(box.value);
+      }
+    });
+  })();
   $("car-chip").onclick = openCarSheet;
   $("change-car").onclick = openCarSheet;
   $("order-submit").onclick = startCheckout;

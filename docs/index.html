@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=59">
+  <link rel="stylesheet" href="styles.css?v=60">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -179,6 +179,10 @@
   <div class="hm-quick" id="hm-quick">
     <button class="hm-q" data-go="flow"><i>💡</i><span>Konfigurator</span></button>
     <button class="hm-q" data-go="book"><i>🗓</i><span>Navbat</span></button>
+    <!-- Uchinchi plitka: yordamchi bosh sahifadan ham bir bosishda
+         ochilsin (pastdagi menyuda ham bor — bu takrorlanish ATAYLAB,
+         mijoz savol paydo bo'lgan LAHZADA ko'zi tushishi kerak). -->
+    <button class="hm-q" data-go="shogird"><i>🎓</i><span>Shogird</span></button>
   </div>
 
   <div class="banner-wrap">
@@ -577,12 +581,89 @@
   <div class="pad" id="admin-body"></div>
 </section>
 
+<!-- ==========================================================================
+     🎓 SHOGIRD — ILOVA ICHIDAGI YORDAMCHI
+
+     NEGA KERAK
+     Ilovada ma'lumot BOR, lekin u tarqoq: narx «Xizmatlar» da, kafolat
+     tovar kartochkasida, yetkazib berish savatchada, ish vaqti esa
+     hech qayerda. Mijoz «faram xira bo'lib qolgan, nima qilsam bo'ladi?»
+     degan SODDA savolga javob topish uchun uch bo'limni varaqlashi
+     kerak edi — ko'pchilik esa shunchaki chiqib ketardi.
+
+     Botda AI yordamchi allaqachon bor, lekin uning ko'rsatmasi «mijozni
+     ilovaga olib borish» ga qurilgan — ilova ICHIDA bu foydasiz. Shogird
+     esa aksincha: mijoz qayerda turganini biladi va uni ILOVA ICHIDA
+     yo'naltiradi.
+
+     DIZAYN — QOLGAN BO'LIMLARDAN ATAYLAB BOSHQACHA
+     Bu yerda kartochka to'ri yo'q: yozishma oqimi, ustaxona shogirdi
+     ko'rinishidagi avatar va «Nima bo'ldi?» degan muammo plitkalari.
+     Navbar YASHIRILADI (`service` va `checkout` kabi): pastda yozish
+     maydoni turadi, ikki panel ustma-ust bo'lsa klaviatura ochilganda
+     ekran siqilib qolardi.
+
+     TUZILISHI
+       * salom bloki (`#sg-hero`) — faqat suhbat boshlanmaganda ko'rinadi;
+       * muammo plitkalari (`#sg-topics`) — bir bosishda savol yuboriladi;
+       * yozishma (`#sg-log`) — pufakchalar + javob ostidagi haqiqiy
+         xizmat/tovar kartochkalari (ular bazadan, modeldan EMAS);
+       * pastda yozish maydoni (`#sg-form`).
+     ========================================================================== -->
+<section id="shogird" class="page hidden">
+  <header class="topbar static sg-top">
+    <button class="icon-btn" id="sg-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title">🎓 Shogird</div>
+      <div class="topbar-sub" id="sg-sub">Ustaxona yordamchisi</div>
+    </div>
+    <!-- Suhbat boshlanmaguncha yashirin: bosiladigan, lekin hech narsa
+         qilmaydigan tugma turmasin. -->
+    <button class="icon-btn ghost hidden" id="sg-reset" aria-label="Yangi suhbat">↻</button>
+  </header>
+
+  <div class="sg-wrap">
+    <div class="sg-hero" id="sg-hero">
+      <div class="sg-ava">
+        <i class="sg-ava-ring" aria-hidden="true"></i>
+        <span aria-hidden="true">🎓</span>
+      </div>
+      <h2 class="sg-hi" id="sg-hi">Assalomu alaykum</h2>
+      <p class="sg-hi-sub">
+        Men Zimmer ustaxonasining shogirdiman. Fara, narx, kafolat yoki
+        navbat haqida so'rang — tushuntirib, yo'lini ko'rsatib beraman.
+      </p>
+      <div class="sg-topics" id="sg-topics"></div>
+    </div>
+
+    <!-- `aria-live="polite"` — javob kelganini skrinreader ham o'qiydi -->
+    <div class="sg-log" id="sg-log" aria-live="polite"></div>
+  </div>
+
+  <form class="sg-bar" id="sg-form" autocomplete="off">
+    <!-- `textarea`, `input` emas: mijoz ikki-uch gapli muammo yozadi va
+         matn ko'rinib turishi kerak. Balandligi JS bilan o'sadi. -->
+    <textarea
+      id="sg-in"
+      rows="1"
+      maxlength="700"
+      placeholder="Savolingizni yozing…"
+      enterkeyhint="send"
+      aria-label="Shogirdga savol"
+    ></textarea>
+    <button type="submit" class="sg-send" id="sg-send" aria-label="Yuborish">➤</button>
+  </form>
+</section>
+
 <!-- ==================== NAVIGATSIYA ==================== -->
 <nav class="nav hidden" id="nav">
   <button class="nav-btn active" data-page="home"><i>🏠</i><span>Asosiy</span></button>
   <!-- «Konfigurator» → «Xizmatlar»: bu bo'lim endi BARCHA xizmatlarni
        o'z ichiga oladi (konfigurator ham ular orasida bittasi). -->
   <button class="nav-btn" data-page="services"><i>🛠</i><span>Xizmatlar</span></button>
+  <!-- Yordamchi ENG KO'RINADIGAN joyda turishi kerak: mijoz savoli
+       paydo bo'lganda uni izlab yurmasin. -->
+  <button class="nav-btn" data-page="shogird"><i>🎓</i><span>Shogird</span></button>
   <button class="nav-btn" data-page="saved"><i>❤️</i><span>Saqlangan</span></button>
   <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge" aria-live="polite" aria-label="Savatchadagi tovarlar soni">0</b></button>
   <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
@@ -801,16 +882,16 @@
         pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
         tanlanganda kerak, lekin har ochilishda o'qilardi.
      ========================================================================== -->
-<script defer src="config.js?v=59"></script>
+<script defer src="config.js?v=60"></script>
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script defer src="js/fb.js?v=59"></script>
+<script defer src="js/fb.js?v=60"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script defer src="js/upload.js?v=59"></script>
+<script defer src="js/upload.js?v=60"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<script defer src="js/offline.js?v=59"></script>
-<script defer src="js/headlight.js?v=59"></script>
-<script defer src="js/cars.js?v=59"></script>
-<script defer src="js/app.js?v=59"></script>
+<script defer src="js/offline.js?v=60"></script>
+<script defer src="js/headlight.js?v=60"></script>
+<script defer src="js/cars.js?v=60"></script>
+<script defer src="js/app.js?v=60"></script>
 </body>
 </html>

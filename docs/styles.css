@@ -8751,6 +8751,396 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 
 /* ==========================================================================
+   🎓 SHOGIRD — ILOVA ICHIDAGI YORDAMCHI
+
+   DIZAYN QARORI: BU BO'LIM QOLGANLARIGA O'XSHAMAYDI.
+   Ilovaning qolgan qismi — kartochka to'rlari va QIZIL aksent (do'kon,
+   xizmatlar, savatcha). Shogird esa suhbat: bu yerda TILLA aksent
+   (`--gold`) ishlatiladi va yagona to'r yo'q. Sabab amaliy: mijoz
+   yordamchiga o'tganini bir qarashda BILISHI kerak, aks holda u
+   «yana bir katalog» bo'lib ko'rinadi va bosilmaydi. Tilla rang
+   palitrada allaqachon bor (VIP kartochkada), ya'ni brenddan chetga
+   chiqilmagan.
+
+   TUZILISHI (flex ustun, pastda yopishgan yozish maydoni):
+     #shogird
+       ├── .sg-top    — sarlavha va «↻ yangi suhbat»
+       ├── .sg-wrap   — .sg-hero (salom + plitkalar) va .sg-log (yozishma)
+       └── .sg-bar    — yozish maydoni (sticky, klaviatura ustida qoladi)
+
+   ISHLASH: fayl boshidagi qoidalarga rioya qilingan — `blur` va
+   `backdrop-filter` yo'q, cheksiz animatsiya qo'shilmagan (avatar
+   halqasi 3 marta uriladi va to'xtaydi, «yozmoqda» nuqtalari esa
+   faqat javob kutilgan vaqtda ishlaydi).
+   ========================================================================== */
+#shogird {
+  display: flex;
+  flex-direction: column;
+  /* Navbar bu bo'limda yashirin — `.page` dagi 96px pastki bo'sh joy
+     kerak emas, aks holda yozish maydoni ostida katta kavak qolardi. */
+  padding-bottom: 0;
+}
+.sg-top {
+  /* Yozishma uzun bo'lganda ham sarlavha va «↻» ko'rinib turadi */
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.sg-top .topbar-sub { color: var(--gold); }
+.sg-wrap {
+  flex: 1;
+  padding: 8px 14px 4px;
+}
+
+/* ------------------------------------------------------- salom bloki */
+.sg-hero {
+  text-align: center;
+  padding: 14px 4px 6px;
+}
+.sg-ava {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  background: radial-gradient(circle at 50% 35%, rgba(212, 168, 83, 0.28), rgba(0, 0, 0, 0.5) 70%);
+  border: 1px solid rgba(212, 168, 83, 0.35);
+}
+/* Bir martalik e'tibor: halqa uch marta uriladi va to'xtaydi.
+   Cheksiz qilinmadi — fayl boshidagi qoida (1 ta cheksiz animatsiya). */
+.sg-ava-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid var(--gold-glow);
+  animation: sgPulse 2.2s var(--silk) 3;
+}
+@keyframes sgPulse {
+  0% { transform: scale(0.92); opacity: 0.9; }
+  70% { transform: scale(1.12); opacity: 0; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+.sg-hi {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 800;
+}
+.sg-hi-sub {
+  margin: 0 auto 16px;
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Muammo plitkalari: ikki ustun, har biri bir bosishda savol yuboradi */
+.sg-topics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 9px;
+  text-align: left;
+}
+.sg-topic {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 11px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  animation: sgIn 0.34s var(--silk) both;
+  animation-delay: var(--d, 0ms);
+  transition: transform 0.16s var(--spring), border-color 0.2s;
+}
+.sg-topic i {
+  font-style: normal;
+  font-size: 17px;
+  line-height: 1;
+  flex: none;
+}
+.sg-topic span {
+  min-width: 0;
+  line-height: 1.25;
+}
+.sg-topic:active {
+  transform: scale(0.95);
+  border-color: rgba(212, 168, 83, 0.4);
+}
+@keyframes sgIn {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* ---------------------------------------------------------- yozishma */
+.sg-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 4px;
+}
+/* `flex-end` — Shogirdning belgisi pufakcha OSTIDA turadi, aynan
+   pufakchaning o'tkir burchagi yonida (Telegram'dagi kabi). Tepaga
+   qo'yilsa belgi bilan burchak ikki xil joyda bo'lib, ikkisi bir-biriga
+   tegishli emasdek ko'rinardi. */
+.sg-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  animation: sgIn 0.28s var(--silk) both;
+}
+.sg-row.sg-me { justify-content: flex-end; }
+/* Shogird «yuzi» — har javob oldida kichik belgi. Avatar rasm emas:
+   qo'shimcha so'rov ham, yuklanish kutishi ham bo'lmaydi. */
+.sg-face {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  background: rgba(212, 168, 83, 0.14);
+  border: 1px solid rgba(212, 168, 83, 0.28);
+}
+.sg-msg {
+  max-width: 82%;
+  padding: 10px 13px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  /* Model qatorlarga bo'lib yozadi (punktlar) — saqlanishi kerak */
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 5px;
+}
+.sg-me .sg-msg {
+  background: var(--red-grad);
+  border-color: transparent;
+  color: #fff;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 5px;
+}
+.sg-msg-wait {
+  padding: 12px 15px;
+  min-width: 58px;
+}
+
+/* -------------------------------------- javob ostidagi kartochkalar */
+/* Bular MODEL YOZGAN matn emas — bazadan topilgan haqiqiy yozuvlar
+   (`services/shogird.py`). Shu sababli ular pufakchadan TASHQARIDA
+   turadi: mijoz «bu bosiladigan narsa» ekanini ko'rsin. */
+.sg-attach {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -2px 0 2px 36px;
+  animation: sgIn 0.3s var(--silk) both;
+}
+.sg-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  text-align: left;
+  transition: transform 0.15s var(--spring), border-color 0.2s;
+}
+.sg-card:active { transform: scale(0.98); }
+.sg-card-svc { border-color: rgba(212, 168, 83, 0.3); }
+.sg-card-ic {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  background: var(--gold-soft);
+}
+.sg-card-img {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-3);
+  display: grid;
+  place-items: center;
+}
+.sg-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sg-card-ph { font-style: normal; font-size: 16px; opacity: 0.6; }
+.sg-card-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sg-card-tx b {
+  font-size: 12.5px;
+  font-weight: 700;
+  /* Uzun tovar nomi kartochkani cho'zib yubormasin */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sg-card-tx small {
+  font-size: 11px;
+  color: var(--gold);
+  font-weight: 600;
+}
+.sg-card-prod .sg-card-tx small { color: var(--muted); }
+.sg-card-go {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.sg-card-btn {
+  flex: none;
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 700;
+  transition: transform 0.15s var(--spring);
+}
+.sg-card-btn.is-add {
+  padding: 7px 10px;
+  background: var(--red-grad);
+  border-color: transparent;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+}
+.sg-card-btn:active { transform: scale(0.92); }
+
+/* ------------------------------------------- keyingi savol chiplari */
+/* Chiplar SERVERDA hisoblanadi (`_suggests`) — ya'ni har doim
+   mavzuga tegishli. Mijozga «keyin nima so'rasam?» degan savolni
+   qoldirmaydi: yordamchining eng ko'p tashlab ketiladigan joyi shu. */
+.sg-sugs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 2px 36px;
+  animation: sgIn 0.34s var(--silk) both;
+}
+.sg-sug {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px dashed rgba(212, 168, 83, 0.45);
+  color: var(--gold);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: transform 0.15s var(--spring), background 0.2s;
+}
+.sg-sug:active {
+  transform: scale(0.94);
+  background: var(--gold-soft);
+}
+
+/* ------------------------------------------------- yozish maydoni */
+.sg-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 9px 14px calc(10px + var(--safe-b));
+  /* Qattiq fon (blur emas): yozishma ostidan o'tib ketmasin */
+  background: linear-gradient(180deg, rgba(8, 8, 10, 0.75), var(--bg) 45%);
+  border-top: 1px solid var(--line);
+}
+#sg-in {
+  flex: 1;
+  min-width: 0;
+  /* Balandlik JS bilan o'sadi (`sgGrow`) — 118px da to'xtaydi.
+     48px ATAYLAB: `box-sizing: border-box` bo'lgani uchun ichiga
+     chegara (2px) + ichki bo'shliq (24px) + bir qator matn (16 × 1.3 =
+     20.8px) sig'ishi kerak. 46px qilinsa matn bir pikselga sig'may,
+     brauzer BO'SH maydonda ham skroll chizig'ini chizardi. */
+  height: 48px;
+  max-height: 118px;
+  padding: 12px 15px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  font-family: inherit;
+  /* 16px dan kichik shrift iOS'da sahifani ZO'RLAB kattalashtiradi
+     (klaviatura ochilganda ekran sakraydi) — shuning uchun aynan 16px */
+  font-size: 16px;
+  line-height: 1.3;
+  resize: none;
+  overflow-y: auto;
+}
+#sg-in::placeholder { color: var(--dim); }
+#sg-in:focus {
+  outline: none;
+  border-color: rgba(212, 168, 83, 0.5);
+}
+#sg-in:disabled { opacity: 0.6; }
+.sg-send {
+  /* Yozish maydoni bilan bir balandlikda (48px) — bu ayni paytda
+     barmoq uchun tavsiya etilgan eng kichik o'lcham ham. */
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--red-grad);
+  color: #fff;
+  font-size: 15px;
+  box-shadow: 0 4px 14px rgba(255, 45, 58, 0.35);
+  transition: transform 0.15s var(--spring), opacity 0.2s;
+}
+.sg-send:active { transform: scale(0.9); }
+.sg-send:disabled { opacity: 0.5; box-shadow: none; }
+
+/* Adminda pastdagi menyuda YETTI tugma bo'ladi («🎓 Shogird» + «⚙️
+   Admin»). Yozuvlar uch nuqtaga aylanib ketmasligi uchun panel
+   ixchamlashadi — faqat admin ko'radi, mijozda o'zgarish yo'q. */
+.nav.is-wide .nav-btn { font-size: 9px; padding: 7px 2px 6px; }
+.nav.is-wide .nav-btn i { font-size: 17px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sg-ava-ring { animation: none; }
+  .sg-topic,
+  .sg-row,
+  .sg-attach,
+  .sg-sugs { animation: none; }
+  .sg-topic:active,
+  .sg-card:active,
+  .sg-card-btn:active,
+  .sg-sug:active,
+  .sg-send:active { transform: none; }
+}
+
+
+/* ==========================================================================
    KLAVIATURA FOKUSI
 
    Stylesheet'da 19 ta joyda `outline: none` bor edi va o'rniga HECH NARSA

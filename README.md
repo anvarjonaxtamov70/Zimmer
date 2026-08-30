@@ -71,6 +71,23 @@ Sozlash: `SERVICE_ACCOUNT_JSON`, `FIREBASE_DB_URL`, `FIREBASE_ROOT` —
 batafsil [DEPLOY.md](DEPLOY.md). Firebase ulanmasa ham hammasi ishlaydi
 (faqat mahalliy bazada saqlanadi).
 
+## 🎓 Shogird — ilova ichidagi yordamchi
+
+Pastdagi menyuda **🎓 Shogird** bo'limi. Mijoz «faram xira bo'lib qolgan»
+deb yozadi — Shogird muammoni aniqlaydi, mos xizmatni **bazadagi narxi
+bilan** aytadi va qaysi tugmani bosishni ko'rsatadi.
+
+- Javob ostida **haqiqiy kartochkalar**: xizmatni ochish, tovarni ko'rish,
+  savatga qo'shish. Ular modeldan emas — server javob matnini katalog
+  bilan solishtirib topadi, ya'ni **yo'q tovar ko'rsatilmaydi**.
+- `GROQ_API_KEY` sozlanmagan yoki server o'chgan bo'lsa Shogird
+  **jim qolmaydi**: yetkazib berish, kafolat, to'lov, navbat va narxlar
+  haqida ilovaning o'z ma'lumotidan javob beradi.
+- Shogird mijoz nomidan hech narsa qilmaydi — buyurtma ham, navbat ham
+  faqat mijozning o'zi bosgan tugma bilan.
+
+Batafsil: [SHOGIRD.md](SHOGIRD.md).
+
 ## 📱 Admin panel — ilova ichida
 
 Ilovaning pastidagi menyuda adminlarga **⚙️ Admin** tugmasi ko'rinadi
@@ -304,6 +321,7 @@ Eski bazaga yangi ustunlar avtomatik qo'shiladi (`_migrate`), katalog esa
 | GET | `/api/services` · `/api/dates` · `/api/slots` | navbat uchun |
 | POST/GET | `/api/bookings` (+`/cancel`) | navbat |
 | POST/GET | `/api/orders` | do'kon buyurtmalari |
+| POST | `/api/shogird` (+`/reset`) | 🎓 Shogird — ilova ichidagi yordamchi |
 
 ## 🔮 Keyingi qadamlar
 
