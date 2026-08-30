@@ -735,34 +735,64 @@
    *  bu yerda shunchaki `window.ZimmerShop.open()` chaqirilardi. Endi kod
    *  faqat shu lahzada keladi, shuning uchun ochilish ASINXRON. */
   async function openAdminPanel() {
-    const box = $("admin");
+    /* ================================================================
+       DIQQAT — FAQAT `#admin-body` GA TEGAMIZ, `#admin` GA EMAS.
+
+       `#admin` bo'limi ichida index.html dan kelgan DOIMIY tuzilma bor:
+           #admin-back   — orqaga tugmasi
+           #admin-title  — sarlavha
+           #admin-sub    — kichik sarlavha
+           #admin-reload — yangilash tugmasi
+           #admin-body   — panel MANA SHU YERGA chiziladi
+
+       Barcha to'rt modul (`admin.js`, `admin-shop.js`, `admin-crm.js`,
+       `admin-stories.js`) aynan shu id'larga murojaat qiladi.
+
+       Shu sababli `$("admin").innerHTML = ""` QILISH MUMKIN EMAS — u
+       `#admin-body` ni ham, sarlavhani ham, tugmalarni ham o'chiradi va
+       panel boshqa hech qachon chizilmaydi.
+       ================================================================ */
+    const body = $("admin-body");
+
     // Yuklanish davomida bo'sh ekran ko'rinmasin
-    if (box && !window.ZimmerShop && !window.ZimmerAdmin) {
-      box.innerHTML =
+    if (body && !window.ZimmerShop && !window.ZimmerAdmin) {
+      body.innerHTML =
         '<div class="skeleton" style="height:120px;margin-bottom:12px"></div>' +
         '<div class="skeleton" style="height:220px"></div>';
     }
+
     try {
       await ensureAdminBundle();
     } catch (err) {
       console.error("[admin] panel yuklanmadi:", err);
-      if (box) {
-        box.innerHTML = "";
-        box.append(
-          el(
-            "p",
-            "empty",
-            "Boshqaruv paneli yuklanmadi. Internetni tekshirib, qaytadan urinib ko'ring."
-          )
+      if (body) {
+        body.innerHTML = "";
+        const msg = el(
+          "p",
+          "empty",
+          "Boshqaruv paneli yuklanmadi. Internetni tekshirib, qaytadan urinib ko'ring."
         );
+        const again = el("button", "btn btn-primary btn-sm", "Qaytadan urinish");
+        again.style.marginTop = "12px";
+        again.onclick = () => openAdminPanel();
+        body.append(msg, again);
       }
       return;
     }
+
     // Foydalanuvchi shu orada boshqa bo'limga o'tib ketgan bo'lishi mumkin
     if (S.page !== "admin") return;
-    if (box) box.innerHTML = "";
+
+    // Skeletonni tozalaymiz (panelning o'zi ham qayta chizadi)
+    if (body) body.innerHTML = "";
+
     if (window.ZimmerShop) window.ZimmerShop.open();
     else if (window.ZimmerAdmin) window.ZimmerAdmin.open();
+    else if (body) {
+      body.append(
+        el("p", "empty", "Boshqaruv paneli topilmadi. Ilovani yangilab ko'ring.")
+      );
+    }
   }
 
   function syncBackButton() {
