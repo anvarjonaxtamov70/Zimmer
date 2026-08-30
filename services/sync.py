@@ -31,9 +31,23 @@ logger = logging.getLogger(__name__)
 _pending: dict[str, dict] = {}
 _PENDING_LIMIT = 500
 
+# Navbat to'lgani uchun TASHLAB KETILGAN yozuvlar soni.
+#
+# Ilgari navbat to'lganda yozuv JIMGINA tashlanardi — na log, na hisob.
+# Ya'ni buyurtma bulutga tushmagani hech qayerda ko'rinmasdi va Render
+# qayta deploy bo'lganda u butunlay yo'qolardi. Endi har bir tashlangan
+# yozuv log'ga yoziladi va `/firebase` diagnostikasida ko'rinadi.
+_dropped = 0
+_drop_warned = False
+
 
 def pending_count() -> int:
     return len(_pending)
+
+
+def dropped_count() -> int:
+    """Navbat to'lgani uchun yo'qolgan yozuvlar soni."""
+    return _dropped
 
 
 async def _send(method: str, path: str, payload) -> bool:
@@ -45,7 +59,15 @@ async def _send(method: str, path: str, payload) -> bool:
 
 
 async def _write(path: str, payload, *, method: str = "patch") -> bool:
-    """Firebase'ga yozadi; imkoni bo'lmasa navbatga qo'yadi."""
+    """Firebase'ga yozadi; imkoni bo'lmasa navbatga qo'yadi.
+
+    Qaytaradi: yozuv BULUTGA YETIB BORDIMI. `False` — yozuv navbatda
+    turadi (keyin yuboriladi) yoki navbat to'lgani uchun yo'qoldi.
+    Chaqiruvchi buni tekshirishi kerak: buyurtma kabi muhim yozuvda
+    `False` bo'lsa hech bo'lmasa log'da ko'rinishi shart.
+    """
+    global _dropped, _drop_warned
+
     if not config.has_firebase:
         return False
 
@@ -53,14 +75,29 @@ async def _write(path: str, payload, *, method: str = "patch") -> bool:
         _pending.pop(path, None)
         return True
 
-    if len(_pending) < _PENDING_LIMIT:
+    if len(_pending) < _PENDING_LIMIT or path in _pending:
         _pending[path] = {"payload": payload, "method": method}
         logger.info("Firebase tayyor emas — yozuv navbatga qo'yildi: %s", path)
+        return False
+
+    # Navbat to'ldi. Bu jimgina o'tib ketmasligi kerak — ma'lumot YO'QOLADI.
+    _dropped += 1
+    if not _drop_warned:
+        _drop_warned = True
+        logger.error(
+            "Firebase navbati to'ldi (%s yozuv) — YANGI YOZUVLAR YO'QOLMOQDA. "
+            "Sabab: Firebase uzoq vaqt javob bermayapti. SERVICE_ACCOUNT_JSON "
+            "va FIREBASE_DB_URL ni tekshiring (/firebase buyrug'i).",
+            _PENDING_LIMIT,
+        )
+    logger.error("Firebase yozuvi YO'QOLDI (navbat to'la): %s", path)
     return False
 
 
 async def flush_pending() -> int:
     """Navbatda turgan yozuvlarni qaytadan yuborishga urinadi."""
+    global _drop_warned
+
     if not _pending or not firebase.is_enabled():
         return 0
     sent = 0
@@ -70,6 +107,9 @@ async def flush_pending() -> int:
             sent += 1
     if sent:
         logger.info("Navbatdagi %s yozuv Firebase'ga yuborildi", sent)
+        # Joy bo'shadi — keyingi to'lishda yana ogohlantirsin
+        if len(_pending) < _PENDING_LIMIT:
+            _drop_warned = False
     return sent
 
 
@@ -621,18 +661,36 @@ async def _put_biled_order(order) -> None:
 
 
 async def push_order(order, items_list) -> None:
-    """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi)."""
-    if not firebase.is_enabled():
-        return
+    """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi).
+
+    Qaytaradi: bulutga yetib bordimi. `False` bo'lsa buyurtma FAQAT SQLite'da
+    — Render qayta deploy bo'lsa yo'qoladi. Ilgari natija umuman
+    qaytarilmasdi va bu holat hech qayerda ko'rinmasdi.
+    """
+    if not config.has_firebase:
+        return False
     try:
-        await _put_order(order, items_list)
+        ok = await _put_order(order, items_list)
     except Exception as error:
-        logger.warning("Buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+        logger.error("Buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+        return False
+    if not ok:
+        logger.warning(
+            "Buyurtma #%s hozir bulutga tushmadi — navbatda turadi "
+            "(navbatda %s yozuv, yo'qolgan: %s)",
+            order["id"],
+            pending_count(),
+            dropped_count(),
+        )
+    return ok
 
 
-async def _put_order(order, items_list) -> None:
+async def _put_order(order, items_list) -> bool:
     keys = order.keys()
-    await firebase.put(
+    # `_write` orqali: Firebase hozir javob bermasa yozuv NAVBATGA tushadi va
+    # keyin yuboriladi. Ilgari `firebase.put` to'g'ridan chaqirilardi — token
+    # vaqtincha olinmagan bo'lsa buyurtma nusxasi butunlay yo'qolardi.
+    return await _write(
         f"orders/{order['id']}",
         {
             "id": order["id"],
@@ -651,6 +709,7 @@ async def _put_order(order, items_list) -> None:
             ],
             "createdAt": int(time.time() * 1000),
         },
+        method="put",
     )
 
 

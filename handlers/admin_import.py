@@ -29,20 +29,39 @@ Jarayon:
 import asyncio
 import io
 import logging
-import os
-import tempfile
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import aiohttp
-import pandas as pd
 from aiogram import Router, F
-from aiogram.types import Message, BufferedInputFile
+from aiogram.types import Message
 from aiogram.filters import Command
 
 from config import config, is_admin
-from services import firebase_products as fb_prod
+from services import firebase, firebase_products as fb_prod
 from services import sync
+
+if TYPE_CHECKING:  # faqat tur ko'rsatkichlari uchun (ishga tushishda yuklanmaydi)
+    import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------
+#  PANDAS "DANGASA" YUKLANADI
+#
+#  `import pandas` ~100 MB xotira oladi va bir necha soniya ketadi. Ilgari u
+#  modul boshida turardi — ya'ni bot HAR ISHGA TUSHGANDA, hatto hech kim
+#  Excel yuklamasa ham, o'sha narx to'lanardi. Render'ning bepul tarifida
+#  bu "sovuq start" ni sezilarli sekinlashtiradi.
+#
+#  Endi pandas faqat haqiqiy import paytida yuklanadi.
+# ---------------------------------------------------------------------
+def _pandas():
+    import pandas as pd
+
+    return pd
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -64,7 +83,7 @@ COLUMN_MAPPINGS = {
 }
 
 
-def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_columns(df: "pd.DataFrame") -> "pd.DataFrame":
     """DataFrame ustunlarini standart nomlarga o'zgartiradi."""
     df.columns = df.columns.str.strip().str.lower()
     
@@ -83,7 +102,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _parse_int(value, default=0) -> int:
     """Qiymatni int ga aylantiradi, xato bo'lsa default."""
-    if pd.isna(value):
+    if _pandas().isna(value):
         return default
     try:
         return int(float(value))
@@ -93,7 +112,7 @@ def _parse_int(value, default=0) -> int:
 
 def _parse_str(value, default=None) -> str | None:
     """Qiymatni str ga aylantiradi, bo'sh bo'lsa default."""
-    if pd.isna(value):
+    if _pandas().isna(value):
         return default
     text = str(value).strip()
     return text if text else default
@@ -103,46 +122,76 @@ async def _download_file(bot, file_id: str) -> bytes:
     """Telegram'dan faylni yuklab oladi."""
     file = await bot.get_file(file_id)
     file_url = f"https://api.telegram.org/file/bot{config.bot_token}/{file.file_path}"
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(file_url) as response:
-            if response.status == 200:
-                return await response.read()
-            raise Exception(f"Faylni yuklab olishda xato: {response.status}")
+
+    # Umumiy sessiya — ilgari har chaqiruvda yangi `ClientSession()` ochilardi
+    # va uning TIMEOUT'i yo'q edi (Telegram javob bermasa cheksiz kutardi).
+    session = await firebase.session()
+    async with session.get(
+        file_url, timeout=aiohttp.ClientTimeout(total=120)
+    ) as response:
+        if response.status == 200:
+            return await response.read()
+        raise RuntimeError(f"Faylni yuklab olishda xato: {response.status}")
+
+
+# =====================================================================
+#  FAYLNI O'QISH ALOHIDA IPDA BAJARILADI
+#
+#  MUAMMO. `pd.read_excel()` va `pd.read_csv()` BLOKLAYDI — ular
+#  tugamaguncha protsess boshqa hech narsa qilmaydi. Bu loyihada esa
+#  bot polling'i, REST API, `/health` va self-ping HAMMASI bitta
+#  event loop'da yashaydi. Ya'ni katta Excel kelsa:
+#
+#     • bot xabarlarga javob bermaydi;
+#     • Mini App API'si javob bermaydi;
+#     • `/health` javob bermaydi → Render xizmatni O'CHIRIB QAYTA
+#       ISHGA TUSHIRADI → SQLite fayli tozalanadi.
+#
+#  To'g'ri usul loyihada allaqachon bor (`services/firebase.py` da
+#  `asyncio.to_thread`), lekin bu yerga qo'llanmagan edi.
+# =====================================================================
+
+
+def _read_excel_blocking(file_bytes: bytes):
+    pd = _pandas()
+    return pd.read_excel(io.BytesIO(file_bytes))
+
+
+def _read_csv_blocking(file_bytes: bytes):
+    pd = _pandas()
+    for encoding in ["utf-8", "cp1251", "latin1"]:
+        try:
+            return pd.read_csv(io.BytesIO(file_bytes), encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError("csv", b"", 0, 1, "encoding aniqlanmadi")
 
 
 async def _process_excel(file_bytes: bytes, batch_id: str) -> dict:
     """Excel faylni qayta ishlaydi va mahsulotlarni qo'shadi."""
     try:
-        # Excel'ni o'qish
-        df = pd.read_excel(io.BytesIO(file_bytes))
+        df = await asyncio.to_thread(_read_excel_blocking, file_bytes)
     except Exception as e:
         logger.error("Excel o'qilmadi: %s", e)
         return {"success": False, "error": f"Excel o'qilmadi: {e}"}
-    
+
     return await _process_dataframe(df, batch_id)
 
 
 async def _process_csv(file_bytes: bytes, batch_id: str) -> dict:
     """CSV faylni qayta ishlaydi va mahsulotlarni qo'shadi."""
     try:
-        # Turli encodinglarni sinab ko'rish
-        for encoding in ["utf-8", "cp1251", "latin1"]:
-            try:
-                df = pd.read_csv(io.BytesIO(file_bytes), encoding=encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            return {"success": False, "error": "CSV encoding aniqlanmadi"}
+        df = await asyncio.to_thread(_read_csv_blocking, file_bytes)
+    except UnicodeDecodeError:
+        return {"success": False, "error": "CSV encoding aniqlanmadi"}
     except Exception as e:
         logger.error("CSV o'qilmadi: %s", e)
         return {"success": False, "error": f"CSV o'qilmadi: {e}"}
-    
+
     return await _process_dataframe(df, batch_id)
 
 
-async def _process_dataframe(df: pd.DataFrame, batch_id: str) -> dict:
+async def _process_dataframe(df: "pd.DataFrame", batch_id: str) -> dict:
     """DataFrame'ni tahlil qilib mahsulotlarni Firebase'ga qo'shadi."""
     if df.empty:
         return {"success": False, "error": "Fayl bo'sh"}
@@ -339,7 +388,7 @@ async def list_draft_products(message: Message):
             batches[batch_id] = []
         batches[batch_id].append(product)
     
-    text = f"📦 <b>Qoralama mahsulotlar</b>\n\n"
+    text = "📦 <b>Qoralama mahsulotlar</b>\n\n"
     text += f"Jami: {len(drafts)} ta\n"
     text += f"Guruhlar: {len(batches)}\n\n"
     

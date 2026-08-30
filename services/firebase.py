@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import urllib.parse
+from datetime import UTC, datetime
 
 import aiohttp
 
@@ -41,6 +42,18 @@ SCOPES = [
 _creds = None
 _warned = False
 _session: aiohttp.ClientSession | None = None
+
+# Token yangilashni bir vaqtda bitta coroutine bajaradi.
+#
+# Ilgari `refresh_token()` uch joydan (ishga tushish, `token_refresher()`,
+# `/firebase` buyrug'i) bir vaqtda chaqirilishi mumkin edi. `_refresh_blocking`
+# esa modul global o'zgaruvchilarini BOSHQA ipdan o'zgartiradi — ya'ni ikki
+# yangilash bir-birining `_creds` ini yarim holatda ko'rishi mumkin edi.
+_refresh_lock = asyncio.Lock()
+
+# Token muddati tugashiga shu soniya qolganda "eskirgan" deb hisoblanadi.
+# Tarmoq kechikishi va soat farqini qoplaydi.
+_TOKEN_SKEW_SECONDS = 120
 
 # Oxirgi muvaffaqiyatsizlik sababi (adminga ko'rsatiladi). Loglarga qarash
 # shart bo'lmasin — nima xato ekani bevosita aytiladi.
@@ -181,16 +194,74 @@ def _refresh_blocking() -> str | None:
 
 
 async def refresh_token() -> str | None:
+    """Tokenni yangilaydi. Bir vaqtda faqat bitta yangilash ketadi."""
+    async with _refresh_lock:
+        # Qulfni kutib turgan paytda boshqa chaqiruv allaqachon yangilagan
+        # bo'lishi mumkin — bunda qaytadan so'rov yubormaymiz.
+        current = token()
+        if current is not None:
+            return current
+        try:
+            return await asyncio.to_thread(_refresh_blocking)
+        except Exception as error:
+            logger.error("Firebase token yangilashda xato: %s", error)
+            return None
+
+
+def _token_expired() -> bool:
+    """Keshlangan token muddati tugagan (yoki tugayotgan) bo'lsa True."""
+    if _creds is None:
+        return True
+    if getattr(_creds, "token", None) is None:
+        return True
+
+    # `google-auth` o'zi ham `expired` bayrog'ini beradi; u bo'lmasa
+    # `expiry` maydonidan hisoblaymiz.
+    if getattr(_creds, "expired", False):
+        return True
+
+    expiry = getattr(_creds, "expiry", None)
+    if expiry is None:
+        # Muddat ma'lum emas — ishonamiz (google-auth odatda to'ldiradi)
+        return False
     try:
-        return await asyncio.to_thread(_refresh_blocking)
-    except Exception as error:
-        logger.error("Firebase token yangilashda xato: %s", error)
-        return None
+        # `google-auth` `expiry` ni NAIVE UTC sifatida saqlaydi, lekin
+        # versiyaga qarab tzinfo bo'lishi ham mumkin — ikkisini ham qo'llaymiz.
+        now_utc = datetime.now(UTC)
+        if expiry.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=None)
+        remaining = (expiry - now_utc).total_seconds()
+    except Exception:  # noqa: BLE001 — muddat o'qilmasa tokenni yaroqli deb bilamiz
+        return False
+    return remaining <= _TOKEN_SKEW_SECONDS
 
 
 def token() -> str | None:
-    """Keshlangan token (bloklamaydi)."""
-    return getattr(_creds, "token", None) if _creds is not None else None
+    """Keshlangan token (bloklamaydi). Muddati o'tgan bo'lsa None.
+
+    DIQQAT — ILGARI SHU YERDA XATO BOR EDI. Funksiya `_creds.token` ni
+    MUDDATNI TEKSHIRMASDAN qaytarardi. Ya'ni muddati o'tgan token ham
+    `None` emas edi va `is_enabled()` «Firebase ulangan» deb turardi.
+    Natijada:
+      • har bir yozuv 401 bilan qaytardi;
+      • `push_status` va `firebase_products` xatoni jimgina yutardi;
+      • token faqat 30 daqiqalik fon vazifasida yangilanardi —
+        ya'ni YARIM SOATLIK ma'lumot yo'qolishi mumkin edi.
+
+    Endi muddati tugagan token `None` deb qaytadi: `_write()` yozuvni
+    navbatga qo'yadi va `retry_worker()` token yangilangach yuboradi.
+    """
+    if _token_expired():
+        return None
+    return _creds.token
+
+
+async def ensure_token() -> str | None:
+    """Token yaroqli bo'lishini KAFOLATLAYDI (kerak bo'lsa yangilaydi)."""
+    current = token()
+    if current is not None:
+        return current
+    return await refresh_token()
 
 
 async def token_refresher() -> None:
@@ -225,16 +296,32 @@ async def close() -> None:
 
 
 def _url(path: str, params: dict | None = None) -> str:
+    """RTDB REST manzili.
+
+    DIQQAT: token bu yerga QO'SHILMAYDI. Ilgari `?access_token=...` sifatida
+    qo'shilardi — natijada:
+      • token Google'ning kirish loglariga tushardi;
+      • aiohttp xato matnida to'liq manzilni ko'rsatadi, ya'ni xato log'ga
+        yozilganda token ham yozilib qolardi.
+    Endi u `auth_headers()` orqali `Authorization: Bearer` sarlavhasida ketadi.
+    """
     root = config.firebase_root.strip("/")
     full = f"{root}/{path.strip('/')}" if root else path.strip("/")
     url = f"{config.firebase_db_url.rstrip('/')}/{full}.json"
-    query = {}
+    return url + ("?" + urllib.parse.urlencode(params) if params else "")
+
+
+def auth_headers(extra: dict | None = None) -> dict:
+    """RTDB so'rovlari uchun avtorizatsiya sarlavhalari.
+
+    Token bo'lmasa bo'sh lug'at qaytadi — so'rov autentifikatsiyasiz ketadi
+    va Firebase qoidalari qaror qiladi (ommaviy tugunlar o'qiladi).
+    """
+    headers = dict(extra or {})
     access = token()
     if access:
-        query["access_token"] = access
-    if params:
-        query.update(params)
-    return url + ("?" + urllib.parse.urlencode(query) if query else "")
+        headers["Authorization"] = f"Bearer {access}"
+    return headers
 
 
 def url(path: str, params: dict | None = None) -> str:
@@ -261,7 +348,7 @@ async def get(path: str, params: dict | None = None):
         return None
     try:
         session = await _get_session()
-        async with session.get(_url(path, params)) as response:
+        async with session.get(_url(path, params), headers=auth_headers()) as response:
             if response.status != 200:
                 logger.warning("Firebase GET %s -> %s", path, response.status)
                 return None
@@ -276,7 +363,9 @@ async def _write(method: str, path: str, data) -> bool:
         return False
     try:
         session = await _get_session()
-        async with session.request(method, _url(path), json=data) as response:
+        async with session.request(
+            method, _url(path), json=data, headers=auth_headers()
+        ) as response:
             if response.status >= 300:
                 body = (await response.text())[:180]
                 logger.warning("Firebase %s %s -> %s %s", method, path, response.status, body)

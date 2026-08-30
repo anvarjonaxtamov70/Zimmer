@@ -36,8 +36,48 @@ FALLBACK_NAME = "Mijoz"
 _pushed: dict[int, tuple[str, float]] = {}
 _PUSH_INTERVAL = 6 * 3600  # imzo o'zgarmasa ham 6 soatda bir yangilanadi
 
-# Bulutda topilmagan ID'lar — har xabarda qayta so'ramaslik uchun
-_cloud_missing: set[int] = set()
+# Bulutda topilmagan ID'lar — har xabarda qayta so'ramaslik uchun.
+#
+# DIQQAT: bu kesh VAQTINCHALIK. Ilgari u oddiy `set` edi va ID bir marta
+# tushsa protsess to'xtamaguncha CHIQMASDI. Natijada ikki muammo bor edi:
+#
+#   1. Mijoz keyinchalik bulutda paydo bo'lsa (masalan boshqa qurilmadan
+#      ro'yxatdan o'tsa yoki `push_all_users` ishlasa) — u HECH QACHON
+#      tiklanmasdi, chunki ID "bulutda yo'q" deb belgilangan edi.
+#   2. To'plam cheksiz o'sardi.
+#
+# Endi har bir ID muddat bilan saqlanadi va muddati o'tgach qayta
+# so'raladi. Chegara ham bor.
+_cloud_missing: dict[int, float] = {}
+_MISSING_TTL = 30 * 60
+_MISSING_LIMIT = 2000
+
+
+def _is_cloud_missing(user_id: int) -> bool:
+    """Shu ID yaqinda bulutda topilmaganmi (ya'ni qayta so'ramaymizmi)?"""
+    at = _cloud_missing.get(user_id)
+    if at is None:
+        return False
+    if time.time() - at >= _MISSING_TTL:
+        _cloud_missing.pop(user_id, None)
+        return False
+    return True
+
+
+def _mark_cloud_missing(user_id: int) -> None:
+    now = time.time()
+    _cloud_missing[user_id] = now
+    if len(_cloud_missing) <= _MISSING_LIMIT:
+        return
+    # Muddati o'tganlarni tozalaymiz, kamlik qilsa eng eskilarini
+    for key, at in list(_cloud_missing.items()):
+        if now - at >= _MISSING_TTL:
+            _cloud_missing.pop(key, None)
+    if len(_cloud_missing) > _MISSING_LIMIT:
+        for key, _ in sorted(_cloud_missing.items(), key=lambda item: item[1])[
+            : len(_cloud_missing) - _MISSING_LIMIT
+        ]:
+            _cloud_missing.pop(key, None)
 
 
 def display_name(first_name: str | None, last_name: str | None = None) -> str:
@@ -54,12 +94,12 @@ def _signature(row) -> str:
 
 async def restore_from_cloud(user_id: int) -> bool:
     """Firebase'dan bitta mijozni mahalliy bazaga qaytaradi."""
-    if user_id in _cloud_missing:
+    if _is_cloud_missing(user_id):
         return False
 
     profile = await sync.fetch_user(user_id)
     if not profile:
-        _cloud_missing.add(user_id)
+        _mark_cloud_missing(user_id)
         return False
 
     name = profile.get("name") or FALLBACK_NAME
@@ -127,7 +167,7 @@ async def remember(
         cached_signature, pushed_at = _pushed.get(user_id, ("", 0.0))
         if signature != cached_signature or time.time() - pushed_at > _PUSH_INTERVAL:
             _pushed[user_id] = (signature, time.time())
-            _cloud_missing.discard(user_id)
+            _cloud_missing.pop(user_id, None)
             await push_profile(user_id)
 
     return row
@@ -136,4 +176,4 @@ async def remember(
 def forget_cache(user_id: int) -> None:
     """Profil o'zgargandan keyin keshni tozalaydi (keyingi push kafolatlanadi)."""
     _pushed.pop(user_id, None)
-    _cloud_missing.discard(user_id)
+    _cloud_missing.pop(user_id, None)

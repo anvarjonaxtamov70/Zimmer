@@ -542,6 +542,22 @@ async def cmd_firebase(message: Message, state: FSMContext) -> None:
         pushed = await sync.push_all_catalog()
         total_pushed = sum(pushed.values())
         pushed_users = await sync.push_all_users()
+        # Ochiq bandlik jadvali (`slots`) — Mini App bo'sh vaqtni shundan
+        # o'qiydi. Bo'sh qolsa hamma vaqt bo'sh ko'rinadi.
+        slots = await sync.push_all_booking_slots()
+        # Navbatda turgan va YO'QOLGAN yozuvlar. Ilgari bu ma'lumot hech
+        # qayerda ko'rinmasdi — buyurtma bulutga tushmagani bilinmasdi.
+        await sync.flush_pending()
+        queue_line = (
+            f"\n⏳ Navbatda: {sync.pending_count()} yozuv"
+            if sync.pending_count()
+            else ""
+        )
+        dropped_line = (
+            f"\n❗️ <b>Yo'qolgan yozuv: {sync.dropped_count()} ta</b>"
+            if sync.dropped_count()
+            else ""
+        )
         await status.edit_text(
             "✅ <b>Firebase ulangan.</b>\n\n"
             "Mijozlar, katalog va buyurtmalar tarixi doimiy saqlanadi — "
@@ -554,8 +570,9 @@ async def cmd_firebase(message: Message, state: FSMContext) -> None:
             f"📦 Do'kon buyurtmalari: {history.get('orders', 0)} ta\n"
             f"🗓 Navbatlar: {history.get('bookings', 0)} ta\n\n"
             f"<b>Bulutga yuklandi:</b> {total_pushed} katalog yozuvi, "
-            f"{pushed_users} mijoz\n"
-            f"<i>{', '.join(f'{k}={v}' for k, v in pushed.items()) or 'bo‘sh'}</i>\n\n"
+            f"{pushed_users} mijoz, {slots} bandlik belgisi\n"
+            f"<i>{', '.join(f'{k}={v}' for k, v in pushed.items()) or 'bo‘sh'}</i>"
+            f"{queue_line}{dropped_line}\n\n"
             "Shu tufayli Render o'chganda ham ilovada do'kon ko'rinadi.\n\n"
             "<i>0 bo'lsa — hammasi allaqachon bazada bor, demak yo'qolmagan.</i>"
         )

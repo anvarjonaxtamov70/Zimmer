@@ -26,6 +26,7 @@ Rasm/video yuklash:
   Ya'ni Telegram o'zi bepul va ishonchli "fayl ombori" bo'lib qoladi.
 """
 
+import asyncio
 import json
 import logging
 
@@ -54,6 +55,34 @@ LIST_LIMIT = 200
 
 
 # ------------------------------------------------------------------ yordamchilar
+
+
+def db_error_text(error: Exception) -> str:
+    """Baza xatosini ODAM TUSHUNADIGAN matnga o'giradi.
+
+    Ilgari xato matni `f"Qo'shilmadi: {error}"` ko'rinishida to'g'ridan
+    qaytarilardi — ya'ni javobda SQLite'ning ichki matni (jadval nomi,
+    ustun nomi, cheklov nomi) ko'rinardi. Bu bazaning tuzilishini oshkor
+    qiladi va foydalanuvchiga hech narsa tushuntirmaydi.
+
+    To'liq tafsilot log'ga yoziladi (chaqiruvchi `logger.exception` qiladi),
+    javobda esa faqat sabab turi qoladi.
+    """
+    text = str(error).lower()
+
+    if "unique" in text:
+        return "Bunday yozuv allaqachon bor"
+    if "not null" in text:
+        return "Majburiy maydon to'ldirilmagan"
+    if "foreign key" in text:
+        return "Bog'langan yozuv topilmadi (kategoriya yoki mashina)"
+    if "no such column" in text or "no such table" in text:
+        return "Baza tuzilishi mos kelmadi — administratorga xabar bering"
+    if "datatype" in text or "type" in text:
+        return "Qiymat turi mos kelmadi"
+    if "locked" in text or "busy" in text:
+        return "Baza band — bir necha soniyadan keyin qayta urinib ko'ring"
+    return "Saqlanmadi — kiritilgan qiymatlarni tekshirib ko'ring"
 
 
 async def _admin_id(request: web.Request) -> int:
@@ -462,8 +491,8 @@ async def section_create(request: web.Request) -> web.Response:
     try:
         row_id = await q.admin_insert(entity.table, values)
     except Exception as error:
-        logger.warning("«%s» ga qo'shishda xato: %s", entity.table, error)
-        raise bad_request(f"Qo'shilmadi: {error}") from error
+        logger.exception("«%s» ga qo'shishda xato", entity.table)
+        raise bad_request(f"Qo'shilmadi. {db_error_text(error)}") from error
 
     row = await q.admin_get(entity.table, row_id)
     # Bulutga yozamiz — qayta deployda yo'qolmasin
@@ -595,7 +624,12 @@ async def section_media_upload(request: web.Request) -> web.Response:
         raise bad_request("Fayl tanlanmadi")
 
     limit = MAX_VIDEO_BYTES if kind == "video" else MAX_PHOTO_BYTES
-    data = upload.file.read(limit + 1)
+    # DIQQAT: `upload.file.read()` BLOKLAYDI. Video uchun chegara 45 MB —
+    # ya'ni shu qator ishlayotgan payt bot polling'i, Mini App API'si va
+    # `/health` HAMMASI to'xtab turardi (hammasi bitta event loop'da).
+    # `/health` javob bermasa Render xizmatni qayta ishga tushiradi va
+    # SQLite fayli tozalanadi. Shuning uchun alohida ipda o'qiymiz.
+    data = await asyncio.to_thread(upload.file.read, limit + 1)
     if not data:
         raise bad_request("Fayl bo'sh")
     if len(data) > limit:
@@ -970,7 +1004,7 @@ async def admin_inventory_stock(request: web.Request) -> web.Response:
             await q.admin_update("products", row_id, column, value)
     except Exception as error:
         logger.exception("Qoldiq saqlanmadi (#%s)", row_id)
-        raise bad_request(f"Saqlanmadi: {error}") from error
+        raise bad_request(db_error_text(error)) from error
 
     await sync.push_catalog("products", row_id)
 
@@ -1073,7 +1107,7 @@ async def admin_create_product(request: web.Request) -> web.Response:
         row_id = await q.admin_insert("products", values)
     except Exception as error:
         logger.exception("Tovar qo'shilmadi (values=%s)", values)
-        raise bad_request(f"Qo'shilmadi: {error}") from error
+        raise bad_request(f"Qo'shilmadi. {db_error_text(error)}") from error
 
     # Bulutga yozish — nosozlik bo'lsa ham tovar allaqachon saqlangan
     await sync.push_catalog("products", row_id)
@@ -1083,7 +1117,10 @@ async def admin_create_product(request: web.Request) -> web.Response:
         item = _inventory_item(row)
     except Exception as error:
         logger.exception("Tovar #%s o'qilmadi", row_id)
-        raise bad_request(f"Tovar qo'shildi (#{row_id}), lekin o'qilmadi: {error}") from error
+        raise bad_request(
+            f"Tovar qo'shildi (#{row_id}), lekin ro'yxatda ko'rinmadi. "
+            "Ombor bo'limini yangilang."
+        ) from error
 
     logger.info("Admin %s yangi tovar qo'shdi: #%s «%s»", admin_id, row_id, name)
     return web.json_response({"ok": True, "item": item}, status=201)

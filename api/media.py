@@ -9,6 +9,7 @@ yuklanmaydi, `Range` so'rovlari ham qo'llab-quvvatlanadi — shuning uchun
 video ilova ichida normal ko'rinadi va telefonni qizdirmaydi.
 """
 
+import asyncio
 import logging
 import time
 
@@ -41,8 +42,29 @@ CONTENT_TYPES = {
 CACHE = "public, max-age=86400"
 
 # file_id -> (file_path, vaqt). Telegram yo'llari ~1 soat amal qiladi.
+#
+# DIQQAT: kesh CHEGARALANGAN. Ilgari u cheksiz o'sardi — har bir yangi
+# rasm/video uchun yozuv qo'shilar, hech qachon tozalanmasdi. Render'ning
+# bepul tarifida xotira 512 MB, ya'ni uzoq ishlagan protsess sekin-asta
+# to'lib borardi.
 _paths: dict[str, tuple[str, float]] = {}
 _PATH_TTL = 30 * 60
+_PATHS_LIMIT = 500
+
+
+def _prune_paths(now: float) -> None:
+    """Muddati o'tgan yozuvlarni tozalaydi, hali ham katta bo'lsa eskilarini."""
+    expired = [key for key, (_, at) in _paths.items() if now - at >= _PATH_TTL]
+    for key in expired:
+        _paths.pop(key, None)
+
+    if len(_paths) <= _PATHS_LIMIT:
+        return
+    # Eng eski yozuvlardan boshlab chegaraga tushiramiz
+    for key, _ in sorted(_paths.items(), key=lambda item: item[1][1])[
+        : len(_paths) - _PATHS_LIMIT
+    ]:
+        _paths.pop(key, None)
 
 
 def media_url(table: str, row, kind: str = "photo") -> tuple[str | None, bool]:
@@ -81,6 +103,7 @@ async def _file_path(bot, file_id: str) -> str | None:
     if not info or not info.file_path:
         return None
     _paths[file_id] = (info.file_path, now)
+    _prune_paths(now)
     return info.file_path
 
 
@@ -136,11 +159,36 @@ async def handle_media(request: web.Request) -> web.StreamResponse:
 
             response = web.StreamResponse(status=upstream.status, headers=out_headers)
             await response.prepare(request)
-            async for chunk in upstream.content.iter_chunked(64 * 1024):
-                await response.write(chunk)
-            await response.write_eof()
+
+            # ==========================================================
+            #  SARLAVHALAR YUBORILGANDAN KEYINGI XATO — ALOHIDA HOLAT
+            #
+            #  `prepare()` dan keyin javob sarlavhalari mijozga ALLAQACHON
+            #  ketgan. Shu paytdan boshlab `raise not_found(...)` qilish
+            #  MUMKIN EMAS: middleware yangi JSON javob yasashga urinadi,
+            #  lekin sarlavhalarni qayta yozib bo'lmaydi va natijada
+            #  ulanish 500 yoki "connection reset" bilan uziladi.
+            #
+            #  To'g'ri yo'l: uzatishni shunchaki TO'XTATISH. Brauzer buni
+            #  chala yuklangan rasm deb qabul qiladi va `onerror` ishlaydi
+            #  (Mini App'da zaxira belgisi ko'rsatiladi).
+            # ==========================================================
+            try:
+                async for chunk in upstream.content.iter_chunked(64 * 1024):
+                    await response.write(chunk)
+                await response.write_eof()
+            except (ConnectionResetError, asyncio.CancelledError):
+                # Mijoz o'zi uzdi (sahifadan chiqdi) — bu xato emas
+                raise
+            except Exception as error:
+                logger.warning(
+                    "Media uzatish yarmida uzildi (%s/%s/%s): %s", table, row_id, kind, error
+                )
             return response
     except web.HTTPException:
+        # Yo'naltirish (302) va boshqa HTTP holatlari — o'zgarishsiz o'tadi
+        raise
+    except asyncio.CancelledError:
         raise
     except Exception as error:
         logger.warning("Media uzatishda xato: %s", error)

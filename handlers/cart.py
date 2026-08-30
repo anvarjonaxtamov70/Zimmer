@@ -251,6 +251,48 @@ async def checkout_payment(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+# ==============================================================
+#  TO'LOV VA TASDIQ QADAMLARIDA MATN YOZILSA
+#
+#  MUAMMO. Bu ikki qadamda FAQAT tugma (callback) handleri bor edi.
+#  `handlers/fallback.py` esa `StateFilter(None)` bilan cheklangan —
+#  ya'ni FSM holati bor foydalanuvchiga javob bermaydi.
+#
+#  Natijada mijoz "to'lov usulini tanlang" oynasida matn yozsa
+#  BOTDAN HECH QANDAY JAVOB OLMASDI. U bot qotib qolgan deb o'ylardi
+#  va chiqish yo'lini topa olmasdi (faqat /start yordam berardi).
+#
+#  Endi yo'l ko'rsatiladi va bekor qilish imkoni beriladi.
+# ==============================================================
+
+
+@router.message(Checkout.payment, F.text)
+async def checkout_payment_text(message: Message, state: FSMContext) -> None:
+    if message.text.strip() == BTN_CANCEL:
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=main_menu(message.from_user.id))
+        return
+    data = await state.get_data()
+    await message.answer(
+        "💳 To'lov usulini <b>yuqoridagi tugmalardan</b> tanlang.\n\n"
+        "Bekor qilish uchun /start yuboring.",
+        reply_markup=payment_method_kb(is_courier=data.get("delivery_method") == "courier"),
+    )
+
+
+@router.message(Checkout.confirm, F.text)
+async def checkout_confirm_text(message: Message, state: FSMContext) -> None:
+    if message.text.strip() == BTN_CANCEL:
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=main_menu(message.from_user.id))
+        return
+    await message.answer(
+        "🧾 Buyurtmani tasdiqlash uchun <b>yuqoridagi «✅ Tasdiqlash»</b> "
+        "tugmasini bosing.\n\nBekor qilish uchun /start yuboring.",
+        reply_markup=checkout_confirm_kb(),
+    )
+
+
 # ---- 5-qadam: xulosa va tasdiqlash ----
 
 
