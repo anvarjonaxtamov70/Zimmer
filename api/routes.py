@@ -18,7 +18,7 @@ from keyboards.inline import (
     admin_new_booking_kb,
     admin_new_order_kb,
 )
-from services import identity, orders as order_flow, sync
+from services import identity, orders as order_flow, shogird, sync
 from utils.helpers import (
     available_dates,
     date_label,
@@ -218,6 +218,14 @@ async def api_config(request: web.Request) -> web.Response:
             # «Biz bilan aloqa» dagi qo'ng'iroq tugmasi uchun
             "shop_phone": config.shop_phone,
             "delivery_city": config.delivery_city,
+            # «🎓 Shogird» bo'limi uchun: AI kaliti sozlanganmi.
+            #
+            # NEGA ILOVAGA AYTILADI: kalit yo'q bo'lsa Shogird jim
+            # qolmaydi — o'zining mahalliy bilimiga (tez-tez so'raladigan
+            # savollar + katalog qidiruvi) o'tadi. Buni HAR SAVOLDA
+            # serverdan xato kutib bilish sekin bo'lardi, shuning uchun
+            # holat boshida bir marta olinadi.
+            "ai_enabled": config.ai_enabled,
         }
     )
 
@@ -677,6 +685,67 @@ def _service_json(svc) -> dict:
         "video_external": video_external,
         "has_video": bool(video_url),
     }
+
+
+# ------------------------------------------------------------------ shogird
+
+
+@routes.post("/api/shogird")
+async def api_shogird(request: web.Request) -> web.Response:
+    """«🎓 Shogird» — ilova ichidagi yordamchiga savol.
+
+    TELEFON TALAB QILINMAYDI. Savol berish — ma'lumot olish, ya'ni
+    ro'yxatdan o'tishga majburlash mijozni faqat quvib yuborardi.
+
+    XATO 200 BILAN QAYTADI. Ilova javobni HAR HOLDA ko'rsatishi kerak:
+    AI kaliti yo'q bo'lsa yoki Groq javob bermasa, u o'zining mahalliy
+    bilimiga o'tadi (`reason` shuning uchun yuboriladi). Agar bu yerda
+    500 qaytsa, ilovaning umumiy xato ishlovchisi shunchaki qizil
+    xabar chiqarib, suhbat uzilib qolardi.
+
+    Chegaralar (bepul Groq tarifi tez tugaydi):
+      * bir foydalanuvchida bir vaqtda BITTA so'rov;
+      * ketma-ket so'rovlar orasida `COOLDOWN_SECONDS` kutish.
+    Ikkisi ham 429 bilan qaytadi — ilova tugmani bloklab turadi,
+    shuning uchun bu holat kamdan-kam uchraydi.
+    """
+    user_id, tg_user, row = await _current_user(request)
+    body = await _json_body(request)
+
+    question = str(body.get("text") or "").strip()
+    if not question:
+        raise bad_request("Savol matni bo'sh")
+    if len(question) > shogird.MAX_QUESTION_LEN:
+        raise bad_request(
+            f"Savol juda uzun — {shogird.MAX_QUESTION_LEN} belgidan oshmasin."
+        )
+
+    if shogird.busy(user_id):
+        raise ApiError(429, "busy", "Oldingi savolga javob tayyorlanmoqda…")
+    left = shogird.cooldown_left(user_id)
+    if left > 0:
+        raise ApiError(
+            429,
+            "too_fast",
+            f"Bir oz sekinroq — {left:.0f} soniyadan keyin yozing.",
+        )
+
+    name = (row["full_name"] or tg_user.get("first_name") or "").split(" ")[0]
+    reply = await shogird.answer(user_id, name, question)
+    return web.json_response(reply.as_json())
+
+
+@routes.post("/api/shogird/reset")
+async def api_shogird_reset(request: web.Request) -> web.Response:
+    """Suhbatni boshidan boshlaydi («↻ Yangi suhbat»).
+
+    Xotira serverda (bazada emas), shuning uchun bu — bitta lug'atdan
+    yozuvni olib tashlash. Mijoz mavzuni butunlay o'zgartirganda kerak:
+    eski tarix qolsa model oldingi mashina yoki muammoga qaytib ketardi.
+    """
+    user_id, _, _ = await _current_user(request)
+    shogird.reset(user_id)
+    return web.json_response({"ok": True})
 
 
 @routes.get("/api/music")
