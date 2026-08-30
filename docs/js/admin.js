@@ -41,6 +41,9 @@ window.ZimmerAdmin = (function () {
     schema: null, // /api/admin/schema natijasi
     sections: {}, // key -> bo'lim tavsifi
     view: "menu", // menu | stats | orders | catalog | list | form
+    /* Bitta bo'lim ZimmerShop menyusidan ochilgan bo'lsa — shu bo'lim
+       kaliti (masalan "srv"). Aks holda `null`. Batafsil: `openEmbedded`. */
+    embed: null,
     key: null, // joriy bo'lim
     item: null, // tahrirlanayotgan element
     statKind: "products",
@@ -1688,9 +1691,61 @@ window.ZimmerAdmin = (function () {
      ==================================================================== */
 
   function open() {
+    S.embed = null; // to'liq panel ochildi — «qarzga berish» rejimi tugadi
     if (S.view === "inventory") return openInventory();
     if (S.view === "list" && S.key) return openList(S.key);
     return openMenu();
+  }
+
+  /* ====================================================================
+     BITTA BO'LIMNI BOSHQA PANELGA «QARZGA BERISH» (embed)
+
+     ZimmerShop — asosiy panel (`app.js` aynan uni ochadi). ZimmerAdmin
+     esa universal CRUD: ro'yxat, forma, maydon turlari, media yuklash —
+     hammasi tayyor va sinovdan o'tgan.
+   
+     Masalan «Xizmatlar» bo'limi ZimmerShop menyusida YO'Q edi va shu
+     sababli admin xizmat narxini Mini App'dan o'zgartira olmasdi (faqat
+     Telegram boti orqali). Bu yerdagi tayyor `srv` ro'yxatini ZimmerShop
+     menyusidan chaqiramiz — bir xil forma IKKI JOYDA yozilmasin, aks
+     holda maydon qo'shilganda biri yangilanib, ikkinchisi eskirib
+     qolardi.
+
+     `S.embed` — shu rejim yoqilganini bildiradi. U yoqilganda ro'yxatdan
+     «orqaga» ZimmerAdmin menyusiga EMAS, ZimmerShop menyusiga qaytadi.
+     ==================================================================== */
+
+  /** Bitta bo'limni ZimmerShop ichida ochadi. */
+  function openEmbedded(key) {
+    if (!key) return;
+    S.embed = key;
+    return openList(key);
+  }
+
+  /** ZimmerShop uchun: shu panel hozir ekranni egallab turganmi. */
+  function embedActive() {
+    return !!S.embed;
+  }
+
+  /** ZimmerShop uchun: rejimni o'chirish (ekranni qaytarish). */
+  function embedClose() {
+    S.embed = null;
+  }
+
+  /** ZimmerShop uchun: bir qadam orqaga. `false` — ZimmerShop menyusiga. */
+  function embedBack() {
+    if (S.view === "form" && S.key) {
+      openList(S.key);
+      return true;
+    }
+    return false;
+  }
+
+  /** ZimmerShop uchun: joriy ko'rinishni qayta o'qish. */
+  function embedReload() {
+    if (S.view === "form" && S.key) return openForm(S.key, S.item && S.item.id);
+    S.schema = null; // bo'lim tavsifi ham yangilansin
+    return openList(S.embed);
   }
 
   /** Panel ichida bir qadam orqaga. true — panel o'zi hal qildi. */
@@ -1771,5 +1826,13 @@ window.ZimmerAdmin = (function () {
     openMenu: openMenu,
     openInventory: openInventory,
     openAddProduct: openAddProduct,
+    /* ZimmerShop menyusidan bitta bo'limni ochish uchun (`openEmbedded`).
+       ZimmerCRM / ZimmerStories bilan BIR XIL shartnoma:
+       isActive / close / back / reload. */
+    openEmbedded: openEmbedded,
+    isActive: embedActive,
+    close: embedClose,
+    embedBack: embedBack,
+    embedReload: embedReload,
   };
 })();

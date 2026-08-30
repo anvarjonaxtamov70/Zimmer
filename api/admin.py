@@ -36,7 +36,7 @@ from aiohttp import web
 from api.auth import extract_init_data, validate_init_data
 from api.errors import bad_request, forbidden, not_found, unauthorized
 from api.media import media_url
-from config import config, is_admin
+from config import config, is_admin, service_video_allowed
 from database import queries as q
 from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
 from services import firebase_storage as fb_storage
@@ -212,6 +212,17 @@ async def _coerce_choice(field: Field, value) -> object:
             return int(raw)
         except ValueError as error:
             raise bad_request(f"«{field.label}» noto'g'ri") from error
+
+    # Barcha variantlar SON bo'lsa (masalan «Tez kunda»: 0 / 1) — songa
+    # o'giramiz. Aks holda INTEGER ustunga matn tushib, keyinchalik
+    # `COALESCE(coming_soon, 0) = 0` kabi solishtirishlar kutilmagan
+    # natija berishi mumkin edi.
+    if allowed and all(str(item["value"]).lstrip("-").isdigit() for item in allowed):
+        try:
+            return int(raw)
+        except ValueError as error:
+            raise bad_request(f"«{field.label}» noto'g'ri") from error
+
     return raw
 
 
@@ -519,6 +530,13 @@ async def section_update(request: web.Request) -> web.Response:
     fields = _fields(entity)
     changed = 0
 
+    # Bitta so'rovda tema va video BIRGA kelishi mumkin. Video cheklovi
+    # YANGI tema bo'yicha tekshirilishi kerak, shuning uchun uni tsikldan
+    # oldin hisoblab olamiz (payload'da bo'lsa — o'sha, aks holda bazadagi).
+    effective_theme = (
+        str(payload["theme"]).strip() if "theme" in payload else _row_theme(row)
+    )
+
     for column, value in payload.items():
         field = fields.get(column)
         if field is None:
@@ -531,6 +549,10 @@ async def section_update(request: web.Request) -> web.Response:
             text = "" if value is None else str(value).strip()
             if text and not text.startswith("http"):
                 raise bad_request(f"«{field.label}» uchun https:// manzil yozing")
+            # Video QO'YILAYOTGAN bo'lsa cheklovni tekshiramiz. Tozalash
+            # (bo'sh qiymat) har doim ruxsat etiladi.
+            if text:
+                _guard_service_video(entity, kind, effective_theme)
             await q.admin_update(entity.table, row_id, f"{kind}_url", text or None)
             await q.admin_update(entity.table, row_id, f"{kind}_id", None)
             changed += 1
@@ -597,6 +619,35 @@ async def section_delete(request: web.Request) -> web.Response:
 # -------------------------------------------------------------- rasm va video
 
 
+def _row_theme(row) -> str | None:
+    keys = row.keys()
+    return row["theme"] if "theme" in keys else None
+
+
+def _guard_service_video(entity: Entity, kind: str, theme: str | None) -> None:
+    """Xizmat videosi FAQAT uchta fara ishiga qo'yiladi.
+
+    Qoida `config.VIDEO_SERVICE_THEMES` da (yagona manba). Tekshiruv IKKI
+    joyda chaqiriladi — fayl yuklashda va URL yozishda — aks holda
+    bittasi orqali chetlab o'tish mumkin bo'lardi.
+
+    Tema bo'yicha tekshiriladi, nom bo'yicha emas: admin xizmat nomini
+    o'zgartirsa ham qoida buzilmaydi.
+
+    `theme` ARGUMENT sifatida keladi, chunki bitta so'rovda tema va video
+    BIRGA o'zgarishi mumkin — bunda YANGI tema bo'yicha qaror qilinadi.
+    """
+    if entity.table != "services" or kind != "video":
+        return
+    if service_video_allowed(theme):
+        return
+    raise bad_request(
+        "Videoni faqat fara xizmatlariga qo'yish mumkin: "
+        "polirovka, ichini tozalash va shisha almashtirish. "
+        "Kerak bo'lsa avval «Dizayn» maydonini shu turlardan biriga o'zgartiring."
+    )
+
+
 @admin_routes.post("/api/admin/section/{key}/{row_id}/media")
 async def section_media_upload(request: web.Request) -> web.Response:
     """Rasm/video yuklash. Fayl Telegram'da saqlanadi, bazaga file_id yoziladi."""
@@ -618,6 +669,9 @@ async def section_media_upload(request: web.Request) -> web.Response:
         raise bad_request("Faqat rasm yoki video")
     if f"{kind}_id" not in q.EDITABLE[entity.table]:
         raise bad_request("Bu bo'limga media qo'yilmaydi")
+
+    row = await q.admin_get(entity.table, row_id)
+    _guard_service_video(entity, kind, _row_theme(row))
 
     upload = form.get("file")
     if upload is None or not hasattr(upload, "file"):

@@ -7022,6 +7022,12 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 /* Menyu plitkasi aksenti */
 .shop-hero-story .shop-hero-ic { color: #c77dff; }
 
+/* Bitta plitka butun qatorni egallaydi. `.shop-hero` doim IKKI ustun
+   bo'lgani uchun yakka tugma yarim kenglikda qolib, yonida bo'sh joy
+   turardi. */
+.shop-hero-1 { grid-template-columns: 1fr; }
+.shop-hero-srv .shop-hero-ic { color: #4dd4c8; }
+
 @media (prefers-reduced-motion: reduce) {
   .st-sum-b, .st-add, .st-card, .st-msg, .st-prev { animation: none; }
   .st-add:active, .st-inbox:active, .st-mini:active,
@@ -7539,6 +7545,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .sv-a-teal   { --sv: #2fd45f;      --sv-soft: rgba(47, 212, 95, 0.10);  --sv-line: rgba(47, 212, 95, 0.26);  --sv-sh: rgba(47, 212, 95, 0.20); }
 .sv-a-amber  { --sv: #ffb020;      --sv-soft: rgba(255, 176, 32, 0.10); --sv-line: rgba(255, 176, 32, 0.28); --sv-sh: rgba(255, 176, 32, 0.20); }
 .sv-a-violet { --sv: #c77dff;      --sv-soft: rgba(199, 125, 255, 0.11); --sv-line: rgba(199, 125, 255, 0.28); --sv-sh: rgba(199, 125, 255, 0.22); }
+/* Yangi yo'nalishlar: laminat, tanirovka, broni plyonka.
+   Har biriga o'z rangi — ro'yxatda bir xil ko'rinmasligi uchun. */
+.sv-a-lime   { --sv: #a3e635;      --sv-soft: rgba(163, 230, 53, 0.10); --sv-line: rgba(163, 230, 53, 0.26); --sv-sh: rgba(163, 230, 53, 0.20); }
+.sv-a-slate  { --sv: #94a3b8;      --sv-soft: rgba(148, 163, 184, 0.10); --sv-line: rgba(148, 163, 184, 0.26); --sv-sh: rgba(148, 163, 184, 0.20); }
+.sv-a-pink   { --sv: #f472b6;      --sv-soft: rgba(244, 114, 182, 0.10); --sv-line: rgba(244, 114, 182, 0.26); --sv-sh: rgba(244, 114, 182, 0.20); }
 
 /* ==========================================================================
    1) PLITKALAR
@@ -7607,6 +7618,33 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .svt-go { flex: none; font-size: 18px; color: var(--dim); line-height: 1; }
+
+/* ---- «Tez kunda» plitkasi ----
+   Xizmat KO'RINADI (mijoz do'kon nima rejalashtirayotganini bilishi
+   kerak), lekin tayyor xizmatlar bilan bir xil «chaqirmasligi» kerak.
+   Shuning uchun rangi bir pog'ona pasaytiriladi va burchagida yorliq
+   turadi — ichiga kirmasdan ham holati tushunarli bo'ladi. */
+.svt.is-soon {
+  border-style: dashed;
+  border-color: var(--sv-line);
+  background: linear-gradient(160deg, var(--sv-soft), rgba(0, 0, 0, 0.26));
+}
+.svt.is-soon .svt-ic { opacity: 0.8; }
+.svt.is-soon .svt-tx b { color: rgba(255, 255, 255, 0.86); }
+/* Narx o'rnidagi «Tez kunda» — raqamdek yorqin bo'lmasin, aks holda
+   mijoz uni narx deb o'qishga urinadi. */
+.svt-price.is-soon {
+  font-size: 11.5px; font-weight: 800; color: var(--muted);
+  letter-spacing: 0;
+}
+.svt-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  padding: 3px 7px; border-radius: 999px;
+  font-size: 9px; font-weight: 900; letter-spacing: 0.3px; text-transform: uppercase;
+  color: var(--sv); background: var(--sv-soft);
+  border: 1px solid var(--sv-line);
+  white-space: nowrap;
+}
 
 @keyframes svtIn {
   from { opacity: 0; transform: translateY(14px) scale(0.96); }
@@ -7709,6 +7747,94 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .sd-fact small { display: block; margin-top: 2px; font-size: 9.5px; color: var(--muted); font-weight: 600; }
 .sd-fact.is-price b { color: var(--sv); }
 .sd-fact.is-war b { color: var(--green); }
+/* «Tez kunda» narx o'rnida — kulrang, chunki bu narx EMAS */
+.sd-fact.is-price.is-soon b { color: var(--muted); font-size: 12.5px; }
+
+/* ==========================================================================
+   «TEZ KUNDA» XIZMAT
+   Xizmat ro'yxatda turadi, lekin narx ham, navbat ham yopiq. Pastdagi
+   tugma butunlay yashiriladi (`.no-cta`) — bosilmaydigan tugma «ilova
+   buzilgan» degan taassurot qoldirardi.
+   ========================================================================== */
+#service.no-cta { padding-bottom: calc(24px + var(--safe-b)); }
+
+.sd-hero.is-soon { border-style: dashed; }
+.sd-soon-tag {
+  position: relative; display: inline-block; margin-bottom: 10px;
+  padding: 4px 11px; border-radius: 999px;
+  font-size: 10px; font-weight: 900; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--sv); background: var(--sv-soft); border: 1px solid var(--sv-line);
+}
+.sd-soon-note {
+  margin-top: 14px; padding: 15px 16px; border-radius: 18px;
+  background: var(--surface); border: 1px dashed var(--line);
+  animation: sdRise 0.44s var(--silk) both;
+  animation-delay: 0.24s;
+}
+.sd-soon-note b { display: block; font-size: 13.5px; font-weight: 800; color: #fff; }
+.sd-soon-note p {
+  margin: 6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.6;
+}
+
+/* ==========================================================================
+   XIZMAT VIDEOSI (faqat uchta fara xizmati)
+   Boshida faqat TUGMA turadi. `<video>` elementi mijoz bosgandan keyin
+   yaratiladi — uzun va sifatli video sahifa ochilishida trafikni
+   yemasligi kerak.
+   ========================================================================== */
+.sd-video {
+  position: relative; overflow: hidden;
+  margin-bottom: 14px; padding: 14px; border-radius: 20px;
+  background: linear-gradient(150deg, var(--sv-soft), rgba(0, 0, 0, 0.28));
+  border: 1px solid var(--sv-line);
+  animation: sdRise 0.44s var(--silk) both;
+  animation-delay: 0.18s;
+}
+.sd-video-open {
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 0; background: none; border: none; color: inherit;
+  text-align: left; cursor: pointer;
+  transition: transform 0.16s var(--silk);
+}
+.sd-video-open:active { transform: scale(0.98); }
+.sd-video-ring {
+  position: relative; flex: none;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sv); box-shadow: 0 6px 20px var(--sv-sh);
+}
+/* Tugma atrofidagi «puls» — videoga e'tibor tortadi, lekin bir joyda
+   turadi (layout qayta hisoblanmaydi: faqat transform + opacity). */
+.sd-video-ring::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  border: 2px solid var(--sv);
+  animation: sdVideoPulse 2.2s var(--silk) infinite;
+}
+@keyframes sdVideoPulse {
+  0%   { opacity: 0.55; transform: scale(1); }
+  70%  { opacity: 0;    transform: scale(1.45); }
+  100% { opacity: 0;    transform: scale(1.45); }
+}
+.sd-video-play {
+  font-size: 15px; line-height: 1; color: #100d0e;
+  margin-left: 2px; /* ▶ belgisi optik markazda turishi uchun */
+}
+.sd-video-tx { min-width: 0; }
+.sd-video-tx b { display: block; font-size: 14px; font-weight: 800; color: #fff; }
+.sd-video-tx i {
+  display: block; margin-top: 3px; font-style: normal;
+  font-size: 11.5px; color: var(--muted); font-weight: 600; line-height: 1.4;
+}
+.sd-video-hint {
+  margin: 10px 0 0; font-size: 10.5px; color: var(--dim); line-height: 1.5;
+}
+.sd-video-hint.is-err { color: var(--red); margin: 0; }
+/* Ochilgandan keyin: ramka video uchun «konteyner» bo'lib qoladi */
+.sd-video.is-open { padding: 0; background: #000; }
+.sd-video-el {
+  display: block; width: 100%; max-height: 62vh;
+  background: #000; border-radius: 19px;
+}
 
 /* ---- temaga xos blok ---- */
 .sd-block {
@@ -7886,10 +8012,13 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 @media (prefers-reduced-motion: reduce) {
   .svt, .svt-skel, .sd-hero, .sd-ic, .sd-fact, .sd-block, .sd-bar,
-  .sv-hero-beam { animation: none; }
+  .sv-hero-beam, .sd-video, .sd-soon-note { animation: none; }
+  /* Video tugmasi atrofidagi puls — cheksiz takrorlanadigan harakat,
+     shu sababli reduced-motion da BUTUNLAY olib tashlanadi. */
+  .sd-video-ring::after { animation: none; display: none; }
   #service.is-in, #service.is-out { animation: none; }
   .sv-ba-col.is-after::after { animation: none; display: none; }
-  .svt:active, .sd-cta:active { transform: none; }
+  .svt:active, .sd-cta:active, .sd-video-open:active { transform: none; }
 }
 
 

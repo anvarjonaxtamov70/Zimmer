@@ -432,41 +432,65 @@ DEMO_COLORS = [
 
 # Xizmatlar. Tartib MUHIM: Mini App shu tartibda ko'rsatadi.
 # name, duration_min, price, warranty, description, theme, sort
+# Xizmatlar. Tuple tartibi:
+#   (nom, davomiyligi_daq, narx, kafolat, tavsif, tema, tartib, tez_kunda)
+#
+# `tez_kunda = 1` bo'lsa: xizmat ro'yxatda KO'RINADI, lekin narx o'rniga
+# «Tez kunda» yoziladi va navbat olinmaydi. Shu tufayli yangi yo'nalishni
+# oldindan e'lon qilish mumkin — mijoz bor ekanini biladi, admin esa narx
+# tayyor bo'lgach bir belgini o'chirib xizmatni ishga tushiradi.
 DEMO_SERVICES = [
     (
         "Bi-LED konfigurator", 0, 0, "1 yil",
         "Mashinangizga mos linzani tanlab, narxni o'zingiz ko'ring.",
-        "config", 1,
+        "config", 1, 0,
     ),
     (
         "Bi-LED o'rnatish (2 fara)", 120, 400_000, "1 yil",
         "Linzani o'rnatish, nur chegarasini sozlash va germetiklash.",
-        "biled", 2,
+        "biled", 2, 0,
     ),
     (
         "Fara polirovkasi", 60, 150_000, "3 oy",
         "Sarg'aygan qatlamni olib tashlab, himoya lak qoplaymiz.",
-        "polish", 3,
+        "polish", 3, 0,
     ),
     (
         "Fara shishasini almashtirish", 90, 250_000, "6 oy",
         "Yorilgan yoki singan shisha o'rniga yangisi qo'yiladi.",
-        "glass", 4,
+        "glass", 4, 0,
     ),
     (
         "Fara ichini tozalash", 45, 120_000, "3 oy",
         "Chang, bug' va namlik to'liq tozalanadi, so'ng germetiklanadi.",
-        "clean", 5,
+        "clean", 5, 0,
+    ),
+    # «tikish» -> «o'rnatish»: ish mohiyati o'rnatish, tikish emas.
+    (
+        "Rul chexol o'rnatish", 90, 200_000, "6 oy",
+        "Rul g'ilofi o'lchov bo'yicha tanlanadi va o'rnatiladi.",
+        "wheel", 6, 0,
     ),
     (
-        "Rul chexol tikish", 90, 200_000, "6 oy",
-        "Rul g'ilofi o'lchov bo'yicha qo'lda tikiladi.",
-        "wheel", 6,
+        "O'rindiq chexol o'rnatish", 240, 700_000, "1 yil",
+        "Barcha o'rindiqlarga o'lchov bo'yicha to'liq chexol o'rnatiladi.",
+        "seat", 7, 0,
+    ),
+    # ---- tez kunda ishga tushadigan yo'nalishlar ----
+    (
+        "Laminat salon", 0, 0, None,
+        "Salon panellariga laminat qoplama. Tez kunda ishga tushadi.",
+        "laminate", 8, 1,
     ),
     (
-        "O'rindiq chexol tikish", 240, 700_000, "1 yil",
-        "Barcha o'rindiqlarga o'lchov bo'yicha to'liq chexol.",
-        "seat", 7,
+        "Tanirovka", 0, 0, None,
+        "Oynalarga plyonka yopishtirish. Tez kunda ishga tushadi.",
+        "tint", 9, 1,
+    ),
+    (
+        "Broni plyonka", 0, 0, None,
+        "Kuzovni chizilishdan saqlovchi himoya plyonka. Tez kunda ishga tushadi.",
+        "armor", 10, 1,
     ),
 ]
 
@@ -689,6 +713,16 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("description", "TEXT"),
         ("theme", "TEXT"),
         ("sort", "INTEGER NOT NULL DEFAULT 0"),
+        # Xizmat haqida VIDEO. Ilgari `services` jadvalida media ustunlari
+        # UMUMAN yo'q edi — ya'ni xizmatga rasm ham, video ham qo'yib
+        # bo'lmasdi. Faqat uchta fara xizmatiga ruxsat beriladi
+        # (`config.VIDEO_SERVICE_THEMES`), lekin ustunlar hammasida turadi:
+        # cheklov MA'LUMOTDA emas, MANTIQDA (shunda qoida bir joyda).
+        *MEDIA_COLUMNS,
+        # «Tez kunda» — xizmat ro'yxatda ko'rinadi, lekin narx ko'rsatilmaydi
+        # va navbat olinmaydi. Yangi yo'nalishlarni oldindan e'lon qilish
+        # uchun: mijoz bor ekanini biladi, admin narx tayyor bo'lgach yoqadi.
+        ("coming_soon", "INTEGER NOT NULL DEFAULT 0"),
     ],
     # Eski bazalarga yetkazib berish/to'lov ustunlarini qo'shamiz.
     "orders": [
@@ -953,15 +987,36 @@ async def _count(table: str) -> int:
 
 # Eski nomlar. Bazada shu nomlardan biri bo'lsa, yangi xizmat TAKRORLANMAYDI
 # (nomi o'zgargan, mohiyati bir xil).
+#
+# DIQQAT — «fara germetizatsiya» ATAYLAB OLIB TASHLANDI.
+# Ilgari u «Fara ichini tozalash» ning taxallusi edi. Natijada bazada
+# faqat «Fara germetizatsiya» bo'lsa, «Fara ichini tozalash» «allaqachon
+# bor» deb hisoblanib QO'SHILMASDI. Endi germetizatsiya alohida xizmat
+# sifatida O'CHIRILADI (`_migrate_services`), tozalash esa qo'shiladi —
+# shuning uchun ular bir-birining taxallusi bo'lmasligi kerak.
 SERVICE_ALIASES: dict[str, tuple[str, ...]] = {
     "Fara polirovkasi": ("fara polirovka / tozalash", "fara polirovka"),
-    "Fara ichini tozalash": ("fara germetizatsiya",),
+    # «tikish» -> «o'rnatish» nomi o'zgardi: eski nom bazada bo'lsa
+    # yangisi TAKRORLANMASLIGI kerak (migratsiya nomini o'zgartiradi).
+    "Rul chexol o'rnatish": ("rul chexol tikish",),
+    "O'rindiq chexol o'rnatish": ("o'rindiq chexol tikish", "orindiq chexol tikish"),
 }
 
 # Nomdan dizayn kalitini taxmin qilish — `docs/js/app.js: themeOf()` bilan
 # bir xil tartibda. Eski yozuvlar ham to'g'ri dizayn olsin.
+#
+# DIQQAT: tartib MUHIM — birinchi mos kelgani olinadi. Masalan
+# «Laminat salon» ichida «salon» ham bor, shuning uchun «laminat»
+# yuqorida turishi kerak.
 _THEME_GUESS: tuple[tuple[str, str], ...] = (
     ("konfigurator", "config"),
+    ("laminat", "laminate"),
+    ("tanirov", "tint"),
+    ("tonirov", "tint"),  # ruscha/lotincha yozilishi ham
+    ("broni", "armor"),
+    ("bronli", "armor"),
+    ("plyonka", "armor"),
+    ("plonka", "armor"),
     ("rul", "wheel"),
     ("rindiq", "seat"),
     ("shisha", "glass"),
@@ -990,15 +1045,15 @@ async def _ensure_services() -> None:
     have = {(row["name"] or "").strip().lower() for row in rows}
     added = 0
 
-    for name, duration, price, warranty, description, theme, sort in DEMO_SERVICES:
+    for name, duration, price, warranty, description, theme, sort, soon in DEMO_SERVICES:
         key = name.strip().lower()
         aliases = {a.lower() for a in SERVICE_ALIASES.get(name, ())}
         if key in have or (aliases & have):
             continue
         await db.execute(
             "INSERT INTO services (name, duration_min, price, warranty, description,"
-            " theme, sort) VALUES (?,?,?,?,?,?,?)",
-            (name, duration, price, warranty, description, theme, sort),
+            " theme, sort, coming_soon) VALUES (?,?,?,?,?,?,?,?)",
+            (name, duration, price, warranty, description, theme, sort, soon),
         )
         added += 1
 
@@ -1024,6 +1079,103 @@ async def _ensure_services() -> None:
     if added or filled:
         await db.commit()
         logger.info("Xizmatlar: %s qo'shildi, %s yozuv to'ldirildi", added, filled)
+
+
+# =============================================================================
+#  XIZMATLAR RO'YXATINI QAYTA TASHKIL QILISH — BIR MARTALIK
+#
+#  NEGA ALOHIDA FUNKSIYA
+#  `_ensure_services()` hech narsani O'ZGARTIRMAYDI — faqat yo'q yozuvni
+#  qo'shadi. Bu to'g'ri xatti-harakat: admin qo'lda yozgan narx yoki tavsif
+#  har ishga tushishda qayta yozilmaydi.
+#
+#  Lekin bu yerda BOSHQA vazifa bor: mavjud yozuvlarni bir marta tuzatish
+#  (nomini o'zgartirish, keraksizini o'chirish, «tez kunda» belgisini
+#  qo'yish). Buni har ishga tushishda qilib bo'lmaydi — aks holda admin
+#  «tez kunda» ni o'chirsa, keyingi restartda u QAYTA YOQILARDI.
+#
+#  Shu sababli `meta` jadvalidagi belgi bilan FAQAT BIR MARTA bajariladi.
+#  Belgi qo'yilgandan keyin ro'yxatni to'liq admin boshqaradi.
+# =============================================================================
+
+_SERVICES_REVISION = "2026-09-services-video"
+
+# Nomi o'zgargan xizmatlar: eski_nom (kichik harflarda) -> yangi nom.
+# «tikish» ish mohiyatini to'g'ri ifodalamaydi — chexol tikilmaydi,
+# o'rnatiladi.
+_SERVICE_RENAMES: dict[str, str] = {
+    "rul chexol tikish": "Rul chexol o'rnatish",
+    "o'rindiq chexol tikish": "O'rindiq chexol o'rnatish",
+    "orindiq chexol tikish": "O'rindiq chexol o'rnatish",
+    "fara chexol tikish": "Chexol o'rnatish",
+}
+
+# Ro'yxatdan olib tashlanadigan (yashiriladigan) xizmatlar.
+# O'CHIRILMAYDI, `is_active = 0` qilinadi: bu xizmatga olingan eski
+# navbatlar bazada qoladi va tarix buzilmaydi (`bookings.service_id`
+# foreign key bilan bog'langan).
+_SERVICE_RETIRE: tuple[str, ...] = ("fara germetizatsiya",)
+
+# «Tez kunda» qilinadigan xizmatlar (narx va navbat vaqtincha yopiladi).
+_SERVICE_COMING_SOON: tuple[str, ...] = (
+    "laminat salon",
+    "tanirovka",
+    "tonirovka",
+    "broni plyonka",
+    "broni plonka",
+    "bronli plyonka",
+)
+
+
+async def _migrate_services() -> None:
+    """Xizmatlar ro'yxatini bir marta yangi talabga keltiradi."""
+    db = get_db()
+    if await _meta_get("services_revision") == _SERVICES_REVISION:
+        return
+
+    async with db.execute("SELECT id, name, coming_soon FROM services") as cur:
+        rows = await cur.fetchall()
+
+    renamed = retired = marked = 0
+
+    for row in rows:
+        key = (row["name"] or "").strip().lower()
+
+        # 1) nomini o'zgartirish
+        new_name = _SERVICE_RENAMES.get(key)
+        if new_name:
+            await db.execute(
+                "UPDATE services SET name = ? WHERE id = ?", (new_name, row["id"])
+            )
+            renamed += 1
+            key = new_name.strip().lower()
+
+        # 2) ro'yxatdan olib tashlash (yashirish)
+        if key in _SERVICE_RETIRE:
+            await db.execute(
+                "UPDATE services SET is_active = 0 WHERE id = ?", (row["id"],)
+            )
+            retired += 1
+            continue
+
+        # 3) «tez kunda» belgisi
+        if key in _SERVICE_COMING_SOON and not row["coming_soon"]:
+            await db.execute(
+                "UPDATE services SET coming_soon = 1 WHERE id = ?", (row["id"],)
+            )
+            marked += 1
+
+    await _meta_set("services_revision", _SERVICES_REVISION)
+    await db.commit()
+
+    if renamed or retired or marked:
+        logger.info(
+            "Xizmatlar yangilandi: %s nomi o'zgardi, %s yashirildi, "
+            "%s «tez kunda» belgilandi",
+            renamed,
+            retired,
+            marked,
+        )
 
 
 async def _ensure_cars() -> None:
@@ -1054,6 +1206,12 @@ async def _ensure_catalog() -> None:
     emas. Bazada nima bo'lsa — shu bilan davom etadi.
     """
     try:
+        # DIQQAT — TARTIB MUHIM.
+        # `_migrate_services()` AVVAL ishlaydi: u eski nomlarni yangisiga
+        # o'giradi («chexol tikish» -> «chexol o'rnatish»). Shundan keyingina
+        # `_ensure_services()` yetishmayotganini qo'shadi — aks holda u eski
+        # nomni ko'rmay, yangi nom bilan DUBLIKAT yaratib qo'yardi.
+        await _migrate_services()
         await _ensure_services()
         await _ensure_cars()
     except Exception as error:  # noqa: BLE001 — to'ldirish ilovani yiqitmasin
@@ -1110,7 +1268,7 @@ async def _seed() -> None:
     )
     await db.executemany(
         "INSERT INTO services (name, duration_min, price, warranty, description,"
-        " theme, sort) VALUES (?,?,?,?,?,?,?)",
+        " theme, sort, coming_soon) VALUES (?,?,?,?,?,?,?,?)",
         DEMO_SERVICES,
     )
     await db.executemany(

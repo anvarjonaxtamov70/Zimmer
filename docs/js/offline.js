@@ -744,23 +744,48 @@
     }
   }
 
+  /* Videoga ruxsat etilgan xizmat temalari — `config.py:
+     VIDEO_SERVICE_THEMES` bilan AYNAN bir xil bo'lishi kerak.
+     Odatda bu qoida faqat serverda turadi va `video_allowed` sifatida
+     yuboriladi; bulut yo'lida esa server YO'Q (Render uxlagan), shuning
+     uchun bu yerda takrorlanishi majburiy. */
+  var VIDEO_SERVICE_THEMES = ["polish", "clean", "glass"];
+
   /** `/api/services` zaxirasi — navbat uchun xizmatlar.
    *  `services` jadvali ham bulutga ko'chiriladi (CATALOG_KEY da bor). */
   async function services() {
     try {
       var list = rows(await readNode("services")).map(function (r) {
+        var soon = !!Number(r.coming_soon);
+        var theme = r.theme || null;
+        var allowed = VIDEO_SERVICE_THEMES.indexOf(String(theme || "").toLowerCase()) !== -1;
+        var video = allowed && /^https?:\/\//i.test(String(r.video_url || ""))
+          ? String(r.video_url)
+          : null;
         return {
           id: r.id,
           name: r.name || "",
           duration_min: Number(r.duration_min) || 0,
-          price: Number(r.price) || 0,
-          price_label: priceLabel(r.price),
+          /* «Tez kunda» xizmatda narx YO'Q (0 emas — yo'q).
+             `0` mijozga «bepul» degan ma'no berib qolishi mumkin edi. */
+          price: soon ? null : Number(r.price) || 0,
+          price_label: soon ? null : priceLabel(r.price),
+          coming_soon: soon,
           /* «Xizmatlar» bo'limi uchun: kafolat, tavsif va kartochka
              dizayni kaliti (`app.js: SERVICE_THEMES`). */
           warranty: r.warranty || null,
           description: r.description || null,
-          theme: r.theme || null,
+          theme: theme,
           sort: Number(r.sort) || 0,
+          /* VIDEO. Ruxsat qoidasi serverdagi bilan bir xil bo'lishi
+             kerak (`config.VIDEO_SERVICE_THEMES`) — bulut yo'lida server
+             yo'q, shuning uchun qoida shu yerda takrorlanadi. Faqat
+             tashqi URL ishlaydi: Telegram `file_id` ni brauzer o'qiy
+             olmaydi, uni faqat Render `/media/...` orqali beradi. */
+          video_allowed: allowed,
+          video_url: video,
+          video_external: !!video,
+          has_video: !!video,
         };
       });
       if (list.length) {

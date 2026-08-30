@@ -176,6 +176,12 @@ window.ZimmerShop = (function () {
 
   async function open() {
     S.view = "menu";
+    /* Panel qaytadan ochildi — boshqa modul ekranni egallab turgan
+       bo'lsa uni bo'shatamiz. Aks holda `isActive()` yolg'on «ha»
+       qaytarib, «orqaga» tugmasi yo'q oynaga yo'nalardi. */
+    if (adm() && adm().close) adm().close();
+    if (crm() && crm().close) crm().close();
+    if (stories() && stories().close) stories().close();
     clearPhotos();
     S.selected = {};
     // Qidiruv va filtr har ochilishda tozalanadi — aks holda oldingi
@@ -285,6 +291,22 @@ window.ZimmerShop = (function () {
       '<div class="shop-hero shop-hero-2">' +
       tile("shop-story", "shop-hero-story", "📸", "Stories", "Qo'shish va statistika") +
       tile("shop-story-add", "shop-hero-add", "＋", "Tez story", "Rasm + sarlavha") +
+      "</div>" +
+      /* --- xizmatlar
+         Ilgari bu bo'lim panelda UMUMAN yo'q edi: admin xizmat narxini
+         faqat Telegram boti orqali (`/admin` -> Xizmatlar) o'zgartira
+         olardi va Mini App'dan buni topa olmasdi. Ro'yxat va forma
+         ZimmerAdmin'da tayyor — shuning uchun shu yerda qaytadan
+         yozmaymiz, o'sha bo'limni ochamiz (`openEmbedded`). */
+      '<div class="apx-sub">Xizmatlar</div>' +
+      '<div class="shop-hero shop-hero-1">' +
+      tile(
+        "shop-srv",
+        "shop-hero-srv",
+        "🔧",
+        "Xizmatlar va narxlar",
+        "Narx, kafolat, video va «Tez kunda»"
+      ) +
       "</div>";
 
     const bind = (id, fn) => {
@@ -323,6 +345,16 @@ window.ZimmerShop = (function () {
     };
     bind("shop-story", goStory("open"));
     bind("shop-story-add", goStory("openAdd"));
+
+    /* Xizmatlar — ZimmerAdmin ning `srv` bo'limi. CRM va Stories bilan
+       bir xil tartib: ochilganda ZimmerShop o'z ko'rinishini bo'shatadi,
+       shunda tepadagi «orqaga»/«yangilash» o'sha oynaga ishlaydi. */
+    bind("shop-srv", () => {
+      const m = adm();
+      if (!m || !m.openEmbedded) return toast("Bo'lim yuklanmadi — ilovani yangilang");
+      S.view = null;
+      m.openEmbedded("srv");
+    });
 
     // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
     refreshBadges();
@@ -2780,20 +2812,33 @@ window.ZimmerShop = (function () {
      ================================================================== */
   const crm = () => window.ZimmerCRM;
   const stories = () => window.ZimmerStories;
+  /* ZimmerAdmin — universal CRUD paneli. Bu yerda faqat «Xizmatlar»
+     bo'limi uchun ishlatiladi (`openEmbedded("srv")`). */
+  const adm = () => window.ZimmerAdmin;
 
   function isActive() {
     return (
       S.view !== null ||
       (crm() && crm().isActive()) ||
-      (stories() && stories().isActive())
+      (stories() && stories().isActive()) ||
+      (adm() && adm().isActive && adm().isActive())
     );
   }
   function close() {
     S.view = null;
     if (crm()) crm().close();
     if (stories()) stories().close();
+    if (adm() && adm().close) adm().close();
   }
   function back() {
+    /* Xizmatlar oynasi ochiq bo'lsa — avval uning ichki qadami
+       (forma -> ro'yxat), keyin ZimmerShop menyusiga. */
+    if (adm() && adm().isActive && adm().isActive()) {
+      if (adm().embedBack()) return true;
+      adm().close();
+      renderMenu();
+      return true;
+    }
     // Stories oynasi ochiq bo'lsa — avval uning ichki qadami
     if (stories() && stories().isActive()) {
       if (stories().back()) return true;
@@ -2818,6 +2863,7 @@ window.ZimmerShop = (function () {
     return false;
   }
   function reload() {
+    if (adm() && adm().isActive && adm().isActive()) return adm().embedReload();
     if (stories() && stories().isActive()) return stories().reload();
     if (crm() && crm().isActive()) return crm().reload();
     if (S.view === "inventory") return openInventory();

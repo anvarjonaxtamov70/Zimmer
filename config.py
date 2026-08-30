@@ -45,6 +45,36 @@ MIN_TELEGRAM_ID = 10_000
 
 _NUMBER_RE = re.compile(r"-?\d+")
 
+# =====================================================================
+#  QAYSI XIZMATGA VIDEO QO'YISH MUMKIN
+#
+#  Video faqat FARA bilan bog'liq uchta ishga qo'yiladi:
+#      polish — Fara polirovkasi
+#      clean  — Fara ichini tozalash
+#      glass  — Fara shishasini almashtirish
+#
+#  NEGA CHEKLOV BOR. Bu uch ishning natijasini videoda ko'rsatish
+#  ma'noli: mijoz «oldin/keyin» farqini ko'radi va nima uchun pul
+#  to'layotganini tushunadi. Qolgan xizmatlarda video foyda bermaydi,
+#  lekin har biriga video yuklash imkoni qolsa admin panel chalkashadi
+#  va bepul tarifdagi trafik behuda ketadi.
+#
+#  DIQQAT: cheklov TEMA bo'yicha, nom bo'yicha EMAS. Shu tufayli admin
+#  xizmat nomini o'zgartirsa ham qoida buzilmaydi (nom bo'yicha bo'lsa,
+#  «Fara polirovkasi» -> «Polirovka» deb o'zgartirilganda video
+#  imkoniyati jimgina yo'qolardi).
+#
+#  Bu ro'yxat YAGONA manba: `api/routes.py` (mijozga nima yuborish),
+#  `api/admin.py` (yuklashni rad etish) va `handlers/admin_schema.py`
+#  (formada maydonni ko'rsatish) shundan o'qiydi.
+# =====================================================================
+VIDEO_SERVICE_THEMES: frozenset[str] = frozenset({"polish", "clean", "glass"})
+
+
+def service_video_allowed(theme: str | None) -> bool:
+    """Shu temadagi xizmatga video qo'yish mumkinmi?"""
+    return (theme or "").strip().lower() in VIDEO_SERVICE_THEMES
+
 # Mini App imzosi (`initData`) qancha soat amal qiladi.
 #
 # Telegram ilova sahifasini keshlaydi va fonda qolgan ilova ERTASI KUNI

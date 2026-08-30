@@ -31,6 +31,10 @@ MEDIA_TABLES = {
     "banners",
     "stories",
     "cars",
+    # Xizmat videosi. Faqat uchta fara xizmatiga qo'yiladi
+    # (`config.VIDEO_SERVICE_THEMES`), lekin proksi jadval darajasida
+    # ochiladi — cheklov yuklashda tekshiriladi, ko'rsatishda emas.
+    "services",
 }
 
 CONTENT_TYPES = {
