@@ -67,6 +67,10 @@
        Ilgari ilovada tovar qidiruvi UMUMAN yo'q edi va tartib qattiq
        «yangi id avval» bo'lardi. */
     shopQ: "", // qidiruv matni
+    /* Natija ANIQ moslik bilan emas, bitta-ikkita harf xatosiga yo'l
+       qo'yib topilganmi (`fuzzyMatches`). Shunda mijozga «aynan
+       topilmadi — o'xshashlar» deb aytiladi. */
+    shopFuzzy: false,
     shopSort: "new", // new | cheap | dear | name
     shopMyCar: false, // faqat mashinamga mos
     shopInStock: false, // faqat omborda bor
@@ -1518,6 +1522,7 @@
       pay_card_number: "",
       pay_card_holder: "",
       pay_admin_username: c.SHOP_TELEGRAM || "",
+      shop_phone: c.SHOP_PHONE || "",
       delivery_city: "Samarqand",
     };
   }
@@ -2942,6 +2947,13 @@
         seen.add(p.id);
         p._cat = catName;
         p._catIcon = catIcon;
+        // Filtr chiplari SHU raqam bo'yicha tartiblanadi (alifbo emas)
+        p._catSort = Number(c && c.sort) || 0;
+        /* QIDIRUV INDEKSI — bir marta, katalog yuklanganda.
+           Ilgari har harf bosilganda har bir tovar uchun matn qaytadan
+           normallashtirilardi. Indeks bilan yozish paytida hech narsa
+           hisoblanmaydi — faqat tayyor satrlar solishtiriladi. */
+        buildSearchIndex(p, catName);
         all.push(p);
       });
     });
@@ -2968,50 +2980,210 @@
   /* ==================================================================
      QIDIRUV, FILTR VA SARALASH
 
-     Qidiruv nom, kod, brend, model va tavsif bo'yicha ishlaydi. Matn
-     "normallashtiriladi": katta-kichik harf farqi yo'q, apostrof
-     ko'rinishlari (' ’ ʻ) bir xil hisoblanadi va lotin/kirill farqi
-     ba'zi harflar uchun tenglashtiriladi — «ochki» yozgan mijoz
-     «Ochki» ni ham topadi.
+     MIJOZ QANDAY YOZADI. Bitta tovarni odamlar bir necha xil yozadi:
+
+         «Go'zal»  «Gozal»  «Goʻzal»  «гозал»
+         «H4»      «h 4»    «н4»
+         «linza»   «Linzalar»          «lnza» (xato)
+
+     Ilgari qidiruv faqat katta-kichik harfni va apostrof ko'rinishini
+     tenglashtirardi. Natijada apostrofsiz yozgan, kirillda yozgan yoki
+     bitta harfni xato bosgan mijoz HECH NARSA topmasdi.
+
+     ENDI TO'RT QATLAM:
+
+       1) NORMALIZATSIYA — kirill lotinga o'giriladi, apostroflar
+          BUTUNLAY olib tashlanadi, tinish belgilari bo'sh joyga
+          aylanadi. «Goʻzal» va «гозал» ikkisi ham «gozal» bo'ladi.
+
+       2) INDEKS — har tovar uchun bir marta hisoblanadi
+          (`buildShopProducts`), har harf bosilganda EMAS. Shu sababli
+          yozish paytida sekinlashish yo'q.
+
+       3) RELEVANTLIK — natijalar ball bo'yicha tartiblanadi: nomdagi
+          moslik tavsifdagidan yuqori, so'z boshi so'z o'rtasidan
+          yuqori, kod esa eng yuqori. Ilgari tasodifiy tartibda edi:
+          nomi aynan mos tovar tavsifdagi mosikdan PASTDA turardi.
+
+       4) XATOGA TOLERANTLIK — aniq moslik BO'LMASA va faqat o'shanda,
+          bitta harf xatosiga yo'l qo'yiladi («lnza» -> «linza»).
+          Ikkinchi bosqich sifatida — birinchisi ishlasa umuman
+          chaqirilmaydi, ya'ni tez.
      ================================================================== */
 
-  /** Qidiruv uchun matnni solishtirishga tayyorlaydi. */
+  /* Kirill -> lotin. O'zbek (ў, қ, ғ, ҳ) va rus harflari.
+     Mijoz kirill klaviaturada yozsa ham lotin katalogdan topadi. */
+  const CYRILLIC_MAP = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "j", з: "z",
+    и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
+    с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "ts", ч: "ch", ш: "sh",
+    щ: "sh", ъ: "", ы: "i", ь: "", э: "e", ю: "yu", я: "ya",
+    ў: "o", қ: "q", ғ: "g", ҳ: "h", ə: "a",
+  };
+
+  /** Qidiruv uchun matnni solishtirishga tayyorlaydi.
+   *
+   *  Natija: faqat kichik lotin harflari, raqamlar va bitta bo'shliq.
+   *
+   *  APOSTROF OLIB TASHLANADI (tenglashtirilmaydi): «o'rindiq» ->
+   *  «orindiq». Shu tufayli apostrofni yozmagan mijoz ham topadi —
+   *  telefon klaviaturasida uni bosish qiyin. */
   function normText(value) {
     return String(value == null ? "" : value)
       .toLowerCase()
-      .replace(/[’ʻʼ`´]/g, "'")
-      .replace(/\s+/g, " ")
+      .replace(/[\u0400-\u04ff\u04af\u0259]/g, (ch) =>
+        CYRILLIC_MAP[ch] !== undefined ? CYRILLIC_MAP[ch] : ch
+      )
+      // apostrofning barcha ko'rinishlari — o'chiriladi
+      .replace(/['’ʻʼ`´]/g, "")
+      // harf va raqamdan boshqasi (tinish, chiziqcha, emoji) -> bo'shliq
+      .replace(/[^a-z0-9]+/g, " ")
       .trim();
   }
 
-  /** Tovar qidiruv so'roviga mos keladimi. */
-  function matchesQuery(product, terms) {
-    if (!terms.length) return true;
-    const haystack = normText(
-      [
-        product.name,
-        product.code,
-        product.brand,
-        product.model,
-        product.badge,
-        product.description,
-        product.desc,
-        product._cat,
-      ]
-        .filter(Boolean)
-        .join(" ")
+  /** Bo'shliqsiz ko'rinish: «h 4» va «h4» bir xil topilsin. */
+  const compactText = (value) => String(value || "").replace(/ /g, "");
+
+  /** Tovar uchun qidiruv indeksini yasaydi (bir marta, katalog yuklanganda).
+   *
+   *  Maydonlar ALOHIDA saqlanadi, chunki relevantlik ballari ular
+   *  bo'yicha farq qiladi: nomdagi moslik tavsifdagidan qimmatroq. */
+  function buildSearchIndex(p, catName) {
+    const name = normText(p.name);
+    const code = normText(p.code);
+    const cat = normText(catName);
+    const rest = normText(
+      [p.brand, p.model, p.badge, p.description, p.desc].filter(Boolean).join(" ")
     );
-    // HAR BIR so'z topilishi kerak (ya'ni «h4 linza» ikkisini ham izlaydi)
-    return terms.every((t) => haystack.includes(t));
+    const all = [name, code, cat, rest].filter(Boolean).join(" ");
+
+    p._sName = name;
+    p._sCode = code;
+    p._sCat = cat;
+    p._sRest = rest;
+    p._sAll = all;
+    p._sAllC = compactText(all);
+    // Xatoga tolerantlik uchun — alohida so'zlar (takrorsiz)
+    p._sWords = [...new Set(all.split(" ").filter((w) => w.length > 2))];
   }
 
-  /** Filtrlangan va saralangan tovarlar ro'yxati. */
+  /** So'z tovar indeksida bormi (bo'shliqli va bo'shliqsiz ko'rinishda). */
+  function termHit(p, term) {
+    if (!p._sAll) return false;
+    return p._sAll.includes(term) || p._sAllC.includes(compactText(term));
+  }
+
+  /** Tovar qidiruv so'roviga mos keladimi (ANIQ moslik). */
+  function matchesQuery(product, terms) {
+    if (!terms.length) return true;
+    // HAR BIR so'z topilishi kerak (ya'ni «h4 linza» ikkisini ham izlaydi)
+    return terms.every((t) => termHit(product, t));
+  }
+
+  /* ---------------------------------------------- xatoga tolerantlik */
+
+  /** Ikki so'z orasidagi tahrir masofasi. `limit` dan oshsa DARHOL
+   *  to'xtaydi — butun katalogni tekshirish tez bo'lishi kerak. */
+  function editDistance(a, b, limit) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > limit) return limit + 1;
+
+    let prev = new Array(b.length + 1);
+    let cur = new Array(b.length + 1);
+    for (let j = 0; j <= b.length; j++) prev[j] = j;
+
+    for (let i = 1; i <= a.length; i++) {
+      cur[0] = i;
+      let best = cur[0];
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        if (cur[j] < best) best = cur[j];
+      }
+      // Bu qatorda eng yaxshi natija ham limitdan oshsa — davom etish shart emas
+      if (best > limit) return limit + 1;
+      const swap = prev;
+      prev = cur;
+      cur = swap;
+    }
+    return prev[b.length];
+  }
+
+  /** Qancha harf xatosiga yo'l qo'yamiz. Qisqa so'zda — hech qancha:
+   *  «h4» dan «h5» ni yasash oson va bu YOLG'ON natija berardi. */
+  function fuzzyLimit(term) {
+    if (term.length >= 7) return 2;
+    if (term.length >= 4) return 1;
+    return 0;
+  }
+
+  /** Tovar so'rovga TAXMINAN mos keladimi (bitta-ikkita harf xatosi). */
+  function fuzzyMatches(product, terms) {
+    if (!product._sWords || !product._sWords.length) return false;
+    return terms.every((t) => {
+      if (termHit(product, t)) return true;
+      const limit = fuzzyLimit(t);
+      if (!limit) return false;
+      return product._sWords.some((w) => editDistance(w, t, limit) <= limit);
+    });
+  }
+
+  /* -------------------------------------------------- relevantlik bali */
+
+  /** Tovarning so'rovga mos kelish darajasi. Katta ball — yuqorida.
+   *
+   *  Ballar TARTIB uchun, filtr uchun emas: nimani ko'rsatishni
+   *  `matchesQuery` hal qiladi, bu esa QAYSI TARTIBDA ekanini. */
+  function searchScore(p, terms, query) {
+    const q = query;
+    const qc = compactText(q);
+    const name = p._sName || "";
+    const nameC = compactText(name);
+    let score = 0;
+
+    // Kod bo'yicha aniq moslik — eng ishonchli signal
+    if (p._sCode && (p._sCode === q || compactText(p._sCode) === qc)) score += 1000;
+    // Nomi aynan so'rov
+    if (name && name === q) score += 500;
+    else if (name.startsWith(q)) score += 260;
+    else if (nameC.startsWith(qc)) score += 200;
+
+    let allInName = true;
+    terms.forEach((t) => {
+      const inName = name.includes(t) || nameC.includes(compactText(t));
+      if (inName) {
+        // So'z BOSHIDA turgan moslik o'rtasidagidan qimmatroq
+        const atWordStart = name.startsWith(t) || name.includes(" " + t);
+        score += atWordStart ? 60 : 34;
+        return;
+      }
+      allInName = false;
+      if (p._sCode && p._sCode.includes(t)) score += 45;
+      else if (p._sCat && p._sCat.includes(t)) score += 18;
+      else if (p._sRest && p._sRest.includes(t)) score += 10;
+    });
+
+    // Bir necha so'zning HAMMASI nomda bo'lsa — bu juda yaxshi moslik
+    if (allInName && terms.length > 1) score += 40;
+    // Omborda bori yuqorida tursin (teng ballda)
+    if (stockOf(p) > 0) score += 3;
+    return score;
+  }
+
+  /** Filtrlangan va saralangan tovarlar ro'yxati.
+   *
+   *  `S.shopFuzzy` — natija faqat TAXMINIY moslik bilan topilganini
+   *  bildiradi. `renderCatalog()` shu holatda mijozga «aniq moslik
+   *  yo'q, shunga o'xshashlar» deb aytadi. */
   function visibleProducts() {
     const all = S.shopProducts || [];
-    const terms = normText(S.shopQ).split(" ").filter(Boolean);
+    const query = normText(S.shopQ);
+    const terms = query.split(" ").filter(Boolean);
     const myCarId = S.me && S.me.car ? S.me.car.id : null;
 
-    let list = all.filter((p) => {
+    /* Qidiruvdan BOSHQA filtrlar. Ular ikki bosqichda ham bir xil
+       qo'llanadi, shuning uchun alohida ajratilgan. */
+    const passesFilters = (p) => {
       if (S.shopCat && p._cat !== S.shopCat) return false;
       if (S.shopInStock && stockOf(p) <= 0) return false;
       /* «Mashinamga mos»: tovarda mashina ko'rsatilmagan bo'lsa u
@@ -3020,18 +3192,51 @@
       if (S.shopMyCar && myCarId && p.car_id && Number(p.car_id) !== Number(myCarId)) {
         return false;
       }
-      return matchesQuery(p, terms);
-    });
+      return true;
+    };
 
+    const base = all.filter(passesFilters);
+
+    // ---- 1-bosqich: ANIQ moslik
+    let list = base.filter((p) => matchesQuery(p, terms));
+    S.shopFuzzy = false;
+
+    /* ---- 2-bosqich: XATOGA TOLERANTLIK
+       Faqat aniq moslik BO'LMAGANDA ishlaydi. Shu tufayli odatdagi
+       qidiruvda tahrir masofasi umuman hisoblanmaydi (tez), lekin
+       mijoz bitta harfni xato bosganda ham natija ko'radi. */
+    if (terms.length && !list.length) {
+      const near = base.filter((p) => fuzzyMatches(p, terms));
+      if (near.length) {
+        list = near;
+        S.shopFuzzy = true;
+      }
+    }
+
+    /* ---- TARTIB
+       So'rov bo'lsa RELEVANTLIK ustun turadi: mijoz «h4» deb yozganda
+       eng mos tovar birinchi bo'lishi kerak, «yangi avval» emas.
+       Teng ballda esa tanlangan saralash tartibi ishlaydi. */
     const price = (p) => Number(p.price) || 0;
-    if (S.shopSort === "cheap") list = list.slice().sort((a, b) => price(a) - price(b));
-    else if (S.shopSort === "dear") list = list.slice().sort((a, b) => price(b) - price(a));
-    else if (S.shopSort === "name") {
+    const byChosenSort = (a, b) => {
+      if (S.shopSort === "cheap") return price(a) - price(b);
+      if (S.shopSort === "dear") return price(b) - price(a);
+      if (S.shopSort === "name") {
+        return String(a.name || "").localeCompare(String(b.name || ""), "uz");
+      }
+      // "new" — yangi avval (id kamayish tartibida)
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
+    };
+
+    if (terms.length) {
+      const score = new Map();
+      list.forEach((p) => score.set(p, searchScore(p, terms, query)));
       list = list
         .slice()
-        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "uz"));
+        .sort((a, b) => (score.get(b) || 0) - (score.get(a) || 0) || byChosenSort(a, b));
+    } else {
+      list = list.slice().sort(byChosenSort);
     }
-    // "new" — `buildShopProducts()` allaqachon id bo'yicha kamayish tartibida
 
     return list;
   }
@@ -3055,7 +3260,9 @@
       if (S.offline && (!S.home || S.home._empty)) {
         text = "Katalog hozir yuklanmadi. Server uyg'onganda o'zi paydo bo'ladi.";
       } else if (S.shopQ.trim()) {
-        text = `«${S.shopQ.trim()}» bo'yicha hech narsa topilmadi.`;
+        text =
+          `«${S.shopQ.trim()}» bo'yicha hech narsa topilmadi. ` +
+          "Nomini qisqartirib yoki tovar kodi bilan izlab ko'ring.";
       } else if (S.shopMyCar || S.shopInStock) {
         text = "Tanlangan filtrlarga mos tovar yo'q. Filtrni bo'shatib ko'ring.";
       } else if (S.shopCat) {
@@ -3073,6 +3280,20 @@
 
     const countEl = $("products-count");
     if (countEl) countEl.textContent = products.length ? products.length + " ta" : "";
+
+    /* TAXMINIY NATIJA HAQIDA OGOHLANTIRISH.
+       Mijoz «lnza» deb yozib «Linza» ni ko'rsa, nima uchun boshqa so'z
+       chiqqanini bilishi kerak — aks holda qidiruv ishlamayotgandek
+       tuyuladi. */
+    const hintEl = $("shop-hint");
+    if (hintEl) {
+      const show = S.shopFuzzy && products.length > 0;
+      hintEl.classList.toggle("hidden", !show);
+      if (show) {
+        hintEl.textContent =
+          `«${S.shopQ.trim()}» aynan topilmadi — shunga o'xshashlarni ko'rsatdik.`;
+      }
+    }
 
     products.forEach((p) => box.append(prodCard(p)));
   }
@@ -3174,9 +3395,13 @@
     if (!box) return;
 
     const count = new Map();
+    // Bo'limning `sort` raqami — chiplarni tartiblash uchun
+    const order = new Map();
     all.forEach((p) => {
       const k = p._cat || "";
-      if (k) count.set(k, (count.get(k) || 0) + 1);
+      if (!k) return;
+      count.set(k, (count.get(k) || 0) + 1);
+      if (!order.has(k)) order.set(k, Number(p._catSort) || 0);
     });
 
     if (count.size < 2) {
@@ -3204,9 +3429,16 @@
       n +
       "</i></button>";
 
-    const names = [...count.keys()].sort((a, b) => a.localeCompare(b, "uz"));
+    /* TARTIB: bo'limning `sort` raqami bo'yicha, keyin nomi bo'yicha.
+       Ilgari faqat alifbo bo'yicha edi — natijada «Aksesuarlar»
+       «BI-ledlar» dan oldinga chiqib ketardi, holbuki admin bo'limlarni
+       boshqa ketma-ketlikda ko'rsatishni xohlaydi. Endi tartibni admin
+       panelidagi «Tartib» maydoni boshqaradi. */
+    const names = [...count.keys()].sort(
+      (a, b) => (order.get(a) || 0) - (order.get(b) || 0) || a.localeCompare(b, "uz")
+    );
     box.innerHTML =
-      chip("", "Hammasi", all.length, !S.shopCat) +
+      chip("", "Barchasi", all.length, !S.shopCat) +
       names.map((k) => chip(k, k, count.get(k), S.shopCat === k)).join("");
     box.classList.remove("hidden");
 
@@ -3786,6 +4018,63 @@
   /* Kuryer ishlaydigan shahar. Server `/api/config` da `delivery_city`
      beradi; u yetib kelmasa zaxira qiymat ishlatiladi. */
   const dcity = () => (S.pay && S.pay.city) || "Samarqand";
+
+  /* ================================================================
+     DO'KON ALOQA MA'LUMOTLARI — YAGONA MANBA
+
+     Uch joyda kerak: «Biz bilan aloqa», to'lov cheki yuborish va
+     zaxira rejimdagi xabar. Ilgari har biri o'zicha o'qirdi va
+     natijada bir joyda username bor, boshqasida yo'q bo'lib qolardi.
+
+     Tartib: SERVER (`/api/config`) -> Mini App sozlamasi
+     (`docs/config.js`). Serverda `PAY_ADMIN_USERNAME` bo'sh bo'lsa
+     ilova ishlashdan to'xtamaydi — `SHOP_TELEGRAM` ishlatiladi.
+     ================================================================ */
+
+  /** Do'konning Telegram username'i (@ belgisisiz). */
+  function shopTelegram() {
+    const fromServer = (S.pay && S.pay.admin) || "";
+    if (fromServer) return String(fromServer).replace(/^@+/, "");
+    const cfg = window.ZIMMER_CONFIG || {};
+    return String(cfg.SHOP_TELEGRAM || "").replace(/^@+/, "");
+  }
+
+  /** Do'kon telefon raqami (ko'rinadigan ko'rinishda). */
+  function shopPhone() {
+    const fromServer = (S.pay && S.pay.phone) || "";
+    if (fromServer) return String(fromServer);
+    const cfg = window.ZIMMER_CONFIG || {};
+    return String(cfg.SHOP_PHONE || "");
+  }
+
+  /** Telegram chatini ochadi. */
+  function openTelegram(username) {
+    const name = String(username || "").replace(/^@+/, "");
+    if (!name) return toast("Telegram manzili sozlanmagan");
+    try {
+      tg.openTelegramLink("https://t.me/" + name);
+    } catch (_) {
+      try {
+        window.open("https://t.me/" + name, "_blank");
+      } catch (_) {}
+    }
+  }
+
+  /** Qo'ng'iroq qiladi.
+   *
+   *  `tel:` — Telegram ichida `openLink` bilan ishlamaydi (u faqat
+   *  http/https ni ochadi), shuning uchun `location.href` ishlatiladi.
+   *  Raqamdan bo'shliq va qavslar olib tashlanadi — aks holda ba'zi
+   *  telefonlar havolani tushunmaydi. */
+  function callPhone(phone) {
+    const digits = String(phone || "").replace(/[^\d+]/g, "");
+    if (!digits) return toast("Telefon raqami sozlanmagan");
+    try {
+      window.location.href = "tel:" + digits;
+    } catch (_) {
+      copyText(phone, "📋 Raqam nusxalandi — qo'ng'iroq qiling");
+    }
+  }
 
   /** "Rasmiylashtirish" tugmasi: to'liq ekranli oynani ochadi. */
   function startCheckout() {
@@ -5081,7 +5370,8 @@
   }
 
   const MO_CHIPS = [
-    ["all", "Hammasi"],
+    // «Barchasi» — do'kon filtrlari bilan bir xil so'z ishlatiladi
+    ["all", "Barchasi"],
     ["new", "🆕 Yangi"],
     ["run", "⏳ Jarayonda"],
     ["done", "✅ Yakunlangan"],
@@ -5171,7 +5461,7 @@
   }
 
   /** Filtr chiplari — sanoq bilan. Bo'sh filtr chizilmaydi (mijoz bosib
-   *  bo'sh ekran ko'rmasin), «Hammasi» esa har doim turadi. */
+   *  bo'sh ekran ko'rmasin), «Barchasi» esa har doim turadi. */
   function renderMoFilters(kind, list) {
     const box = $("mo-filters");
     if (!box) return;
@@ -5186,7 +5476,7 @@
     if (S.moFilter !== "all" && !counts[S.moFilter]) S.moFilter = "all";
 
     const shown = MO_CHIPS.filter(([key]) => key === "all" || counts[key] > 0);
-    // Faqat «Hammasi» qolsa filtrning ma'nosi yo'q
+    // Faqat «Barchasi» qolsa filtrning ma'nosi yo'q
     box.classList.toggle("hidden", shown.length < 2 || !list.length);
     box.innerHTML = shown
       .map(
@@ -5912,7 +6202,9 @@
    *  tugmasi shu yo'l bilan ishlaydi. */
   function openContactSheet(about) {
     haptic();
-    const admin = (S.pay && S.pay.admin) || "";
+    const admin = shopTelegram();
+    const phone = shopPhone();
+
     openSheet(
       "📞 Biz bilan aloqa",
       `${
@@ -5923,8 +6215,30 @@
       }
        <p class="step-sub">Savol yoki takliflar bo'lsa bemalol yozing — tez javob beramiz.</p>
        ${
+         /* TELEFON — birinchi o'rinda va bir bosishda qo'ng'iroq qiladi.
+            `tel:` havolasi telefonning qo'ng'iroq oynasini raqam bilan
+            ochadi. Raqamni nusxalash ham qoldirildi: mijoz boshqa
+            qurilmadan qo'ng'iroq qilishni xohlashi mumkin. */
+         phone
+           ? `<div class="ct-phone">
+                <div class="ct-phone-tx">
+                  <small>Telefon</small>
+                  <b>${esc(phone)}</b>
+                </div>
+                <div class="ct-phone-acts">
+                  <button class="ct-call" id="contact-call" type="button"
+                          aria-label="Qo'ng'iroq qilish">📞 Qo'ng'iroq</button>
+                  <button class="ct-copy" id="contact-phone-copy" type="button"
+                          aria-label="Raqamni nusxalash">📋</button>
+                </div>
+              </div>`
+           : ""
+       }
+       ${
          admin
-           ? `<button class="btn btn-primary" id="contact-tg">✈️ Telegram: @${esc(admin)}</button>`
+           ? `<button class="btn btn-primary ct-tg" id="contact-tg">
+                ✈️ Telegram: @${esc(admin)}
+              </button>`
            : ""
        }
        <div class="contact-rows">
@@ -5932,13 +6246,23 @@
          <div class="row"><span>📍 Shahar</span><b>${esc(dcity())}</b></div>
        </div>`
     );
+
     const b = $("contact-tg");
     if (b)
       b.onclick = () => {
-        try {
-          tg.openTelegramLink("https://t.me/" + admin);
-        } catch (_) {}
+        haptic();
+        openTelegram(admin);
       };
+
+    const call = $("contact-call");
+    if (call)
+      call.onclick = () => {
+        haptic();
+        callPhone(phone);
+      };
+
+    const phoneCopy = $("contact-phone-copy");
+    if (phoneCopy) phoneCopy.onclick = () => copyText(phone, "📋 Raqam nusxalandi");
     const cp = $("contact-copy");
     if (cp) {
       // Faqat kodni nusxalaymiz («Buyurtma: » qismi keraksiz)
@@ -7169,10 +7493,15 @@
       }
 
       S.currency = cfg.currency || "so'm";
+      /* Serverdagi qiymat bo'sh bo'lsa Mini App sozlamasiga tushamiz —
+         `PAY_ADMIN_USERNAME` Render'da sozlanmagan bo'lsa ham «Biz bilan
+         aloqa» va chek yuborish ISHLASHDAN TO'XTAMASLIGI kerak. */
+      const local = window.ZIMMER_CONFIG || {};
       S.pay = {
         card: cfg.pay_card_number || "",
         holder: cfg.pay_card_holder || "",
-        admin: cfg.pay_admin_username || "",
+        admin: String(cfg.pay_admin_username || local.SHOP_TELEGRAM || "").replace(/^@+/, ""),
+        phone: cfg.shop_phone || local.SHOP_PHONE || "",
         city: cfg.delivery_city || "Samarqand",
       };
       S.me = me;
