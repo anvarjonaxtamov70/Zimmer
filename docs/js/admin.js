@@ -1030,6 +1030,29 @@ window.ZimmerAdmin = (function () {
 
     /* tanlov */
     if (field.kind === "choice") {
+      /* HIMOYA: server variantlarni bermagan bo'lsa maydonni O'CHIRIB
+         qo'yamiz va hozirgi qiymatni ko'rsatamiz.
+
+         NEGA (haqiqiy xato). Variantlar bo'sh kelganda formada faqat
+         «— tanlanmagan —» qolardi. Admin boshqa maydonni tuzatib
+         saqlasa, shu maydon jimgina TOZALANARDI. Xizmatlarda bu
+         `theme` ni NULL qilib, keyin video yuklashni ham bloklab
+         qo'ygan edi.
+
+         Endi qiymat saqlanib qoladi: maydon `data-col` OLMAYDI, ya'ni
+         `submitForm` uni umuman yubormaydi. */
+      if (!(field.choices || []).length) {
+        box.classList.add("adm-field-off");
+        box.innerHTML =
+          `<span>${esc(field.label)}${req}</span>` +
+          '<div class="adm-select">' +
+          `<select disabled><option>${esc(value !== "" ? String(value) : "— hozircha yo'q —")}</option></select>` +
+          "</div>" +
+          '<small class="adm-hint is-warn">Variantlar yuklanmadi. Hozirgi qiymat ' +
+          "saqlanib qoladi — «Yangilash» ni bosib ko'ring.</small>";
+        return box;
+      }
+
       const options = (field.choices || [])
         .map((c) => {
           const sel = String(c.value) === String(value) ? " selected" : "";

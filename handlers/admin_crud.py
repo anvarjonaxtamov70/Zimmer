@@ -33,7 +33,14 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database import queries as q
-from handlers.admin_schema import ENTITIES, Entity, Field, parse_value, prepare_insert
+from handlers.admin_schema import (
+    ENTITIES,
+    Entity,
+    Field,
+    parse_value,
+    prepare_insert,
+    resolve_choices,
+)
 from keyboards.reply import cancel_kb, main_menu
 from services import sync
 from utils.filters import IsAdmin
@@ -275,7 +282,7 @@ async def field_edit(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if f.kind == "choice":
-        choices = await f.choices()
+        choices = await resolve_choices(f)
         await edit_or_send(
             callback.message,
             f"{entity.icon} <b>{f.label}</b>\n\nKerakli variantni tanlang:",
@@ -545,7 +552,7 @@ async def _ask_next(message: Message, state: FSMContext) -> None:
     step = total - len(left) + 1
 
     if f.kind == "choice":
-        choices = await f.choices()
+        choices = await resolve_choices(f)
         await message.answer(
             f"➕ <b>{entity.title}</b> — {step}/{total}\n\n<b>{f.label}</b> ni tanlang:",
             reply_markup=_choice_kb(entity, 0, f.column, choices, new_mode=True),
