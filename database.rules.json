@@ -121,7 +121,7 @@
         ".indexOn": ["uid", "day", "date", "imported"],
 
         "$key": {
-          ".write": "!data.exists() || !data.child('imported').val()",
+          ".write": "!data.exists() || data.child('imported').val() != true",
 
           "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "service_id": { ".validate": "newData.val() == null || newData.isNumber()" },
@@ -148,7 +148,7 @@
         ".indexOn": ["uid", "createdAt", "imported"],
 
         "$key": {
-          ".write": "!data.exists() || !data.child('imported').val()",
+          ".write": "!data.exists() || data.child('imported').val() != true",
 
           "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "car_id": { ".validate": "newData.val() == null || newData.isNumber()" },
