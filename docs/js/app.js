@@ -6079,8 +6079,38 @@
       accent: "violet",
       short: "To'liq komplekt",
       blockTitle: "Materiallar",
-      tagline: "O'rindiqlarga to'liq chexol — o'lchov bo'yicha tikiladi",
+      tagline: "O'rindiqlarga to'liq chexol — o'lchov bo'yicha o'rnatiladi",
       materials: ["Ekoteri", "Alkantara", "Mato", "Kombinatsiya"],
+    },
+    /* ---- yangi yo'nalishlar (hozircha «Tez kunda») ----
+       Ular ro'yxatda KO'RINADI: mijoz do'kon nima rejalashtirayotganini
+       bilishi kerak. Narx va navbat `coming_soon` bo'lsa yopiladi. */
+    laminate: {
+      icon: "🪞",
+      layout: "list",
+      accent: "lime",
+      short: "Salon panellari",
+      blockTitle: "Nimalar qoplanadi",
+      tagline: "Salon panellariga laminat qoplama — yangi ko'rinish",
+      bullets: ["Torpedo va panellar", "Eshik ichi", "Konsol va tugmalar"],
+    },
+    tint: {
+      icon: "🌓",
+      layout: "list",
+      accent: "slate",
+      short: "Oyna plyonkasi",
+      blockTitle: "Nima beradi",
+      tagline: "Oynalarga plyonka — issiq, quyosh va ko'zdan himoya",
+      bullets: ["Issiqni kamaytiradi", "Salonni ko'zdan yashiradi", "Shishani ushlab turadi"],
+    },
+    armor: {
+      icon: "🛡",
+      layout: "list",
+      accent: "pink",
+      short: "Kuzov himoyasi",
+      blockTitle: "Nima beradi",
+      tagline: "Kuzovni chizilish va toshdan saqlovchi shaffof plyonka",
+      bullets: ["Chizilishdan saqlaydi", "Bo'yoqni asrab turadi", "Shaffof — rang o'zgarmaydi"],
     },
   };
 
@@ -6101,6 +6131,19 @@
 
     const n = String((s && s.name) || "").toLowerCase();
     if (n.indexOf("konfigurator") !== -1) return "config";
+    /* Yangi yo'nalishlar «rul» dan OLDIN tekshiriladi: tartib muhim.
+       `database/db.py: _THEME_GUESS` bilan bir xil bo'lishi kerak —
+       ikki tomon boshqa tema bersa kartochka dizayni ikki xil ko'rinadi. */
+    if (n.indexOf("laminat") !== -1) return "laminate";
+    if (n.indexOf("tanirov") !== -1 || n.indexOf("tonirov") !== -1) return "tint";
+    if (
+      n.indexOf("broni") !== -1 ||
+      n.indexOf("bronli") !== -1 ||
+      n.indexOf("plyonka") !== -1 ||
+      n.indexOf("plonka") !== -1
+    ) {
+      return "armor";
+    }
     if (n.indexOf("rul") !== -1) return "wheel";
     if (n.indexOf("rindiq") !== -1 || n.indexOf("orindiq") !== -1) return "seat";
     if (n.indexOf("shisha") !== -1) return "glass";
@@ -6131,10 +6174,22 @@
       warranty: "6 oy", description: "Yorilgan shisha o'rniga yangisi qo'yiladi." },
     { id: null, theme: "clean", name: "Fara ichini tozalash", duration_min: 45, price: 120000,
       warranty: "3 oy", description: "Chang, bug' va namlik to'liq tozalanadi." },
-    { id: null, theme: "wheel", name: "Rul chexol tikish", duration_min: 90, price: 200000,
-      warranty: "6 oy", description: "O'lchov bo'yicha qo'lda tikiladi." },
-    { id: null, theme: "seat", name: "O'rindiq chexol tikish", duration_min: 240, price: 700000,
-      warranty: "1 yil", description: "Barcha o'rindiqlarga to'liq chexol." },
+    { id: null, theme: "wheel", name: "Rul chexol o'rnatish", duration_min: 90, price: 200000,
+      warranty: "6 oy", description: "Rul g'ilofi o'lchov bo'yicha tanlanadi va o'rnatiladi." },
+    { id: null, theme: "seat", name: "O'rindiq chexol o'rnatish", duration_min: 240, price: 700000,
+      warranty: "1 yil", description: "Barcha o'rindiqlarga to'liq chexol o'rnatiladi." },
+    /* ---- «Tez kunda» yo'nalishlar ----
+       Narx ATAYLAB `null`: `0` bo'lsa mijoz «bepul» deb o'qib qolishi
+       mumkin edi. `coming_soon` esa navbat tugmasini yopadi. */
+    { id: null, theme: "laminate", name: "Laminat salon", duration_min: 0, price: null,
+      price_label: null, coming_soon: true, warranty: null,
+      description: "Salon panellariga laminat qoplama. Tez kunda ishga tushadi." },
+    { id: null, theme: "tint", name: "Tanirovka", duration_min: 0, price: null,
+      price_label: null, coming_soon: true, warranty: null,
+      description: "Oynalarga plyonka yopishtirish. Tez kunda ishga tushadi." },
+    { id: null, theme: "armor", name: "Broni plyonka", duration_min: 0, price: null,
+      price_label: null, coming_soon: true, warranty: null,
+      description: "Kuzovni chizilishdan saqlovchi himoya plyonka. Tez kunda ishga tushadi." },
   ].map(function (s) {
     s._fallback = true;
     return s;
@@ -6150,8 +6205,22 @@
     return h + " soat" + (rest ? " " + rest + " daq" : "");
   }
 
-  const svcPrice = (s) =>
-    s && s.price_label ? s.price_label : fmt((s && s.price) || 0);
+  /** «Tez kunda» xizmatmi? Server `coming_soon` yuboradi.
+   *
+   *  Backend eski bo'lib maydon kelmasa ham xato bo'lmasin: narx ham,
+   *  yorliq ham bo'lmasa (`null`) xizmat hali sozlanmagan hisoblanadi. */
+  const svcSoon = (s) =>
+    !!(s && (s.coming_soon || (s.price == null && s.price_label == null)));
+
+  const SOON_TEXT = "Tez kunda";
+
+  /** Narx matni. «Tez kunda» bo'lsa raqam O'RNIGA shu yozuv chiqadi —
+   *  ilgari bunday holatda `fmt(0)` ishlab «0 so'm» ko'rinardi. */
+  const svcPrice = (s) => {
+    if (svcSoon(s)) return SOON_TEXT;
+    if (s && s.price_label) return s.price_label;
+    return fmt((s && s.price) || 0);
+  };
 
   /** Xizmatlar ro'yxati (keshlanadi). */
   async function loadServices(force) {
@@ -6217,19 +6286,24 @@
     const key = themeOf(s, i);
     const t = SERVICE_THEMES[key] || SERVICE_THEMES.biled;
     const isConfig = key === "config";
+    const soon = svcSoon(s);
     const price = isConfig ? "Hisoblash" : svcPrice(s);
 
     return (
       '<button class="svt sv-a-' + t.accent + (isConfig ? " is-hero" : "") +
+      (soon ? " is-soon" : "") +
       '" data-svc="' + i + '" style="--d:' + Math.min(i, 8) * 55 + 'ms">' +
       '<span class="svt-glow"></span>' +
+      /* Plitkaning burchagidagi yorliq — ro'yxatdan turib ham tayyor
+         emasligi ko'rinsin, ichiga kirish shart bo'lmasin. */
+      (soon ? '<span class="svt-badge">' + esc(SOON_TEXT) + "</span>" : "") +
       '<span class="svt-ic">' + t.icon + "</span>" +
       '<span class="svt-tx">' +
       "<b>" + esc(s.name || "Xizmat") + "</b>" +
       "<i>" + esc(t.short || t.tagline || "") + "</i>" +
       "</span>" +
       '<span class="svt-foot">' +
-      '<span class="svt-price">' + esc(price) + "</span>" +
+      '<span class="svt-price' + (soon ? " is-soon" : "") + '">' + esc(price) + "</span>" +
       '<span class="svt-go">›</span>' +
       "</span>" +
       "</button>"
@@ -6276,41 +6350,83 @@
     const key = themeOf(s, S.svcIndex);
     const t = SERVICE_THEMES[key] || SERVICE_THEMES.biled;
     const isConfig = key === "config";
+    const soon = svcSoon(s);
     const dur = svcDuration(s.duration_min);
     const war = s.warranty || "";
     const desc = s.description || t.tagline || "";
 
     $("sd-title").textContent = t.icon + " " + (s.name || "Xizmat");
-    $("sd-sub").textContent = isConfig ? "Narxni o'zingiz hisoblang" : "Narx va navbat";
+    $("sd-sub").textContent = soon
+      ? SOON_TEXT
+      : isConfig
+        ? "Narxni o'zingiz hisoblang"
+        : "Narx va navbat";
 
-    /* --- narx / kafolat / vaqt plitkalari --- */
+    /* --- narx / kafolat / vaqt plitkalari ---
+       «Tez kunda» bo'lsa narx O'RNIGA shu yozuv turadi; kafolat va
+       davomiylik hali aniq bo'lmagani uchun umuman ko'rsatilmaydi. */
     const facts = [];
     facts.push(
-      '<div class="sd-fact is-price"><i>💰</i><b>' +
-        esc(isConfig ? "Tanlovga qarab" : svcPrice(s)) +
+      '<div class="sd-fact is-price' + (soon ? " is-soon" : "") + '"><i>' +
+        (soon ? "🕒" : "💰") + "</i><b>" +
+        esc(soon ? SOON_TEXT : isConfig ? "Tanlovga qarab" : svcPrice(s)) +
         "</b><small>Narx</small></div>"
     );
-    if (war) facts.push('<div class="sd-fact is-war"><i>🛡</i><b>' + esc(war) + "</b><small>Kafolat</small></div>");
-    if (dur) facts.push('<div class="sd-fact"><i>⏱</i><b>' + esc(dur) + "</b><small>Davomiyligi</small></div>");
+    if (!soon && war) {
+      facts.push('<div class="sd-fact is-war"><i>🛡</i><b>' + esc(war) + "</b><small>Kafolat</small></div>");
+    }
+    if (!soon && dur) {
+      facts.push('<div class="sd-fact"><i>⏱</i><b>' + esc(dur) + "</b><small>Davomiyligi</small></div>");
+    }
 
     box.innerHTML =
       /* --- sarlavha bloki: katta ikonka + tavsif --- */
-      '<div class="sd-hero sv-a-' + t.accent + " sd-l-" + t.layout + '">' +
+      '<div class="sd-hero sv-a-' + t.accent + " sd-l-" + t.layout +
+      (soon ? " is-soon" : "") + '">' +
       '<div class="sd-hero-glow"></div>' +
+      (soon ? '<div class="sd-soon-tag">' + esc(SOON_TEXT) + "</div>" : "") +
       '<div class="sd-ic">' + t.icon + "</div>" +
       "<h2>" + esc(s.name || "Xizmat") + "</h2>" +
       "<p>" + esc(desc) + "</p>" +
       "</div>" +
       /* --- xulosa plitkalari --- */
       '<div class="sd-facts">' + facts.join("") + "</div>" +
+      /* --- VIDEO (faqat uchta fara xizmatida, server ruxsat bersa) --- */
+      svcVideoBlock(s, t) +
       /* --- temaga xos blok (dizaynlarni aynan shu joy ajratadi) --- */
       '<div class="sd-block sv-a-' + t.accent + " sv-l-" + t.layout + '">' +
       '<div class="sd-block-h">' + esc(t.blockTitle || "Xizmat haqida") + "</div>" +
       svcThemeBlock(t) +
-      "</div>";
+      "</div>" +
+      /* --- «Tez kunda» tushuntirishi (navbat tugmasi o'rniga) --- */
+      (soon
+        ? '<div class="sd-soon-note">' +
+          "<b>Bu xizmat hozir tayyorlanmoqda</b>" +
+          "<p>Narx va navbat tez kunda ochiladi. Ishga tushishi bilan " +
+          "shu bo'limda paydo bo'ladi.</p>" +
+          "</div>"
+        : "");
 
-    /* --- pastdagi yakka tugma --- */
+    bindServiceVideo();
+
+    /* --- pastdagi yakka tugma ---
+       «Tez kunda» xizmatda navbat OLINMAYDI (server ham 409 qaytaradi).
+       Tugmani o'chirib qo'yish emas, butunlay YASHIRAMIZ: bosilmaydigan
+       tugma mijozni chalg'itadi — «buzilganmi?» degan savol tug'iladi.
+       Tushuntirish esa yuqorida, `sd-soon-note` da turadi. */
+    const bar = $("sd-bar");
     const cta = $("sd-cta");
+    if (bar) bar.classList.toggle("hidden", soon);
+    /* Sahifaning pastidagi bo'sh joy TUGMA uchun ajratilgan. Tugma
+       yashirilsa u joy ham kerak emas — bo'lmasa oynaning oxirida
+       sababsiz katta bo'shliq qolardi. */
+    const pageEl = $("service");
+    if (pageEl) pageEl.classList.toggle("no-cta", soon);
+    if (soon) {
+      cta.onclick = null;
+      return svcPageIn();
+    }
+
     cta.textContent = isConfig ? "💡 Narxni hisoblash" : "🗓 Navbat olish";
     cta.className = "btn btn-primary sd-cta sv-a-" + t.accent;
     cta.onclick = () => {
@@ -6318,11 +6434,94 @@
       openServiceBooking(s);
     };
 
-    // Ochilish animatsiyasi har safar qaytadan ishga tushsin
+    svcPageIn();
+  }
+
+  /** Ochilish animatsiyasini har safar qaytadan ishga tushiradi.
+   *  `void offsetWidth` — brauzerni klassni qayta hisoblashga majburlaydi,
+   *  aks holda olib qo'yib darhol qo'shish HECH QANDAY o'zgarish
+   *  bermaydi va animatsiya ikkinchi marta ko'rinmaydi. */
+  function svcPageIn() {
     const page = $("service");
+    if (!page) return;
     page.classList.remove("is-in");
     void page.offsetWidth;
     page.classList.add("is-in");
+  }
+
+  /* -------------------------------------------------- xizmat videosi */
+
+  /** Xizmat videosi bloki — YOPIQ holatda chiziladi.
+   *
+   *  NEGA DARHOL `<video>` QO'YILMAYDI. Video uzun va yuqori sifatda
+   *  bo'ladi (o'nlab MB). Sahifa ochilishida uni yuklab boshlash mijoz
+   *  trafigini behuda yeydi — ayniqsa mobil internetda. Shu sababli
+   *  avval faqat TUGMA turadi; `<video>` elementi mijoz bosgandan keyin
+   *  yaratiladi. Ya'ni «xohlasa ochib ko'radi, xohlamasa yo'q».
+   *
+   *  Ruxsatni SERVER beradi (`video_allowed`) — faqat uchta fara
+   *  xizmatida. Qoida frontendda TAKRORLANMAYDI, aks holda ikki joyda
+   *  saqlanib bir-biridan ajralib ketardi. */
+  function svcVideoBlock(s, t) {
+    if (!s || !s.has_video || !s.video_url) return "";
+    /* `video_allowed` eski backendda bo'lmasligi mumkin. Bo'lsa —
+       hurmat qilamiz; bo'lmasa `has_video` ning o'zi yetarli, chunki
+       serverda video faqat ruxsat etilgan xizmatga saqlanadi. */
+    if ("video_allowed" in s && !s.video_allowed) return "";
+
+    return (
+      '<div class="sd-video sv-a-' + t.accent + '" id="sd-video">' +
+      '<button class="sd-video-open" id="sd-video-open" type="button">' +
+      '<span class="sd-video-ring"><span class="sd-video-play">▶</span></span>' +
+      '<span class="sd-video-tx">' +
+      "<b>Videoni ko'rish</b>" +
+      "<i>Xizmat qanday bajarilishi — qisqa lavha</i>" +
+      "</span>" +
+      "</button>" +
+      '<p class="sd-video-hint">Video ochilganda yuklanadi — trafik ' +
+      "behuda ketmaydi.</p>" +
+      "</div>"
+    );
+  }
+
+  /** Yopiq video blokini «tirik» qiladi: bosilganda `<video>` yaratiladi.
+   *
+   *  Element mijoz BOSGANIDAN keyin qo'shiladi — shu sababli
+   *  `video.play()` foydalanuvchi harakati ichida chaqiriladi va brauzer
+   *  avtomatik o'ynatishni to'xtatmaydi. */
+  function bindServiceVideo() {
+    const btn = $("sd-video-open");
+    if (!btn) return;
+    btn.onclick = () => {
+      const wrap = $("sd-video");
+      const s = (S.services || [])[S.svcIndex];
+      if (!wrap || !s || !s.video_url) return;
+      haptic("light");
+
+      const v = document.createElement("video");
+      v.className = "sd-video-el";
+      v.src = s.video_url;
+      v.controls = true;
+      v.playsInline = true;
+      /* `metadata` — faqat davomiylik va o'lchamni oladi, keyin brauzer
+         o'ynatish davomida bo'lak-bo'lak yuklaydi. Uzun videoni butunlay
+         kutib o'tirish shart emas. */
+      v.preload = "metadata";
+      v.setAttribute("playsinline", "");
+      v.onerror = () => {
+        wrap.innerHTML =
+          '<p class="sd-video-hint is-err">Video ochilmadi. Internetni ' +
+          "tekshirib qayta urinib ko'ring.</p>";
+      };
+
+      wrap.classList.add("is-open");
+      wrap.innerHTML = "";
+      wrap.appendChild(v);
+      const p = v.play();
+      // Brauzer rad etsa (masalan quvvat tejash rejimi) — xato
+      // konsolga chiqmasin, mijoz o'zi bosib qo'yadi.
+      if (p && p.catch) p.catch(() => {});
+    };
   }
 
   /** Temaga xos ichki blok. Yetti tema — yetti xil tuzilish. */
@@ -6394,6 +6593,14 @@
         "</div>"
       );
     }
+    // Oddiy ro'yxat — yangi yo'nalishlar uchun (laminat, tanirovka, broni)
+    if (t.layout === "list") {
+      return (
+        '<ul class="sv-bullets">' +
+        (t.bullets || []).map((x) => "<li>" + esc(x) + "</li>").join("") +
+        "</ul>"
+      );
+    }
     return "";
   }
 
@@ -6462,6 +6669,11 @@
    */
   function openServiceBooking(service) {
     if (!service) return;
+    /* Himoya: «Tez kunda» xizmatga navbat ochilmasligi kerak. Tugma
+       allaqachon yashirilgan, lekin bu funksiya boshqa joydan ham
+       chaqirilishi mumkin — server esa 409 qaytarardi va mijoz shaklni
+       to'ldirib bo'lgach xato ko'rardi. */
+    if (svcSoon(service)) return toast(SOON_TEXT + " — hozircha navbat olinmaydi");
     haptic("medium");
     BK.step = 1;
     BK.service = service;
