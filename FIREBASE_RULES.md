@@ -40,6 +40,21 @@ Publish qilgandan keyin quyidagilarni bir marta bosib chiqing:
 
 «Baza qoidalari ruxsat bermadi» chiqsa — Publish o'tmagan.
 
+### Console Publish'ni rad etsa
+
+Firebase qoidalarni Publish paytida **kompilyatsiya qiladi** — JSON
+to'g'ri bo'lsa ham ifodada xato bo'lishi mumkin.
+
+| Xato | Sabab | To'g'ri yozilishi |
+|---|---|---|
+| `! only operates on booleans` | `!` faqat mantiqiy qiymat ustida ishlaydi. `.val()` esa har qanday turni qaytaradi | `x.val() != true` (`!x.val()` emas) |
+| `Unknown method` | Metod nomi xato yoki bu qoidalar tilida yo'q | Firebase hujjatidagi nomni tekshiring |
+| `No such method/property` | `data` va `newData` almashib ketgan | `.validate` da `newData`, `.write` da `data` |
+
+`!` ni **faqat** boolean qaytaruvchi metodlar bilan ishlatish mumkin:
+`exists()`, `hasChild()`, `hasChildren()`, `isNumber()`, `isString()`,
+`isBoolean()`, `matches()`, `contains()`, `beginsWith()`, `endsWith()`.
+
 ---
 
 ## Model
