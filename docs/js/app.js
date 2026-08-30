@@ -636,7 +636,6 @@
       b.classList.add("hidden");
       b.classList.remove("pulse", "bounce");
     }
-    refreshQuickBadges(); // bosh sahifadagi «Savatcha» plitkasi
   }
   const cartSum = () => S.cart.reduce((s, i) => s + i.price * i.qty, 0);
 
@@ -1909,7 +1908,6 @@
       renderBanners();
       renderCatalog();
       $("car-chip-name").textContent = (S.me && S.me.car && S.me.car.name) || "Mashina tanlash";
-      refreshQuickBadges();
     } catch (err) {
       // Zaxira rejimda xato bo'lsa ilovani YIQITMAYMIZ — bo'sh katalog
       // ko'rsatib, sababni pastdagi chiziqda aytamiz.
@@ -1994,7 +1992,7 @@
      yuklanadi: takror chaqiruv o'sha Promise'ni qaytaradi.
      ==================================================================== */
 
-  const SCRIPT_VERSION = "60"; // index.html dagi `?v=` bilan bir xil bo'lsin
+  const SCRIPT_VERSION = "61"; // index.html dagi `?v=` bilan bir xil bo'lsin
   const _scripts = new Map();
 
   function loadScript(src) {
@@ -3831,55 +3829,24 @@
   }
 
   /* ==================================================================
-     BOSH SAHIFA — tez o'tish plitkalari
+     BOSH SAHIFA — NIMA OLIB TASHLANGANI VA NEGA
+
+     Bosh sahifaning maqsadi — DO'KON. Shu sababli tovarlardan tepada
+     turgan, lekin hech qanday yangi yo'l ochmagan bloklar ketma-ket
+     olib tashlangan:
+
+       * `renderGreeting()` — «Xayrli tong, {ism}» qatori. Mijoz ilovani
+         tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
+       * TEZ O'TISH PLITKALARI (`#hm-quick`) — «Konfigurator», «Navbat»
+         va «Shogird». Uchalasi boshqa joyda bor: birinchi ikkisi
+         «🛠 Xizmatlar» bo'limida, Shogird esa pastdagi menyuda. Ular
+         bilan birga `bindQuickActions()` va `refreshQuickBadges()` ham
+         ketdi — ikkinchisi allaqachon hech narsa qilmasdi, lekin
+         `saveCart()` va `loadHome()` dan chaqirilib turardi.
+
+     Ikkisining markup'i ham `index.html` dan chiqarilgan. Kerak bo'lsa
+     git tarixida bor.
      ================================================================== */
-
-  /* DIQQAT: `renderGreeting()` OLIB TASHLANDI.
-     U «Xayrli tong / Xayrli kun / Xayrli kech, {ism}» degan qatorni har
-     ochilishda ekranning eng tepasida chizardi. Foydasi yo'q edi: mijoz
-     ilovani tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
-     Markup ham (`.hm-greet`) index.html dan chiqarildi. */
-
-  /** Tez o'tish plitkalari (bir bosishda: konfigurator / navbat).
-   *
-   *  «Saqlangan» va «Savatcha» plitkalari OLIB TASHLANDI — ikkisi ham
-   *  pastdagi navigatsiyada turadi va bu yerda takrorlanardi.
-   *
-   *  «Navbat» ilgari bosh sahifadagi `#book-sec` bo'limiga SKROLL qilardi.
-   *  U bo'lim endi yo'q — barcha xizmatlar «🛠 Xizmatlar» sahifasida,
-   *  shuning uchun plitka o'sha sahifani ochadi. */
-  function bindQuickActions() {
-    document.querySelectorAll("#hm-quick .hm-q").forEach((b) => {
-      b.onclick = () => {
-        haptic();
-        const go = b.dataset.go;
-        if (go === "flow") return openFlow();
-        if (go === "book") return show("services");
-        show(go);
-      };
-    });
-  }
-
-  /** Plitkalardagi sanoqchilar.
-   *
-   *  «Saqlangan» va «Savatcha» plitkalari olib tashlangani uchun hozir
-   *  sanaladigan narsa qolmadi. Funksiya SAQLANDI: u savat o'zgarganda
-   *  bir necha joydan chaqiriladi (`saveCart`), va elementlar yo'q bo'lsa
-   *  jimgina chiqib ketadi. Ertaga plitka qaytsa — shu yerga bitta qator
-   *  qo'shiladi, chaqiruvlarni qidirish kerak bo'lmaydi. */
-  function refreshQuickBadges() {
-    const set = (id, n) => {
-      const b = $(id);
-      if (!b) return;
-      b.textContent = n > 99 ? "99+" : String(n);
-      b.classList.toggle("hidden", !n);
-    };
-    set("hm-q-saved", S.favorites ? S.favorites.size : 0);
-    set(
-      "hm-q-cart",
-      (S.cart || []).reduce((s, i) => s + (Number(i.qty) || 0), 0)
-    );
-  }
 
   function openProduct(p) {
     haptic();
@@ -8496,7 +8463,6 @@
   // Zaxira rejim belgisi — bosilganda holatni tushuntiradi
   if ($("offline-badge")) $("offline-badge").onclick = explainOffline;
 
-  bindQuickActions(); // bosh sahifadagi tez o'tish plitkalari
   bindShopTools(); // do'kon qidiruvi, filtrlar va saralash
   /* Fon musiqasi. `await` QILINMAYDI: musiqa ilovaning ishga tushishini
      kutib turmasligi kerak — server javob bermasa ham do'kon ochilishi

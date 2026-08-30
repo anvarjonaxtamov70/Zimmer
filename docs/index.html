@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=60">
+  <link rel="stylesheet" href="styles.css?v=61">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -173,17 +173,23 @@
 
   <div class="stories" id="stories"></div>
 
-  <!-- Tez o'tish plitkalari.
-       «Saqlangan» va «Savatcha» OLIB TASHLANDI — ikkisi ham pastdagi
-       navigatsiyada allaqachon bor va bu yerda takrorlanardi. -->
-  <div class="hm-quick" id="hm-quick">
-    <button class="hm-q" data-go="flow"><i>💡</i><span>Konfigurator</span></button>
-    <button class="hm-q" data-go="book"><i>🗓</i><span>Navbat</span></button>
-    <!-- Uchinchi plitka: yordamchi bosh sahifadan ham bir bosishda
-         ochilsin (pastdagi menyuda ham bor — bu takrorlanish ATAYLAB,
-         mijoz savol paydo bo'lgan LAHZADA ko'zi tushishi kerak). -->
-    <button class="hm-q" data-go="shogird"><i>🎓</i><span>Shogird</span></button>
-  </div>
+  <!-- ==========================================================================
+       TEZ O'TISH PLITKALARI BUTUNLAY OLIB TASHLANDI
+
+       Bu qatorda «Konfigurator», «Navbat» va «Shogird» plitkalari turardi.
+       Uchalasi ham BOSHQA JOYDA allaqachon bor:
+
+         * Konfigurator va Navbat  ->  «🛠 Xizmatlar» bo'limi (har xizmatning
+           o'z oynasi, narxi va navbat tugmasi bilan);
+         * Shogird                 ->  pastdagi menyudagi «🎓 Shogird».
+
+       Ya'ni plitkalar hech qanday YANGI yo'l ochmasdi — faqat stories
+       bilan banner orasida bir qator joy egallab, mahsulotlarni pastga
+       surib turardi. Bosh sahifaning maqsadi — DO'KON.
+
+       Ilgari bu yerda «Saqlangan» va «Savatcha» ham bo'lgan va aynan shu
+       sabab (pastdagi menyuda takrorlanishi) olib tashlangan edi.
+       ========================================================================== -->
 
   <div class="banner-wrap">
     <div class="banners" id="banners"></div>
@@ -882,16 +888,16 @@
         pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
         tanlanganda kerak, lekin har ochilishda o'qilardi.
      ========================================================================== -->
-<script defer src="config.js?v=60"></script>
+<script defer src="config.js?v=61"></script>
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script defer src="js/fb.js?v=60"></script>
+<script defer src="js/fb.js?v=61"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script defer src="js/upload.js?v=60"></script>
+<script defer src="js/upload.js?v=61"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<script defer src="js/offline.js?v=60"></script>
-<script defer src="js/headlight.js?v=60"></script>
-<script defer src="js/cars.js?v=60"></script>
-<script defer src="js/app.js?v=60"></script>
+<script defer src="js/offline.js?v=61"></script>
+<script defer src="js/headlight.js?v=61"></script>
+<script defer src="js/cars.js?v=61"></script>
+<script defer src="js/app.js?v=61"></script>
 </body>
 </html>

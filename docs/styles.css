@@ -5978,70 +5978,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 #home.entering > *:nth-child(7) { animation-delay: 0.31s; }
 #home.entering > *:nth-child(8) { animation-delay: 0.36s; }
 
-/* ---- shaxsiy salomlashuv */
-/* Plitkalar soni O'ZGARISHI mumkin (hozir 2: Konfigurator va Navbat).
-   Ilgari `repeat(4, 1fr)` qattiq yozilgan edi — ikkita plitka qolganda
-   ular chorak kenglikda tor bo'lib, o'ng tomonda katta bo'sh joy qolardi.
-   `auto-fit` bilan mavjud plitkalar qatorni to'liq bo'lib oladi. */
-.hm-quick {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px 16px 4px;
-}
-/* Ikki plitka qolganda ular kattaroq — bosish maydoni ham qulayroq */
-.hm-q {
-  min-height: 74px;
-  justify-content: center;
-}
-.hm-q {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 4px 10px;
-  border-radius: var(--r-md);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  color: var(--text);
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.16s var(--spring), border-color 0.2s;
-}
-.hm-q i {
-  font-size: 19px;
-  font-style: normal;
-  line-height: 1;
-}
-.hm-q span {
-  font-size: 9.5px;
-  font-weight: 700;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.15;
-}
-.hm-q:active { transform: scale(0.94); border-color: var(--line-2); }
-/* Sanoqchi (saqlangan / savat) */
-.hm-q-b {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--red);
-  color: #fff;
-  font-size: 9.5px;
-  font-weight: 800;
-  line-height: 17px;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(255, 45, 58, 0.45);
-}
-/* Har plitkaga o'z aksenti — ko'z darhol ajratadi */
-.hm-q[data-go="flow"] i { color: var(--amber); }
-.hm-q[data-go="book"] i { color: #7db8ff; }
+/* TEZ O'TISH PLITKALARI (`.hm-quick`, `.hm-q*`) OLIB TASHLANDI.
+   Markup ham yo'q — sabab `index.html` va `app.js` dagi izohda:
+   uchala plitka («Konfigurator», «Navbat», «Shogird») boshqa bo'limlarda
+   allaqachon bor edi, bu yerda esa faqat mahsulotlarni pastga surib
+   turardi. */
 
 /* ---- banner uyasi (ilgari CSS'i UMUMAN yo'q edi) */
 .banner-wrap {
@@ -6694,7 +6635,6 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 /* -------------------------------------------------- kichik ekranlar */
 @media (max-width: 360px) {
-  .hm-q span { font-size: 8.5px; }
   .prod-cost b { font-size: 14px; }
   .prod-name { font-size: 12.5px; }
 }
@@ -6707,7 +6647,6 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   .pm-slider img,
   #iv-img { transition: none; opacity: 1; transform: none; }
   .prod:active,
-  .hm-q:active,
   .chip:active,
   .prod-fav:active,
   .prod-add:active,
