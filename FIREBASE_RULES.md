@@ -4,6 +4,11 @@ Qoidalar `database.rules.json` faylida. U **ataylab izohsiz** — izohlar Fireba
 Console'ning tahrirlagichida muammo tug'dirishi mumkin, shuning uchun tushuntirish
 shu faylda turadi. Ikki nusxa saqlanmaydi, ya'ni ular bir-biridan ajralib ketmaydi.
 
+> ⚠️ **QOIDALAR YANGILANDI — QAYTA PUBLISH QILISH SHART.**
+> Ilgari mijozlar bazasi (ism, telefon) va buyurtmalar hammaga ochiq edi.
+> Yangi qoidalarni qo'ymasangiz ular ochiq qolib ketadi. Pastdagi
+> «Qanday qo'yiladi» bo'limiga qarang.
+
 ## Qanday qo'yiladi
 
 1. https://console.firebase.google.com — loyihani tanlang
@@ -22,54 +27,143 @@ qo'shtirnoqlar va apostroflar buzilib, Console xato beradi.
 
 ## Tekshirish
 
-Mini App → **Admin** → **Ombor** oching. Ro'yxat chiqsa — qoidalar ishlayapti.
-«Baza qoidalari ruxsat bermadi» degan xato chiqsa — Publish o'tmagan.
+Publish qilgandan keyin quyidagilarni bir marta bosib chiqing:
+
+| Tekshiruv | Kutilgan natija |
+|---|---|
+| Do'kon ochilishi, tovarlar ko'rinishi | ✅ ishlaydi (`catalog` o'qish ochiq) |
+| Admin → **Ombor** → qoldiqni o'zgartirish | ✅ ishlaydi (`catalog` yozish ochiq) |
+| Admin → **Tovar qo'shish** | ✅ ishlaydi |
+| **Xizmatlar** → navbat olish → bo'sh vaqtlar | ✅ ishlaydi (`slots` tuguni) |
+| Admin → **Buyurtmalar** | ⚠️ `WORKER_URL` sozlangan bo'lishi SHART |
+| Kabinet → **Buyurtmalarim** (Render o'chganda) | ⚠️ `WORKER_URL` sozlangan bo'lishi SHART |
+
+«Baza qoidalari ruxsat bermadi» chiqsa — Publish o'tmagan.
+
+---
 
 ## Model
 
-Mini App bazaga **to'g'ridan** o'qiydi va yozadi (Avto_A1 dagi kabi), shuning
-uchun Render ham, Cloudflare Worker ham kerak bo'lmaydi.
+Uch xil yo'l bor va ularning huquqi **har xil**:
 
-Bu loyiha egasining ongli qarori: hozir ishlash muhim, xavfsizlik keyin
-qattiqlashtiriladi.
+| Kim | Qanday ulanadi | Qoidalar unga ta'sir qiladimi |
+|---|---|---|
+| **Bot** (Render) | Xizmat kaliti (service account) | ❌ yo'q — to'liq huquq |
+| **Cloudflare Worker** | Xizmat kaliti + initData imzosini tekshiradi | ❌ yo'q — to'liq huquq |
+| **Mini App** (brauzer) | Autentifikatsiyasiz REST | ✅ **faqat shu qoidalar** |
 
-## Nima ochiq
+Ya'ni qoidalar **faqat brauzerni** cheklaydi. Bot va Worker ular orqali
+o'tadi — shuning uchun tugunni yopish bot ishini buzmaydi.
 
-| Tugun | O'qish | Yozish | Nima uchun |
+### Asosiy tamoyil: shaxsiy ma'lumot ochiq tugunda turmaydi
+
+Brauzer ma'lumotni faqat quyidagi hollarda o'qiy oladi:
+
+- **ommaviy** bo'lsa (tovar, narx, banner, bo'sh vaqtlar), yoki
+- **hech kimning shaxsiy ma'lumoti bo'lmasa**.
+
+Ism, telefon, manzil bor tugunlar brauzer uchun **yopiq**. Ularni Worker
+beradi — u avval Telegram imzosini tekshiradi.
+
+---
+
+## Nima ochiq (brauzer uchun)
+
+| Tugun | O'qish | Yozish | Izoh |
 |---|---|---|---|
-| `catalog` | ✅ | ✅ | Tovar, narx, qoldiq, banner, stories — admin paneli shu yerga yozadi |
-| `pending_orders` | ✅ | ✅ | Buyurtma berish va admin ko'rishi |
-| `pending_products` | ✅ | ✅ | Qoralamalar (Worker yo'li uchun) |
-| `pending_edits` | ✅ | ✅ | Tuzatishlar (Worker yo'li uchun) |
-| `users` | ✅ | ✅ | Profil, saqlanganlar |
-| `bookings` | ✅ | ✅ | Navbat |
-| `biled_orders` | ✅ | ✅ | Bi-LED buyurtmalari |
-| `favorites` | ✅ | ✅ | Saqlangan tovarlar |
-| `products_counter` | ✅ | ✅ | Yangi tovar uchun id sanoqchisi |
+| `catalog/*` | ✅ | ✅ tekshiruv bilan | Do'kon vitrinasi. Admin paneli brauzerdan yozadi |
+| `slots/{sana}` | ✅ | ✅ tekshiruv bilan | **Faqat vaqt va davomiylik.** Shaxsiy ma'lumot YO'Q |
+| `bookings/{id}` | ❌ | ✅ tekshiruv bilan | Navbat yozish mumkin, **ro'yxatni o'qish mumkin emas** |
+| `biled_orders/{id}` | ❌ | ✅ tekshiruv bilan | Xuddi shunday |
+| `pending_orders/{id}/status` | ❌ | ✅ faqat holat | Admin holatni o'zgartirishi uchun. **Yangi buyurtma yozib bo'lmaydi** |
+| `story_views`, `story_reactions` | ✅ | ✅ tekshiruv bilan | Faqat Telegram id va emoji |
+| `products_counter/n`, `stories_counter/n` | ✅ | ✅ faqat o'sish | Yangi id sanoqchisi |
+
+### Yozishda nima tekshiriladi
+
+`catalog` yozish ochiq, lekin **qiymat turlari va shakli tekshiriladi**:
+
+- barcha `*_url` va `link` — faqat `https://` bilan boshlanadi
+  → `javascript:` yoki ochiq yo'naltirish (open redirect) qo'yib bo'lmaydi;
+- `color_from`, `color_to`, `hex_from`, `hex_to`, `glow`, `ring_color` —
+  faqat `#rrggbb` yoki rang nomi
+  → **CSS injection yopildi** (ilgari bu qiymat `style` ichiga to'g'ridan
+  qo'yilardi va ichiga `url(...)` yozib IP manzilni sizdirish mumkin edi);
+- `price`, `old_price`, `stock`, `duration_min` — faqat son va oqilona
+  chegara ichida → narxni `-1` yoki `1e30` qilib bo'lmaydi;
+- matn maydonlariga uzunlik chegarasi → bazani matn bilan to'ldirib bo'lmaydi;
+- `imported`, `sqlite_id`, `notified_admin` — **brauzerdan yozilmaydi**.
+
+Oxirgisi muhim: ilgari `imported: true` deb yozib qo'yish mumkin edi va bot
+o'sha buyurtmani «allaqachon ko'chirilgan» deb **butunlay o'tkazib ketardi**.
+Ya'ni haqiqiy buyurtmani bazaga tushirmaslik mumkin edi.
+
+---
 
 ## Nima yopiq — va nega
 
-Bu uchtasi **ataylab** yopiq. Mini App ularga murojaat qilmaydi, ya'ni ochilsa
-foyda bermaydi, faqat zarar keltiradi.
+| Tugun | Nima uchun yopiq | Brauzer o'rniga qayerdan oladi |
+|---|---|---|
+| `users` | **Har bir mijozning ismi va telefoni** | Worker `/me`, `/profile` |
+| `favorites` | Kim nimani saqlagani | Render `/api/favorites` |
+| `pending_orders` | Ism, telefon, **manzil** | Worker `/me` va `/admin/orders` |
+| `bookings` | Ism, telefon | Worker `/admin/orders` (`kind: booking`) |
+| `biled_orders` | Ism, telefon | Worker `/admin/orders` (`kind: biled`) |
+| `story_replies` | Mijoz yozgan xabar matni | Worker |
+| `orders` | Botning SQLite nusxasi | — |
+| `products` | Excel qoralamalari va **ta'minotchi narxlari** | — |
+| `pending_products`, `pending_edits` | Worker yozadi, brauzer o'qimaydi | — |
+| `admins` | Adminlar ro'yxati | — |
 
-**`orders`** — botning SQLite nusxasi. Brauzer bunga yozsa `restore_orders`
-buziladi: u raqamli SQLite id kutadi. Natijada bot buyurtmalarni tiklay olmay
-qoladi.
+### Nega `bookings` yopiq bo'lsa ham navbat ishlaydi
 
-**`products`** — Excel importi qoralamalari va **ta'minotchi narxlari**. Bu savdo
-maxfiyati; do'kon vitrinasida ko'rinmaydi va ko'rinishi ham kerak emas.
+Bo'sh vaqtni hisoblash uchun ilgari **butun `bookings` tuguni** o'qilardi —
+ya'ni bo'sh vaqtni ko'rsatish uchun hammaning telefonini ochish kerak edi.
 
-**`admins`** — adminlar ro'yxati.
+Endi bandlik alohida tugunda:
 
-## Bilib turish kerak
+```
+slots/2026-09-01/{navbat_id} = { "time": "14:00", "duration_min": 60 }
+```
 
-Baza manzili `docs/config.js` da, GitHub Pages'da ochiq turadi. Yuqorida
-«ochiq» belgilangan tugunlarni manzilni bilgan istalgan odam o'qiy va
-o'zgartira oladi.
+Ichida **na ism, na telefon, na xizmat nomi**. Mini App shuni o'qiydi
+(`docs/js/offline.js` → `takenSlots`), bot esa yozib turadi
+(`services/sync.py` → `push_booking_slot`). Navbat bekor qilinsa yozuv
+o'chiriladi va vaqt yana bo'sh bo'ladi.
 
-## Keyinchalik yopishga qaytish
+---
 
-Kod qayta yozilmaydi. Worker orqali yozish yo'li (`/order`, `/profile`,
-`/admin/*`) o'chirilmagan va ishlashda davom etadi. Yopish uchun shu fayldagi
-`".write": true` larni `false` ga o'zgartirib, qaytadan **Publish** qilish
-kifoya — mini app avtomatik Worker yo'liga o'tadi.
+## `WORKER_URL` endi majburiy
+
+Ilgari Worker **ixtiyoriy** edi: u sozlanmasa Mini App to'g'ridan bazaga
+murojaat qilardi. Endi shaxsiy ma'lumotli tugunlar yopiq, shuning uchun
+quyidagilar Worker'siz ishlamaydi:
+
+- Admin → **Buyurtmalar** (uchta bo'lim: do'kon, Bi-LED, navbat)
+- Kabinet → **Buyurtmalarim** (Render o'chgan paytda)
+
+Sozlash: `docs/config.js` → `WORKER_URL`. Batafsil: `WORKER_SETUP.md`.
+
+> Worker `/admin/orders` endi `kind` parametrini oladi
+> (`order` | `biled` | `booking`). **Worker'ni qayta deploy qilish kerak** —
+> aks holda Bi-LED va navbat ro'yxatlari bo'sh ko'rinadi.
+
+---
+
+## Qolgan ochiq joy (ongli qaror)
+
+`catalog` **yozish** brauzer uchun ochiq qolgan — chunki admin paneli
+(`docs/js/admin-shop.js`) bazaga to'g'ridan yozadi va u
+autentifikatsiyadan o'tmaydi. Ya'ni baza manzilini bilgan odam hali ham
+**narx va qoldiqni o'zgartira oladi** (lekin endi faqat to'g'ri turdagi
+qiymat bilan — yuqoridagi tekshiruvlar).
+
+To'liq yopish uchun admin yozuvlari himoyalangan yo'lga o'tishi kerak:
+Render'da `/api/admin/*` (initData + admin tekshiruvi bilan) yoki Worker'da
+`/admin/product` va `/admin/edit` — **ikkisi ham allaqachon bor va
+ishlaydi**. `admin-shop.js` ni ularga o'tkazgandan keyin `catalog` yozishni
+ham `false` qilish mumkin.
+
+Bu keyingi qadam sifatida qoldirildi: hozirgi o'zgarish shaxsiy
+ma'lumotning oshkor bo'lishini to'xtatadi, admin paneli esa ishlashda
+davom etadi.

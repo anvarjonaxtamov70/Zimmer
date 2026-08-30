@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from database import queries as q
+from services import orders, sync
 from keyboards.inline import (
     admin_new_booking_kb,
     booking_confirm_kb,
@@ -21,6 +22,7 @@ from utils.helpers import (
     decode_time,
     fmt_price,
     free_slots,
+    html_escape,
     today_iso,
     user_link,
 )
@@ -87,7 +89,7 @@ async def choose_date(callback: CallbackQuery) -> None:
         return
 
     text = (
-        f"🛠 Xizmat: <b>{service['name']}</b>\n"
+        f"🛠 Xizmat: <b>{html_escape(service['name'])}</b>\n"
         f"⏱ Davomiyligi: {service['duration_min']} daqiqa\n"
         f"💰 Narx: {fmt_price(service['price'])}\n\n"
         "📅 Qaysi kunga navbat olasiz?"
@@ -117,7 +119,7 @@ async def choose_time(callback: CallbackQuery) -> None:
         return
 
     text = (
-        f"🛠 Xizmat: <b>{service['name']}</b>\n"
+        f"🛠 Xizmat: <b>{html_escape(service['name'])}</b>\n"
         f"📅 Sana: <b>{date_label(date_iso)}</b>\n\n"
         f"🕐 Bo'sh vaqtlar ({len(slots)} ta). Qulay vaqtni tanlang:"
     )
@@ -139,7 +141,7 @@ async def confirm_booking(callback: CallbackQuery) -> None:
 
     text = (
         "🔎 <b>Navbatni tasdiqlang</b>\n\n"
-        f"🛠 Xizmat: <b>{service['name']}</b>\n"
+        f"🛠 Xizmat: <b>{html_escape(service['name'])}</b>\n"
         f"📅 Sana: <b>{date_label(date_iso)}</b>\n"
         f"🕐 Vaqt: <b>{time_str}</b>\n"
         f"⏱ Davomiyligi: {service['duration_min']} daqiqa\n"
@@ -180,13 +182,35 @@ async def save_booking(callback: CallbackQuery, bot: Bot) -> None:
         )
         return
 
-    booking_id = await q.add_booking(callback.from_user.id, service_id, date_iso, time_str)
+    try:
+        booking_id = await q.add_booking(callback.from_user.id, service_id, date_iso, time_str)
+    except q.SlotTaken:
+        # Bazadagi UNIQUE cheklov to'qnashuvni oxirgi nuqtada ushlab qoldi:
+        # yuqoridagi tekshiruv bilan yozuv orasida boshqa mijoz olib qo'ygan.
+        await callback.answer(
+            "Afsus, bu vaqt shu lahzada band bo'ldi. Boshqa vaqtni tanlang.", show_alert=True
+        )
+        slots = free_slots(date_iso, int(service["duration_min"]), await _taken_slots(date_iso))
+        await edit_or_send(
+            callback.message,
+            f"📅 <b>{date_label(date_iso)}</b> uchun bo'sh vaqtlar:",
+            times_kb(service_id, date_iso, slots),
+        )
+        return
+
+    # Bulutga yozamiz — ilgari bot orqali olingan navbat FAQAT SQLite'da
+    # qolardi va qayta deployda yo'qolardi. Bundan tashqari Mini App bo'sh
+    # vaqtni bulutdan hisoblaydi, ya'ni bu navbat unga ko'rinmasdi va
+    # o'sha vaqtga ikkinchi mijoz yozilib qolardi.
+    booking_row = await q.get_booking(booking_id)
+    if booking_row is not None:
+        await sync.push_booking(booking_row)
 
     await edit_or_send(
         callback.message,
         "✅ <b>Navbatingiz band qilindi!</b>\n\n"
         f"🆔 Navbat raqami: <b>#{booking_id}</b>\n"
-        f"🛠 Xizmat: <b>{service['name']}</b>\n"
+        f"🛠 Xizmat: <b>{html_escape(service['name'])}</b>\n"
         f"📅 Sana: <b>{date_label(date_iso)}</b>\n"
         f"🕐 Vaqt: <b>{time_str}</b>\n"
         f"💰 Narx: {fmt_price(service['price'])}\n\n"
@@ -201,7 +225,7 @@ async def save_booking(callback: CallbackQuery, bot: Bot) -> None:
         f"🆔 #{booking_id}\n"
         f"👤 {user_link(user['full_name'], user['username'], user['user_id'])}\n"
         f"📞 {user['phone']}\n"
-        f"🛠 {service['name']}\n"
+        f"🛠 {html_escape(service['name'])}\n"
         f"📅 {date_label(date_iso)}\n"
         f"🕐 {time_str}",
         admin_new_booking_kb(booking_id),
@@ -227,7 +251,7 @@ async def my_bookings(message: Message, state: FSMContext) -> None:
     for bk in upcoming:
         lines.append(
             f"🆔 <b>#{bk['id']}</b> · {BOOKING_STATUS.get(bk['status'], bk['status'])}\n"
-            f"🛠 {bk['service_name']}\n"
+            f"🛠 {html_escape(bk['service_name'])}\n"
             f"📅 {date_label(bk['date'])} · 🕐 <b>{bk['time']}</b>\n"
             f"💰 {fmt_price(bk['price'])}\n"
         )
@@ -245,7 +269,19 @@ async def cancel_booking(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Bu navbat allaqachon bekor qilingan", show_alert=True)
         return
 
-    await q.set_booking_status(booking_id, "cancelled")
+    # Holat mexanizmi orqali: tekshiradi, bazaga yozadi, bulutga uzatadi va
+    # ochiq bandlik jadvalidan o'chiradi. Ilgari bu yerda `set_booking_status`
+    # TO'G'RIDAN chaqirilardi — natijada Firebase'da holat abadiy «new» bo'lib
+    # qolardi va bekor qilingan vaqt boshqa mijozga BAND ko'rinardi.
+    allowed, reason = orders.check("booking", booking["status"], "cancelled")
+    if not allowed:
+        await callback.answer(
+            orders.reason_text("booking", booking["status"], "cancelled", reason),
+            show_alert=True,
+        )
+        return
+
+    await orders.apply("booking", booking_id, "cancelled")
     await edit_or_send(
         callback.message,
         f"❌ <b>#{booking_id}</b> raqamli navbat bekor qilindi.\n"
@@ -259,6 +295,6 @@ async def cancel_booking(callback: CallbackQuery, bot: Bot) -> None:
         "⚠️ <b>Navbat bekor qilindi</b>\n\n"
         f"🆔 #{booking_id}\n"
         f"👤 {booking['full_name']} ({booking['phone']})\n"
-        f"🛠 {booking['service_name']}\n"
+        f"🛠 {html_escape(booking['service_name'])}\n"
         f"📅 {date_label(booking['date'])} 🕐 {booking['time']}",
     )

@@ -18,12 +18,13 @@ from keyboards.inline import (
     admin_new_booking_kb,
     admin_new_order_kb,
 )
-from services import identity, sync
+from services import identity, orders as order_flow, sync
 from utils.helpers import (
     available_dates,
     date_label,
     fmt_price,
     free_slots,
+    html_escape,
     normalize_phone,
     short_date_label,
     today_iso,
@@ -35,6 +36,13 @@ from utils.ui import notify_admins
 logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
+
+# Kirish ma'lumoti chegaralari. Ilgari `items` va `address` uchun YUQORI
+# chegara yo'q edi — mijoz minglab qator yoki juda uzun matn yuborib
+# serverni ortiqcha ishga majburlashi mumkin edi.
+MAX_ORDER_ITEMS = 50
+MAX_ITEM_QTY = 1000
+MAX_ADDRESS_LEN = 400
 
 
 # ------------------------------------------------------------------ yordamchilar
@@ -161,7 +169,16 @@ def _booking_json(row) -> dict:
 
 
 @routes.get("/api/config")
-async def api_config(_request: web.Request) -> web.Response:
+async def api_config(request: web.Request) -> web.Response:
+    """Do'kon sozlamalari va to'lov rekvizitlari.
+
+    IMZO TALAB QILINADI. Ilgari bu endpoint himoyasiz edi — ya'ni istalgan
+    odam brauzerdan ochib karta raqamini, karta egasining ismini va admin
+    username'ini ko'ra olardi. Mini App bu so'rovni allaqachon imzo bilan
+    yuboradi (`api()` -> `Authorization: tma ...`), shuning uchun tekshiruv
+    qo'shilishi ilova ishiga ta'sir qilmaydi.
+    """
+    await _current_user(request)
     return web.json_response(
         {
             "shop_name": config.shop_name,
@@ -677,28 +694,47 @@ async def api_create_booking(request: web.Request) -> web.Response:
             {"slots": slots},
         )
 
-    booking_id = await q.add_booking(user_id, service_id, date_iso, time_str)
+    # Yuqoridagi `free_slots` tekshiruvi bilan bu yozuv orasida boshqa mijoz
+    # o'sha vaqtni olib qo'yishi mumkin. Bazadagi yagona indeks shuni
+    # to'xtatadi va biz mijozga yangilangan ro'yxatni qaytaramiz.
+    try:
+        booking_id = await q.add_booking(user_id, service_id, date_iso, time_str)
+    except q.SlotTaken as error:
+        slots = free_slots(
+            date_iso, int(service["duration_min"]), await _taken_slots(date_iso)
+        )
+        raise ApiError(
+            409,
+            "slot_taken",
+            "Bu vaqt shu lahzada band bo'ldi. Boshqa vaqtni tanlang.",
+            {"slots": slots},
+        ) from error
+
     booking = await q.get_booking(booking_id)
     await sync.push_booking(booking)
 
     bot = request.app["bot"]
-    await notify_admins(
-        bot,
-        "🔔 <b>Yangi navbat</b> (Mini App)\n\n"
-        f"🆔 #{booking_id}\n"
-        f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
-        f"📞 {row['phone']}\n"
-        f"🛠 {service['name']}\n"
-        f"📅 {date_label(date_iso)}\n"
-        f"🕐 {time_str}",
-        admin_new_booking_kb(booking_id),
-    )
+    safe_service = html_escape(service["name"])
+    try:
+        await notify_admins(
+            bot,
+            "🔔 <b>Yangi navbat</b> (Mini App)\n\n"
+            f"🆔 #{booking_id}\n"
+            f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
+            f"📞 {html_escape(row['phone'])}\n"
+            f"🛠 {safe_service}\n"
+            f"📅 {date_label(date_iso)}\n"
+            f"🕐 {time_str}",
+            admin_new_booking_kb(booking_id),
+        )
+    except Exception as error:
+        logger.error("Navbat #%s haqida adminga xabar yuborilmadi: %s", booking_id, error)
     try:
         await bot.send_message(
             user_id,
             "✅ <b>Navbatingiz band qilindi!</b>\n\n"
             f"🆔 #{booking_id}\n"
-            f"🛠 {service['name']}\n"
+            f"🛠 {safe_service}\n"
             f"📅 {date_label(date_iso)}\n"
             f"🕐 <b>{time_str}</b>\n"
             f"💰 {fmt_price(service['price'])}",
@@ -730,15 +766,33 @@ async def api_cancel_booking(request: web.Request) -> web.Response:
     if booking["status"] == "cancelled":
         raise bad_request("Bu navbat allaqachon bekor qilingan")
 
-    await q.set_booking_status(booking_id, "cancelled")
-    await notify_admins(
-        request.app["bot"],
-        "⚠️ <b>Navbat bekor qilindi</b> (Mini App)\n\n"
-        f"🆔 #{booking_id}\n"
-        f"👤 {booking['full_name']} ({booking['phone']})\n"
-        f"🛠 {booking['service_name']}\n"
-        f"📅 {date_label(booking['date'])} 🕐 {booking['time']}",
-    )
+    # Holat mexanizmi orqali: tekshiradi, bazaga yozadi, bulutga uzatadi va
+    # ochiq bandlik jadvalidan o'chiradi. Ilgari `set_booking_status` TO'G'RIDAN
+    # chaqirilardi — natijada tugagan navbatni ham "bekor qilish" mumkin edi va
+    # Firebase'dagi holat abadiy «new» bo'lib qolardi (bo'shagan vaqt boshqa
+    # mijozga BAND ko'rinardi).
+    allowed, reason = order_flow.check("booking", booking["status"], "cancelled")
+    if not allowed:
+        raise bad_request(
+            order_flow.reason_text("booking", booking["status"], "cancelled", reason),
+            {
+                "status": booking["status"],
+                "status_label": order_flow.label("booking", booking["status"]),
+            },
+        )
+
+    await order_flow.apply("booking", booking_id, "cancelled")
+    try:
+        await notify_admins(
+            request.app["bot"],
+            "⚠️ <b>Navbat bekor qilindi</b> (Mini App)\n\n"
+            f"🆔 #{booking_id}\n"
+            f"👤 {html_escape(booking['full_name'])} ({html_escape(booking['phone'])})\n"
+            f"🛠 {html_escape(booking['service_name'])}\n"
+            f"📅 {date_label(booking['date'])} 🕐 {booking['time']}",
+        )
+    except Exception as error:
+        logger.error("Navbat #%s bekori haqida xabar yuborilmadi: %s", booking_id, error)
     updated = await q.get_booking(booking_id)
     return web.json_response({"ok": True, "booking": _booking_json(updated)})
 
@@ -784,19 +838,36 @@ async def api_create_order(request: web.Request) -> web.Response:
     raw_items = body.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         raise bad_request("Savatcha bo'sh")
+    # Yuqori chegara: ilgari cheklov yo'q edi va mijoz minglab qator yuborib
+    # har biri uchun alohida baza so'rovi bajarilishiga majburlashi mumkin edi.
+    if len(raw_items) > MAX_ORDER_ITEMS:
+        raise bad_request(f"Savatchada {MAX_ORDER_ITEMS} turdan ko'p tovar bo'lmasin")
 
     items: list[tuple[int, int]] = []
     for entry in raw_items:
         if not isinstance(entry, dict):
             raise bad_request("items formati noto'g'ri")
         try:
-            items.append((int(entry["product_id"]), int(entry["qty"])))
+            product_id = int(entry["product_id"])
+            qty = int(entry["qty"])
         except (KeyError, TypeError, ValueError) as error:
             raise bad_request("items ichida product_id va qty bo'lishi kerak") from error
+        if qty < 1 or qty > MAX_ITEM_QTY:
+            raise bad_request(f"Har bir tovar soni 1 dan {MAX_ITEM_QTY} gacha bo'lsin")
+        items.append((product_id, qty))
 
     address = str(body.get("address", "")).strip()
     if len(address) < 5:
         raise bad_request("Manzilni to'liqroq kiriting")
+    if len(address) > MAX_ADDRESS_LEN:
+        raise bad_request(f"Manzil {MAX_ADDRESS_LEN} belgidan qisqa bo'lsin")
+
+    # Idempotentlik kaliti: mijoz ikki marta bossa yoki tarmoq uzilib so'rov
+    # qaytarilsa — ikkinchi urinishda YANGI buyurtma yaratilmaydi, birinchisi
+    # qaytariladi. Kalit mijozdan keladi, lekin foydalanuvchiga BOG'LANADI,
+    # ya'ni boshqa odamning kaliti bilan uning buyurtmasini ko'rib bo'lmaydi.
+    raw_key = str(body.get("client_key", "")).strip()[:64]
+    idempotency_key = f"{user_id}:{raw_key}" if raw_key else None
 
     phone = normalize_phone(str(body.get("phone", ""))) or row["phone"]
     if not phone:
@@ -818,6 +889,7 @@ async def api_create_order(request: web.Request) -> web.Response:
         delivery_method=delivery_method,
         delivery_info=delivery_info,
         payment_method=payment_method,
+        idempotency_key=idempotency_key,
     )
     if order_id is None:
         raise ApiError(
@@ -831,36 +903,48 @@ async def api_create_order(request: web.Request) -> web.Response:
     order_items = await q.get_order_items(order_id)
     await sync.push_order(order, order_items)
     lines = [
-        f"• {item['name']} × {item['qty']} = {fmt_price(int(item['price']) * int(item['qty']))}"
+        f"• {html_escape(item['name'])} × {item['qty']}"
+        f" = {fmt_price(int(item['price']) * int(item['qty']))}"
         for item in order_items
     ]
 
-    # Yetkazib berish/to'lov qatorlari (bo'lsa) — xabarlarga qo'shiladi
+    # Yetkazib berish/to'lov qatorlari (bo'lsa) — xabarlarga qo'shiladi.
+    # Mijoz kiritgan matn HTML uchun tozalanadi: ichida `<` bo'lsa Telegram
+    # xabarni rad etadi va ADMIN buyurtmani ko'rmay qolardi.
+    safe_address = html_escape(address)
     meta_lines = []
     if delivery_info:
-        meta_lines.append(f"🚚 {delivery_info}")
+        meta_lines.append(f"🚚 {html_escape(delivery_info)}")
     if payment_method:
-        meta_lines.append(f"💳 To'lov: <b>{payment_method}</b>")
+        meta_lines.append(f"💳 To'lov: <b>{html_escape(payment_method)}</b>")
     meta_block = ("\n" + "\n".join(meta_lines)) if meta_lines else ""
 
     bot = request.app["bot"]
-    await notify_admins(
-        bot,
-        "🔔 <b>Yangi buyurtma</b> (Mini App)\n\n"
-        f"🆔 #{order_id}\n"
-        f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
-        f"📞 {phone}\n"
-        f"📍 {address}"
-        f"{meta_block}\n\n" + "\n".join(lines) + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>",
-        admin_new_order_kb(order_id),
-    )
+    # DIQQAT: adminga xabar `try` ichida — ilgari bu yerda xato chiqsa butun
+    # so'rov 500 bilan yiqilardi. Buyurtma esa BAZAGA ALLAQACHON yozilgan
+    # bo'lardi, ya'ni mijoz "xato" ko'rib qaytadan buyurtma berardi.
+    try:
+        await notify_admins(
+            bot,
+            "🔔 <b>Yangi buyurtma</b> (Mini App)\n\n"
+            f"🆔 #{order_id}\n"
+            f"👤 {user_link(row['full_name'], row['username'], user_id)}\n"
+            f"📞 {html_escape(phone)}\n"
+            f"📍 {safe_address}"
+            f"{meta_block}\n\n"
+            + "\n".join(lines)
+            + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>",
+            admin_new_order_kb(order_id),
+        )
+    except Exception as error:
+        logger.error("Buyurtma #%s haqida adminga xabar yuborilmadi: %s", order_id, error)
     try:
         await bot.send_message(
             user_id,
             f"✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n🆔 #{order_id}\n"
             + "\n".join(lines)
             + f"\n\n💰 Jami: <b>{fmt_price(order['total'])}</b>\n"
-            f"📍 {address}"
+            f"📍 {safe_address}"
             f"{meta_block}\n\nOperator tez orada bog'lanadi.",
         )
     except Exception as error:

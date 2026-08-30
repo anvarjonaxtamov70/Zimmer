@@ -15,6 +15,28 @@
    ========================================================================== */
 
 :root {
+  /* ========================================================================
+     MAVZU (theme)
+
+     Ilova ATAYLAB qora: bu ZIMMER brendining bir qismi (avtotuning, qizil
+     va tilla aksentlar qora ustida). Telegram'ning yorug' mavzusiga
+     butunlay o'tish bu yerda TO'G'RI YECHIM EMAS — stylesheet'da yuzlab
+     joyda `#fff` va `rgba(255,255,255,...)` qattiq yozilgan, ya'ni yarim
+     ko'chirish ilovani BUZUQ ko'rsatadi (oq ustida oq matn).
+
+     Buning o'rniga:
+       * `color-scheme: dark` — brauzer NATIVE elementlarni (select ro'yxati,
+         qidiruv maydonining tozalash belgisi, scrollbar) qorada chizadi.
+         Bu qator bo'lmasa iOS/Android'da ular OQ chiqib, qora fon ustida
+         ajralib turadi;
+       * `app.js -> applyTgTheme()` Telegram'ning sarlavha, fon va pastki
+         panel rangini shu palitra bilan tenglashtiradi — natijada ilova
+         chetlarida rang «chegarasi» ko'rinmaydi;
+       * ranglar shu yerdan O'QILADI (ilgari `#08080a` JS ichida ikki marta
+         qattiq yozilgan edi va palitra o'zgarsa ular eskirib qolardi).
+     ======================================================================== */
+  color-scheme: dark;
+
   --bg: #08080a;
   --bg-2: #0c0d10;
   --surface: #121317;
@@ -626,12 +648,8 @@ img, video { display: block; max-width: 100%; }
   background: var(--surface); border: 1px solid var(--line);
   overflow: hidden; display: flex; flex-direction: column;
 }
-.prod-art {
-  height: 104px; position: relative;
-  display: grid; place-items: center; font-size: 32px;
-  background: var(--surface-2);
-}
-.prod-art img { width: 100%; height: 100%; object-fit: cover; }
+/* `.prod-art` va `.prod-art img` E'LONLARI BU YERDAN OLIB TASHLANDI.
+   Ular pastda (yagona joyda) turadi — batafsil izoh o'sha yerda. */
 .prod-badge {
   position: absolute; top: 8px; left: 8px;
   background: var(--red-grad); color: #fff;
@@ -670,7 +688,10 @@ img, video { display: block; max-width: 100%; }
 .prod-add.added { background: var(--red-grad); color: #fff; }
 .prod-add:disabled { opacity: 0.4; }
 
-.skel { border-radius: var(--r-md); height: 186px; background: var(--surface-2); }
+/* `.skel` E'LONI BU YERDAN OLIB TASHLANDI — u pastdagi (shimmer bilan)
+   e'lon tomonidan TO'LIQ qoplanardi (balandlik, radius, fon — uchtasi
+   ham), ya'ni hech qanday ta'siri yo'q edi. Faol e'lon: `skelShimmer`
+   bloki bilan birga. */
 
 /* ------------------------------------------------------------ ro'yxatlar */
 .list { display: flex; flex-direction: column; gap: 10px; }
@@ -843,14 +864,38 @@ img, video { display: block; max-width: 100%; }
 .slot:disabled { opacity: 0.35; }
 
 /* --------------------------------------------------------- toast/burst */
+/* ==========================================================================
+   TOAST — YAGONA E'LON
+
+   ILGARI UCH MARTA e'lon qilingan edi va ikkinchisi (`position: relative`)
+   BIRINCHISINING `position: fixed` INI BEKOR QILARDI. Ya'ni toast ekranda
+   suzib turmasdi, balki sahifa oxirida oqim ichida qolardi — sahifa
+   varaqlanmagan bo'lsa mijoz uni umuman ko'rmasligi mumkin edi.
+   Sababi ko'rinib turadi: `::after` progress chizig'i uchun `overflow:
+   hidden` kerak bo'lgan va yoniga `position: relative` ham qo'shib
+   yuborilgan (aslida `fixed` ham joylashtirish konteksti yaratadi).
+
+   `--toast-ms` — progress chizig'ining davomiyligi. JS uni har xabar
+   uchun o'rnatadi: «Qaytarish» bor xabar uzoqroq turadi, chiziq esa
+   ilgari doim 2.8 soniyada tugab qolardi va vaqtni YOLG'ON ko'rsatardi.
+   ========================================================================== */
 .toast {
-  position: fixed; left: 14px; right: 14px; bottom: calc(96px + var(--safe-b));
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: calc(96px + var(--safe-b));
   z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
   background: rgba(22, 23, 28, 0.97);
   border: 1px solid var(--line-2);
   border-left: 3px solid var(--red);
-  color: #fff; font-size: 13.5px;
-  padding: 12px 16px; border-radius: 13px;
+  color: #fff;
+  font-size: 13.5px;
+  padding: 12px 16px;
+  border-radius: 13px;
   animation: toastIn 0.24s var(--spring);
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
@@ -2301,25 +2346,9 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .prod:active::after { left: 150%; transition: all 0.6s ease-in-out; }
 
-/* Rasm maydoni: kvadrat, oq fon, rasm to'liq ko'rinadi (contain) */
-.prod-art {
-  width: 100%; height: auto; padding-top: 100%;
-  position: relative; overflow: hidden;
-  background: #fff; border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  display: block; font-size: 32px;
-}
-.prod-art img, .prod-art .card-img-lazy {
-  position: absolute; top: 0; left: 0;
-  width: 100%; height: 100%;
-  object-fit: contain; padding: 12px; box-sizing: border-box;
-}
-/* Rasm yo'q bo'lsa — emoji aynan o'rtada, fon qoramtir */
-.prod-art.empty { background: var(--surface-2); }
-.prod-art-ph {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%); font-size: 34px; line-height: 1;
-}
+/* `.prod-art`, `.prod-art img`, `.prod-art.empty` va `.prod-art-ph`
+   E'LONLARI BU YERDAN HAM OLIB TASHLANDI — pastdagi yagona blokka
+   birlashtirildi. */
 
 .prod-badge { top: 12px; left: 12px; padding: 4px 9px; z-index: 4; }
 .prod-off { top: 12px; left: 12px; padding: 4px 9px; z-index: 4; }
@@ -2687,17 +2716,18 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 
 /* #17 — Toast xabarlarga progress bar */
-.toast {
-  position: relative;
-  overflow: hidden;
-}
+/* `.toast { position: relative; overflow: hidden }` OLIB TASHLANDI —
+   `position: relative` yuqoridagi `fixed` ni bekor qilib, toast'ni
+   ekranda suzishdan to'xtatardi. `overflow: hidden` yagona e'longa
+   ko'chirildi. */
 .toast::after {
   content: "";
   position: absolute; bottom: 0; left: 0; right: 0;
   height: 3px;
   background: var(--red-grad);
   transform-origin: left;
-  animation: toastProgress 2.8s linear forwards;
+  /* Davomiylik JS dan keladi (`--toast-ms`), standart — 2.8 s */
+  animation: toastProgress var(--toast-ms, 2800ms) linear forwards;
 }
 @keyframes toastProgress {
   from { transform: scaleX(1); }
@@ -3637,6 +3667,53 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   color: #ffd9a0;
   font-size: 12.5px;
   line-height: 1.45;
+}
+
+/* Sarlavhadagi kichik zaxira-rejim belgisi.
+   Katta chiziq o'rniga: joy egallamaydi, lekin holat ko'rinib turadi. */
+.offline-badge {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: 6px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(255, 170, 60, 0.12);
+  border: 1px solid rgba(255, 170, 60, 0.3);
+  color: #ffd9a0;
+  cursor: pointer;
+  animation: offBadgeIn 0.3s ease both, offBadgePulse 2.6s ease-in-out 0.3s infinite;
+}
+
+@keyframes offBadgeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes offBadgePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 170, 60, 0.28);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 170, 60, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offline-badge {
+    animation: none;
+  }
 }
 
 
@@ -5762,10 +5839,31 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
    eski WebView'da `aspect-ratio` qo'llanmasa maydon balandligi NOLGA
    tushib, kartochka buzilardi. */
 .prod-art {
+  /* ======================================================================
+     TOVAR RASMI MAYDONI — YAGONA E'LON
+
+     ILGARI `.prod-art` UCH MARTA e'lon qilingan edi (651, 2327, 5833
+     qatorlari) va uchtasi ham QISM-QISMDAN ta'sir qilardi:
+
+         balandlik   -> 3-e'londan (height: 0 + padding-bottom)
+         display     -> 2-e'londan (block)
+         place-items -> 1-e'londan (block bilan ma'nosiz)
+         font-size   -> 2-e'londan
+         border      -> 2-e'londan
+         background  -> 3-e'londan
+
+     Ya'ni kartochkaning haqiqiy o'lchamini bilish uchun uchta blokni
+     birlashtirib hisoblash kerak edi. Endi hammasi shu yerda.
+
+     `aspect-ratio` — `padding-bottom: 100%` hiylasining o'rniga: brauzer
+     joyni OLDINDAN ajratadi (CLS yo'q), lekin kod tushunarli qoladi.
+     `height: 0` bilan birga ishlatilmaydi — u `aspect-ratio` ni buzadi.
+     ====================================================================== */
   position: relative;
+  display: block;
   width: 100%;
-  height: 0;
-  padding: 0 0 100%;
+  aspect-ratio: 1 / 1;
+  font-size: 32px;
   border-radius: 14px;
   overflow: hidden;
   background: linear-gradient(158deg, #f7f8fa 0%, #e8eaef 100%);
@@ -7830,3 +7928,342 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 /* O'rindiq chexol — assimetrik burchaklar (tikuv hissi) */
 .sd-hero.sd-l-fabric .sd-ic { border-radius: 22px 34px 22px 34px; }
+
+
+/* ==========================================================================
+   DO'KON: QIDIRUV, FILTR VA SARALASH
+
+   Ilgari katalogda faqat kategoriya chiplari bor edi — tovar qidiruvi
+   BUTUN ILOVADA yo'q edi va tartib qattiq «yangi avval» bo'lardi.
+   ========================================================================== */
+.shop-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 12px;
+  animation: fadeUp 0.35s ease both;
+}
+
+/* ---- qidiruv maydoni ---- */
+.shop-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.shop-search-i {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  opacity: 0.65;
+  pointer-events: none;
+}
+.shop-search input {
+  width: 100%;
+  padding: 11px 38px 11px 36px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  transition: border-color 0.18s, background 0.18s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.shop-search input::placeholder {
+  color: var(--dim);
+}
+.shop-search input:focus {
+  outline: none;
+  border-color: var(--red);
+  background: var(--surface-2);
+}
+/* Klaviatura bilan yurgan foydalanuvchi uchun ko'rinadigan belgi.
+   Ilgari butun stylesheet'da `outline: none` bor edi va o'rniga hech
+   narsa qo'yilmagan — ya'ni fokus qayerdaligi bilinmasdi. */
+.shop-search input:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+/* Brauzerning o'z «✕» belgisini olib tashlaymiz — o'zimizniki bor */
+.shop-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.shop-search-x {
+  position: absolute;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  animation: popIn 0.18s ease both;
+}
+.shop-search-x:active {
+  transform: scale(0.9);
+}
+
+/* ---- filtr va saralash qatori ---- */
+.shop-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.shop-filters::-webkit-scrollbar {
+  display: none;
+}
+.chip-f {
+  white-space: nowrap;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-sort {
+  flex: none;
+  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.shop-sort select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 9px 26px 9px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+}
+.shop-sort select:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+.shop-sort::after {
+  content: "▾";
+  position: absolute;
+  right: 11px;
+  font-size: 10px;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .chip-f {
+    max-width: 44vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-tools,
+  .shop-search-x {
+    animation: none;
+  }
+}
+
+
+/* ==========================================================================
+   «SAVATGA UCHISH» ANIMATSIYASI
+
+   Savatga qo'shish — eng ko'p bosiladigan tugma, lekin ilgari javob faqat
+   haptic va nishondagi raqam edi: tovar qayerga ketganini ko'rinmasdi.
+   ========================================================================== */
+.fly-cart {
+  position: fixed;
+  z-index: 1200;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px; /* markazini nuqtaga tenglashtiradi */
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  border-radius: 50%;
+  background: var(--red-grad);
+  box-shadow: 0 4px 16px var(--red-glow);
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition: transform 0.55s var(--silk), opacity 0.55s ease-in;
+}
+
+/* Tovar «yetib kelganda» savat nishoni sakraydi */
+.badge.landed {
+  animation: badgeLand 0.45s var(--spring) both;
+}
+
+@keyframes badgeLand {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.5);
+  }
+  60% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ==========================================================================
+   TOVAR OYNASINI SURIB YOPISH
+
+   Rasm ko'ruvchi va story surib yopilardi, tovar oynasi — yo'q.
+   `touch-action: pan-y` — vertikal surishni brauzer emas, biz boshqaramiz.
+   ========================================================================== */
+.product-modal {
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+/* ==========================================================================
+   CLS (sahifa sakrashi) — RASM O'LCHAMLARI
+
+   Hech bir yasalgan `<img>` da `width`/`height` yo'q edi va CSS'da
+   `aspect-ratio` 7900 satrda faqat 5 marta ishlatilgan. Natijada rasm
+   yuklanganda ostidagi matn SILJIYDI va mijoz noto'g'ri tugmani bosadi.
+
+   `aspect-ratio` bilan brauzer joyni OLDINDAN ajratadi.
+   ========================================================================== */
+/* `.prod-art` uchun `aspect-ratio` yuqoridagi YAGONA e'londa berilgan —
+   bu yerda takrorlanmaydi (aks holda yana to'rtinchi e'lon bo'lardi). */
+.cart-thumb,
+.cart-thumb img,
+.saved-thumb,
+.saved-thumb img {
+  aspect-ratio: 1 / 1;
+}
+.pm-slide img {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+/* Bannerlar — keng format */
+.banner {
+  aspect-ratio: 16 / 7;
+}
+
+/* ==========================================================================
+   SKELETONLAR — stories, bannerlar va profil kartochkasi
+
+   Ilgari skeleton faqat UCH joyda bor edi (tovarlar, buyurtmalar,
+   xizmatlar). Stories halqalari, bannerlar va profil kartochkasi BIRDAN
+   paydo bo'lardi va sahifa sakrardi.
+   ========================================================================== */
+.skel-ring {
+  flex: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.skel-banner {
+  flex: none;
+  width: 84%;
+  aspect-ratio: 16 / 7;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.skel-ring::after,
+.skel-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  animation: skelShimmer 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fly-cart,
+  .badge.landed,
+  .skel-ring::after,
+  .skel-banner::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+
+/* ==========================================================================
+   TOAST — navbat va «Qaytarish» tugmasi
+
+   Ilgari toast bitta joyga yozardi va ketma-ket xabarlar bir-birini
+   o'chirardi. Endi navbat bor, ixtiyoriy «Qaytarish» tugmasi bilan —
+   shu tufayli o'chirishdan oldin tasdiq so'rash kerak emas.
+   ========================================================================== */
+/* `.toast` ning o'zi YAGONA joyda e'lon qilingan (yuqorida) — bu yerda
+   faqat ichidagi elementlar. */
+.toast-tx {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.toast-undo {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.toast-undo:active {
+  transform: scale(0.94);
+}
+.toast-undo:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+
+/* ==========================================================================
+   KLAVIATURA FOKUSI
+
+   Stylesheet'da 19 ta joyda `outline: none` bor edi va o'rniga HECH NARSA
+   qo'yilmagan — ya'ni klaviatura yoki kommutator (switch) bilan yurgan
+   foydalanuvchi qayerda turganini BILMASDI.
+
+   `:focus-visible` — faqat klaviatura bilan yurilganda ko'rinadi
+   (sichqoncha/barmoq bilan bosilganda chiqmaydi), shuning uchun dizaynga
+   xalaqit bermaydi.
+   ========================================================================== */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Qora fon ustidagi qizil chegara ba'zi joyda ko'rinmasligi mumkin —
+   yorug' aksent bilan kuchaytiramiz. */
+.nav-btn:focus-visible,
+.chip:focus-visible,
+.prod-fav:focus-visible,
+.toast-undo:focus-visible {
+  outline-color: #fff;
+}

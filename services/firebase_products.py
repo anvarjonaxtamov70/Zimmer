@@ -83,7 +83,11 @@ async def _slot_etag_and_value(session: aiohttp.ClientSession, idx: int):
     Bu orqali "agar qiymat o'zgarmagan bo'lsagina yoz" operatsiyasini bajaramiz.
     """
     url = fb.url(f"products/{idx}")
-    async with session.get(url, headers={"X-Firebase-ETag": "true"}) as r:
+    # Token endi QUERY'da emas, sarlavhada (`fb.auth_headers`) — u yerda
+    # qolgan token Google loglariga va xato matnlariga tushardi.
+    async with session.get(
+        url, headers=fb.auth_headers({"X-Firebase-ETag": "true"})
+    ) as r:
         etag = r.headers.get("ETag")
         # DIQQAT: Firebase xato qaytarsa (401/403) tana JSON bo'lmasligi
         # mumkin — `r.json()` ni majburlab chaqirsak ContentTypeError chiqadi
@@ -154,7 +158,7 @@ async def firebase_append_products(
                 continue
             
             # Bo'sh slot topildi — atomik yozamiz
-            headers = {"if-match": etag} if etag else {}
+            headers = fb.auth_headers({"if-match": etag} if etag else None)
             try:
                 url = fb.url(f"products/{idx}")
                 async with session.put(

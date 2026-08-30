@@ -491,8 +491,25 @@ window.ZimmerShop = (function () {
         }
       }
     }
-    // Zaxira: to'g'ridan `pending_orders` (yopiq `orders` ko'rinmaydi)
-    const node = await fb().get("pending_orders");
+    /* Zaxira: to'g'ridan `pending_orders`.
+       DIQQAT: bu tugun endi qoidalarda O'QISH UCHUN YOPIQ — unda mijozning
+       ismi, telefoni va manzili bor va ilgari hammaga ochiq turardi.
+       Ro'yxatni faqat Worker beradi (imzoni tekshiradi). Shu sababli bu
+       yerda xatoni YASHIRMAYMIZ — adminga nima qilish kerakligini aytamiz. */
+    let node = null;
+    try {
+      node = await fb().get("pending_orders");
+    } catch (err) {
+      if (err && (err.code === "rules" || err.status === 401 || err.status === 403)) {
+        toast(
+          "🔒 Buyurtmalar ro'yxati uchun WORKER_URL sozlanishi kerak " +
+            "(maxfiylik uchun baza yopiq)",
+          7000
+        );
+        return [];
+      }
+      throw err;
+    }
     const out = [];
     if (node && typeof node === "object") {
       Object.keys(node).forEach((key) => {

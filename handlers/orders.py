@@ -6,7 +6,7 @@ from aiogram.types import Message
 
 from database import queries as q
 from keyboards.reply import main_menu
-from utils.helpers import fmt_price
+from utils.helpers import fmt_price, html_escape
 from utils.texts import BTN_ORDERS, ORDER_STATUS
 
 router = Router(name="orders")
@@ -26,7 +26,9 @@ async def my_orders(message: Message, state: FSMContext) -> None:
     lines = ["📦 <b>Mening buyurtmalarim</b>\n"]
     for order in orders:
         items = await q.get_order_items(order["id"])
-        goods = ", ".join(f"{item['name']} ×{item['qty']}" for item in items)
+        goods = ", ".join(
+            f"{html_escape(item['name'])} ×{item['qty']}" for item in items
+        )
         lines.append(
             f"🆔 <b>#{order['id']}</b> · {ORDER_STATUS.get(order['status'], order['status'])}\n"
             f"🛍 {goods}\n"

@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 from typing import Optional
+from urllib.parse import quote
 
 import aiohttp
 from aiogram import Bot
@@ -70,13 +71,17 @@ async def upload_telegram_file(
         download_url = (
             f"https://api.telegram.org/file/bot{config.bot_token}/{file_info.file_path}"
         )
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(download_url) as response:
-                if response.status != 200:
-                    logger.error("Telegram file yuklash xatosi: %s", response.status)
-                    return file_id
-                data = await response.read()
+        # Umumiy sessiya (har chaqiruvda yangi ulanish yaratilmasin).
+        # Vaqt chegarasi so'rov darajasida beriladi — umumiy sessiyaning
+        # 15 soniyasi katta fayl uchun kam.
+        session = await firebase.session()
+        async with session.get(
+            download_url, timeout=aiohttp.ClientTimeout(total=60)
+        ) as response:
+            if response.status != 200:
+                logger.error("Telegram file yuklash xatosi: %s", response.status)
+                return file_id
+            data = await response.read()
 
         if len(data) > max_bytes:
             logger.error(
@@ -130,41 +135,54 @@ async def _upload_to_storage(
     if not STORAGE_BUCKET:
         return None
     
-    token = firebase.token()
+    # `ensure_token()` — muddati o'tgan bo'lsa YANGILAYDI.
+    # Ilgari `firebase.token()` chaqirilardi va u muddatni tekshirmasdi:
+    # eskirgan token bilan har bir yuklash 401 qaytarardi va admin
+    # "rasm yuklanmadi" degan tushunarsiz javob olardi.
+    token = await firebase.ensure_token()
     if not token:
         logger.error("Firebase token yo'q — Storage'ga yuklab bo'lmaydi")
         return None
-    
+
     try:
-        # Storage API endpoint
+        # Storage API endpoint.
+        # DIQQAT: token QUERY'da emas, SARLAVHADA yuboriladi. Query'dagi
+        # token Google'ning kirish loglariga tushadi va xato matnlarida
+        # ko'rinib qolishi mumkin.
         upload_url = (
             f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o"
-            f"?name={file_name}&access_token={token}"
+            f"?name={quote(file_name, safe='')}"
         )
-        
-        headers = {"Content-Type": content_type}
 
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=120)
-        ) as session:
-            async with session.post(upload_url, data=file_data, headers=headers) as response:
-                if response.status not in (200, 201):
-                    error_text = await response.text()
-                    logger.error(f"Storage upload xatosi {response.status}: {error_text[:200]}")
-                    return None
-                
-                result = await response.json()
-                
-                # Public URL yaratish
-                # Format: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media
-                encoded_name = result.get("name", file_name)
-                public_url = (
-                    f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/"
-                    f"{encoded_name.replace('/', '%2F')}?alt=media"
-                )
-                
-                return public_url
-    
+        headers = {
+            "Content-Type": content_type,
+            "Authorization": f"Bearer {token}",
+        }
+
+        session = await firebase.session()
+        async with session.post(
+            upload_url,
+            data=file_data,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=120),
+        ) as response:
+            if response.status not in (200, 201):
+                error_text = await response.text()
+                logger.error(f"Storage upload xatosi {response.status}: {error_text[:200]}")
+                return None
+
+            result = await response.json()
+
+            # Public URL yaratish
+            # Format: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media
+            encoded_name = result.get("name", file_name)
+            public_url = (
+                f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/"
+                f"{quote(str(encoded_name), safe='')}?alt=media"
+            )
+
+            return public_url
+
     except Exception as e:
         logger.error(f"Firebase Storage upload xatosi: {e}")
         return None
@@ -182,41 +200,54 @@ async def delete_product_images(product_id: int) -> bool:
     if not is_storage_enabled():
         return False
     
-    token = firebase.token()
+    token = await firebase.ensure_token()
     if not token:
         return False
-    
+
     try:
         # products/{product_id}/ papkasidagi barcha fayllarni o'chirish
         folder_path = f"products/{product_id}/"
-        
+
         # List files
         list_url = (
             f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o"
-            f"?prefix={folder_path}&access_token={token}"
+            f"?prefix={quote(folder_path, safe='')}"
         )
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(list_url) as response:
-                if response.status != 200:
-                    return False
-                
-                data = await response.json()
-                items = data.get("items", [])
-                
-                # Har bir faylni o'chirish
-                for item in items:
-                    file_name = item.get("name")
-                    if file_name:
-                        delete_url = (
-                            f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/"
-                            f"{file_name.replace('/', '%2F')}?access_token={token}"
-                        )
-                        await session.delete(delete_url)
-                
-                logger.info(f"Mahsulot {product_id} rasmlari o'chirildi ({len(items)} ta)")
-                return True
-    
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # DIQQAT: ilgari bu yerda `aiohttp.ClientSession()` TIMEOUT'SIZ
+        # yaratilardi — Storage javob bermasa chaqiruv CHEKSIZ kutib
+        # qolishi mumkin edi (bitta protsessda butun bot muzlaydi).
+        session = await firebase.session()
+        timeout = aiohttp.ClientTimeout(total=60)
+
+        async with session.get(list_url, headers=headers, timeout=timeout) as response:
+            if response.status != 200:
+                return False
+            data = await response.json()
+
+        items = data.get("items", [])
+
+        # Har bir faylni o'chirish
+        for item in items:
+            file_name = item.get("name")
+            if not file_name:
+                continue
+            delete_url = (
+                f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}/o/"
+                f"{quote(str(file_name), safe='')}"
+            )
+            async with session.delete(
+                delete_url, headers=headers, timeout=timeout
+            ) as del_response:
+                if del_response.status not in (200, 204, 404):
+                    logger.warning(
+                        "Storage fayli o'chirilmadi (%s): %s", del_response.status, file_name
+                    )
+
+        logger.info("Mahsulot %s rasmlari o'chirildi (%s ta)", product_id, len(items))
+        return True
+
     except Exception as e:
         logger.error(f"Rasmlarni o'chirishda xato: {e}")
         return False

@@ -162,11 +162,28 @@ async def main() -> None:
         await _startup_report(bot)
         await dispatcher.start_polling(bot)
     finally:
+        # ==============================================================
+        #  TO'XTATISH TARTIBI MUHIM
+        #
+        #  Ilgari `firebase.close()` API serverdan OLDIN chaqirilardi.
+        #  Natijada o'sha paytda bajarilib turgan API so'rovlari YOPILGAN
+        #  sessiyaga murojaat qilib 500 qaytarardi (mijoz "xatolik"
+        #  ko'rardi, aslida server shunchaki to'xtayotgan edi).
+        #
+        #  To'g'ri tartib: fon vazifalari → API (yangi so'rov qabul
+        #  qilmaydi va joriylarini tugatadi) → Firebase sessiyasi → baza.
+        # ==============================================================
         for task in background:
             task.cancel()
-        await firebase.close()
+        if background:
+            # Bekor qilish haqiqatan tugashini kutamiz, aks holda vazifa
+            # yopilgan baza bilan ishlashga urinib xato yozishi mumkin.
+            await asyncio.gather(*background, return_exceptions=True)
+
         if api_runner is not None:
             await api_runner.cleanup()
+
+        await firebase.close()
         await close_db()
         await bot.session.close()
         logger.info("Bot to'xtatildi")

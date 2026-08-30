@@ -31,9 +31,23 @@ logger = logging.getLogger(__name__)
 _pending: dict[str, dict] = {}
 _PENDING_LIMIT = 500
 
+# Navbat to'lgani uchun TASHLAB KETILGAN yozuvlar soni.
+#
+# Ilgari navbat to'lganda yozuv JIMGINA tashlanardi — na log, na hisob.
+# Ya'ni buyurtma bulutga tushmagani hech qayerda ko'rinmasdi va Render
+# qayta deploy bo'lganda u butunlay yo'qolardi. Endi har bir tashlangan
+# yozuv log'ga yoziladi va `/firebase` diagnostikasida ko'rinadi.
+_dropped = 0
+_drop_warned = False
+
 
 def pending_count() -> int:
     return len(_pending)
+
+
+def dropped_count() -> int:
+    """Navbat to'lgani uchun yo'qolgan yozuvlar soni."""
+    return _dropped
 
 
 async def _send(method: str, path: str, payload) -> bool:
@@ -45,7 +59,15 @@ async def _send(method: str, path: str, payload) -> bool:
 
 
 async def _write(path: str, payload, *, method: str = "patch") -> bool:
-    """Firebase'ga yozadi; imkoni bo'lmasa navbatga qo'yadi."""
+    """Firebase'ga yozadi; imkoni bo'lmasa navbatga qo'yadi.
+
+    Qaytaradi: yozuv BULUTGA YETIB BORDIMI. `False` — yozuv navbatda
+    turadi (keyin yuboriladi) yoki navbat to'lgani uchun yo'qoldi.
+    Chaqiruvchi buni tekshirishi kerak: buyurtma kabi muhim yozuvda
+    `False` bo'lsa hech bo'lmasa log'da ko'rinishi shart.
+    """
+    global _dropped, _drop_warned
+
     if not config.has_firebase:
         return False
 
@@ -53,14 +75,29 @@ async def _write(path: str, payload, *, method: str = "patch") -> bool:
         _pending.pop(path, None)
         return True
 
-    if len(_pending) < _PENDING_LIMIT:
+    if len(_pending) < _PENDING_LIMIT or path in _pending:
         _pending[path] = {"payload": payload, "method": method}
         logger.info("Firebase tayyor emas — yozuv navbatga qo'yildi: %s", path)
+        return False
+
+    # Navbat to'ldi. Bu jimgina o'tib ketmasligi kerak — ma'lumot YO'QOLADI.
+    _dropped += 1
+    if not _drop_warned:
+        _drop_warned = True
+        logger.error(
+            "Firebase navbati to'ldi (%s yozuv) — YANGI YOZUVLAR YO'QOLMOQDA. "
+            "Sabab: Firebase uzoq vaqt javob bermayapti. SERVICE_ACCOUNT_JSON "
+            "va FIREBASE_DB_URL ni tekshiring (/firebase buyrug'i).",
+            _PENDING_LIMIT,
+        )
+    logger.error("Firebase yozuvi YO'QOLDI (navbat to'la): %s", path)
     return False
 
 
 async def flush_pending() -> int:
     """Navbatda turgan yozuvlarni qaytadan yuborishga urinadi."""
+    global _drop_warned
+
     if not _pending or not firebase.is_enabled():
         return 0
     sent = 0
@@ -70,6 +107,9 @@ async def flush_pending() -> int:
             sent += 1
     if sent:
         logger.info("Navbatdagi %s yozuv Firebase'ga yuborildi", sent)
+        # Joy bo'shadi — keyingi to'lishda yana ogohlantirsin
+        if len(_pending) < _PENDING_LIMIT:
+            _drop_warned = False
     return sent
 
 
@@ -621,18 +661,36 @@ async def _put_biled_order(order) -> None:
 
 
 async def push_order(order, items_list) -> None:
-    """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi)."""
-    if not firebase.is_enabled():
-        return
+    """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi).
+
+    Qaytaradi: bulutga yetib bordimi. `False` bo'lsa buyurtma FAQAT SQLite'da
+    — Render qayta deploy bo'lsa yo'qoladi. Ilgari natija umuman
+    qaytarilmasdi va bu holat hech qayerda ko'rinmasdi.
+    """
+    if not config.has_firebase:
+        return False
     try:
-        await _put_order(order, items_list)
+        ok = await _put_order(order, items_list)
     except Exception as error:
-        logger.warning("Buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+        logger.error("Buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
+        return False
+    if not ok:
+        logger.warning(
+            "Buyurtma #%s hozir bulutga tushmadi — navbatda turadi "
+            "(navbatda %s yozuv, yo'qolgan: %s)",
+            order["id"],
+            pending_count(),
+            dropped_count(),
+        )
+    return ok
 
 
-async def _put_order(order, items_list) -> None:
+async def _put_order(order, items_list) -> bool:
     keys = order.keys()
-    await firebase.put(
+    # `_write` orqali: Firebase hozir javob bermasa yozuv NAVBATGA tushadi va
+    # keyin yuboriladi. Ilgari `firebase.put` to'g'ridan chaqirilardi — token
+    # vaqtincha olinmagan bo'lsa buyurtma nusxasi butunlay yo'qolardi.
+    return await _write(
         f"orders/{order['id']}",
         {
             "id": order["id"],
@@ -651,13 +709,50 @@ async def _put_order(order, items_list) -> None:
             ],
             "createdAt": int(time.time() * 1000),
         },
+        method="put",
     )
 
 
-async def push_booking(booking) -> None:
-    if not firebase.is_enabled():
-        return
-    await firebase.put(
+# ------------------------------------------------------------------- navbat
+#
+#  DIQQAT — NAVBAT IKKI TUGUNGA YOZILADI:
+#
+#    `bookings/{id}`      to'liq yozuv: ism, telefon, xizmat. O'QISH YOPIQ.
+#    `slots/{sana}/{id}`  faqat vaqt va davomiylik.          O'QISH OCHIQ.
+#
+#  NEGA. Mini App bo'sh vaqtlarni o'zi hisoblashi kerak (Render o'chgan
+#  paytda ham navbat olinadi). Ilgari u shu maqsadda BUTUN `bookings`
+#  tugunini o'qirdi va qoidalarda `bookings` hammaga ochiq edi — ya'ni
+#  istalgan odam har bir mijozning ISMI va TELEFONINI yuklab olardi.
+#
+#  Endi bandlik jadvali alohida, shaxsiy ma'lumotsiz tugunda turadi.
+#  `bookings` esa faqat bot va Worker uchun (ular xizmat kaliti bilan
+#  ishlaydi va qoidalardan o'tadi).
+
+SLOTS_ROOT = "slots"
+
+
+def _slot_payload(booking) -> dict:
+    """`slots` uchun yozuv — SHAXSIY MA'LUMOT QO'SHILMASIN."""
+    keys = booking.keys()
+    raw = booking["duration_min"] if "duration_min" in keys else None
+    try:
+        duration = int(raw)
+    except (TypeError, ValueError):
+        duration = 0
+    return {
+        "time": str(booking["time"]),
+        "duration_min": duration if duration > 0 else config.slot_minutes,
+    }
+
+
+def _slot_path(date_iso: str, booking_id) -> str:
+    return f"{SLOTS_ROOT}/{date_iso}/{booking_id}"
+
+
+async def push_booking(booking) -> bool:
+    """Navbatni bulutga yozadi: to'liq yozuv + ochiq bandlik belgisi."""
+    ok = await _write(
         f"bookings/{booking['id']}",
         {
             "id": booking["id"],
@@ -670,7 +765,62 @@ async def push_booking(booking) -> None:
             "status": booking["status"],
             "createdAt": int(time.time() * 1000),
         },
+        method="put",
     )
+    await push_booking_slot(booking)
+    return ok
+
+
+async def push_booking_slot(booking) -> bool:
+    """Ochiq bandlik jadvalini yangilaydi (bekor qilingan navbat o'chiriladi)."""
+    path = _slot_path(booking["date"], booking["id"])
+    if booking["status"] == "cancelled":
+        return await _write(path, None, method="delete")
+    return await _write(path, _slot_payload(booking), method="put")
+
+
+async def sync_booking_slot(booking_id: int) -> None:
+    """Navbat holati o'zgargandan keyin bandlik jadvalini tekislaydi."""
+    try:
+        booking = await q.get_booking(booking_id)
+    except Exception as error:  # bandlik jadvali asosiy oqimni to'xtatmasin
+        logger.warning("Navbat #%s o'qilmadi (slots): %s", booking_id, error)
+        return
+    if booking is None:
+        return
+    await push_booking_slot(booking)
+
+
+async def push_all_booking_slots() -> int:
+    """Bazadagi barcha FAOL navbatlarni ochiq bandlik jadvaliga yozadi.
+
+    `slots` tuguni yangi qo'shilgan, ya'ni birinchi ishga tushishda u BO'SH
+    bo'ladi. Agar to'ldirilmasa Mini App barcha vaqtni bo'sh deb ko'rsatadi
+    va mavjud navbatlar ustiga ikkinchi mijoz yozilib ketadi.
+    """
+    if not firebase.is_enabled():
+        return 0
+    try:
+        rows = await q.get_active_bookings()
+    except Exception as error:
+        logger.warning("Faol navbatlar o'qilmadi (slots): %s", error)
+        return 0
+    if not rows:
+        return 0
+
+    # Kunlar bo'yicha guruhlab BITTA PATCH bilan yuboramiz — har navbat uchun
+    # alohida so'rov yuborilsa bepul tarifda ishga tushish sekinlashadi.
+    by_day: dict[str, dict[str, dict]] = {}
+    for row in rows:
+        by_day.setdefault(str(row["date"]), {})[str(row["id"])] = _slot_payload(row)
+
+    written = 0
+    for day, entries in by_day.items():
+        if await _write(f"{SLOTS_ROOT}/{day}", entries, method="patch"):
+            written += len(entries)
+    if written:
+        logger.info("Bandlik jadvaliga %s navbat yozildi", written)
+    return written
 
 
 # ------------------------------------------------------------------- katalog
@@ -1173,20 +1323,25 @@ async def import_pending_orders(bot=None) -> int:
             if bot is not None and not item.get("notified_admin"):
                 try:
                     from keyboards.inline import admin_new_order_kb
-                    from utils.helpers import fmt_price
+                    from utils.helpers import fmt_price, html_escape
                     from utils.ui import notify_admins
 
+                    # DIQQAT: bu matn TASHQI manbadan keladi (`pending_orders`
+                    # tugunini Worker to'ldiradi). HTML uchun tozalanmasa
+                    # ichidagi `<` butun xabarni Telegram'ga rad ettiradi va
+                    # admin buyurtmani KO'RMAY qolardi.
                     goods = "\n".join(
-                        f"• {ln['name']} × {ln['qty']} = {fmt_price(ln['price'] * ln['qty'])}"
+                        f"• {html_escape(ln['name'])} × {ln['qty']}"
+                        f" = {fmt_price(ln['price'] * ln['qty'])}"
                         for ln in lines
                     )
                     await notify_admins(
                         bot,
                         "🔔 <b>Yangi buyurtma</b> (Mini App — server o'chiq edi)\n\n"
-                        f"🆔 #{order_id} · <code>{code}</code>\n"
-                        f"👤 {item.get('customer_name') or 'Mijoz'}\n"
-                        f"📞 {item.get('phone') or '—'}\n"
-                        f"📍 {item.get('address') or '—'}\n\n"
+                        f"🆔 #{order_id} · <code>{html_escape(code)}</code>\n"
+                        f"👤 {html_escape(item.get('customer_name')) or 'Mijoz'}\n"
+                        f"📞 {html_escape(item.get('phone')) or '—'}\n"
+                        f"📍 {html_escape(item.get('address')) or '—'}\n\n"
                         f"{goods}\n\n"
                         f"💰 Jami: <b>{fmt_price(int(item.get('total') or 0))}</b>",
                         admin_new_order_kb(order_id),
@@ -1230,16 +1385,23 @@ async def pending_orders_worker(bot=None, interval: int = 120) -> None:
 
 
 async def push_status(kind: str, order_id: int, status: str) -> None:
-    """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi (xato ko'tarmaydi)."""
-    if not firebase.is_enabled():
-        return
+    """Holat o'zgarganda Firebase'dagi nusxani ham yangilaydi (xato ko'tarmaydi).
+
+    Ilgari bu yerda `firebase.patch` TO'G'RIDAN chaqirilardi — token vaqtincha
+    olinmagan bo'lsa yozuv jimgina yo'qolardi va bulutdagi holat abadiy eski
+    qolib ketardi. Endi `_write` orqali ketadi, ya'ni imkonsiz bo'lsa navbatga
+    tushadi va `retry_worker()` keyin yuboradi.
+    """
     node = {"biled": "biled_orders", "order": "orders", "booking": "bookings"}.get(kind)
     if not node:
         return
-    try:
-        await firebase.patch(f"{node}/{order_id}", {"status": status})
-    except Exception as error:
-        logger.warning("%s #%s holati bulutga yozilmadi: %s", kind, order_id, error)
+
+    await _write(f"{node}/{order_id}", {"status": status}, method="patch")
+
+    # Navbat bekor qilinsa/tiklansa ochiq bandlik jadvali ham yangilanadi,
+    # aks holda bekor qilingan vaqt boshqa mijozga BAND ko'rinib qolardi.
+    if kind == "booking":
+        await sync_booking_slot(order_id)
 
 
 # ------------------------------------------------------------ ishga tushirish
@@ -1287,6 +1449,9 @@ async def initial_sync(bot=None) -> None:
         await push_all_users()
         # Katalog tiklangandan KEYIN — buyurtmalar unga nom bo'yicha bog'lanadi
         await restore_orders()
+        # Navbatlar tiklangandan keyin ochiq bandlik jadvalini to'ldiramiz:
+        # `slots` tuguni bo'sh bo'lsa Mini App hamma vaqtni bo'sh ko'rsatadi.
+        await push_all_booking_slots()
         # Saqlanganlar ham tovar nomiga bog'lanadi — katalogdan keyin
         await restore_favorites()
         await flush_pending()

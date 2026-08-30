@@ -5,6 +5,7 @@ fara optikasi rangi. Shuning uchun bazada ham shu bosqichlarga mos
 jadvallar bor.
 """
 
+import asyncio
 import logging
 
 import aiosqlite
@@ -699,6 +700,11 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # ko'chirganda shu kod yoziladi — takroriy ko'chirish shu bo'yicha
         # to'xtatiladi (`idx_orders_external_code` yagona indeksi bilan).
         ("external_code", "TEXT"),
+        # Mini App'dan kelgan buyurtmaning IDEMPOTENT kaliti. Mijoz
+        # «Rasmiylashtirish» ni ikki marta bossa yoki tarmoq uzilib so'rov
+        # qaytarilsa — ikkinchi urinish YANGI buyurtma yaratmasligi kerak.
+        # `idx_orders_idem` yagona indeksi bilan baza o'zi to'xtatadi.
+        ("idempotency_key", "TEXT"),
     ],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
@@ -784,6 +790,39 @@ def get_db() -> aiosqlite.Connection:
     return _db
 
 
+# =====================================================================
+#  KO'P QADAMLI YOZUVLAR UCHUN QULF
+#
+#  MUAMMO. Butun loyiha BITTA `aiosqlite` ulanishidan foydalanadi (bot
+#  handlerlari, API handlerlari va fon vazifalari — hammasi). Har bir
+#  funksiya o'z `commit()` ini chaqiradi. Buyurtma yaratish esa bir necha
+#  qadamdan iborat:
+#
+#      qoldiqni tekshir → buyurtmani yoz → tarkibini yoz → qoldiqni kamaytir
+#
+#  Qadamlar orasida `await` bor. Aynan o'sha payt boshqa coroutine
+#  `commit()` qilsa — YARIM bajarilgan ish bazaga tushadi. Natijada
+#  tarkibsiz buyurtma yoki kamaymagan qoldiq qolib ketishi mumkin.
+#
+#  NEGA `BEGIN IMMEDIATE` EMAS. Ulanish umumiy bo'lgani uchun boshqa
+#  coroutine'ning `commit()` i BIZNING tranzaksiyani ham yopib qo'yadi.
+#  Ya'ni oshkora tranzaksiya bu yerda kafolat BERMAYDI — buning uchun
+#  har bir ulanishni ajratish kerak (kattaroq qayta qurish).
+#
+#  YECHIM. Ko'p qadamli amallarni shu qulf bilan KETMA-KET bajaramiz va
+#  qoldiqni bitta shartli SQL bilan kamaytiramiz (`take_stock`). Ikki
+#  himoya birgalikda «bir tovar ikki kishiga sotilishi» ni butunlay
+#  yopadi. Buyurtma yaratish tez-tez bo'lmaydi, shuning uchun ketma-ket
+#  bajarish sezilmaydi.
+# =====================================================================
+_write_lock = asyncio.Lock()
+
+
+def write_lock() -> asyncio.Lock:
+    """Ko'p qadamli yozuvlarni ketma-ket bajarish uchun umumiy qulf."""
+    return _write_lock
+
+
 async def close_db() -> None:
     global _db
     if _db is not None:
@@ -820,6 +859,55 @@ async def _migrate() -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_external_code"
         " ON orders(external_code) WHERE external_code IS NOT NULL"
     )
+    # Takroriy bosish BITTA buyurtma bo'lib qolishi uchun (idempotentlik).
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idem"
+        " ON orders(idempotency_key) WHERE idempotency_key IS NOT NULL"
+    )
+    # `get_orders(status=...)` shu ustun bo'yicha filtrlaydi, lekin indeks
+    # yo'q edi — admin paneli har ochilganda butun jadval skanerlanardi.
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+
+    # ------------------------------------------------------------------
+    #  NAVBAT TO'QNASHUVINI BAZA DARAJASIDA TO'XTATISH
+    #
+    #  Ilgari faqat ilova ichida tekshirilardi: `free_slots()` bo'sh dedi →
+    #  keyin INSERT. Ikki mijoz bir lahzada bir vaqtni tanlasa IKKISI HAM
+    #  o'tib ketardi va usta bir vaqtga ikki odamni ko'rardi.
+    #
+    #  Bu indeks aynan bir xil (sana, vaqt) juftligini to'xtatadi — ya'ni
+    #  ekranda ko'rinadigan slotni ikki kishi olib qo'yishi MUMKIN EMAS.
+    #  Bekor qilingan navbatlar hisobga olinmaydi, shuning uchun bo'shagan
+    #  vaqtni qaytadan band qilish mumkin.
+    #
+    #  DIQQAT: bu ustma-ust TUSHISHNI (60 daqiqali xizmat 09:00 va 09:30)
+    #  to'xtatmaydi — u `free_slots()` vazifasi. Indeks eng ko'p uchraydigan
+    #  to'qnashuvni yopadi.
+    # ------------------------------------------------------------------
+    #
+    #  Mavjud bazada allaqachon dublikat bo'lsa indeks YARATILMAYDI va
+    #  xato ko'tariladi. Bot shu sababli ishga tushmay qolmasligi kerak —
+    #  ogohlantirish yozamiz va to'qnashgan navbatlarni ko'rsatamiz.
+    try:
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot"
+            " ON bookings(date, time) WHERE status <> 'cancelled'"
+        )
+    except Exception as error:
+        logger.warning(
+            "Navbat uchun yagona indeks yaratilmadi (%s). Bazada bir vaqtga "
+            "ikki navbat bor — ularni bekor qilib bot'ni qayta ishga tushiring.",
+            error,
+        )
+        async with db.execute(
+            "SELECT date, time, COUNT(*) AS n FROM bookings"
+            " WHERE status <> 'cancelled' GROUP BY date, time HAVING n > 1"
+        ) as cur:
+            async for row in cur:
+                logger.warning(
+                    "  to'qnashuv: %s %s — %s ta navbat", row["date"], row["time"], row["n"]
+                )
+
     await db.commit()
 
 
