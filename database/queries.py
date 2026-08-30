@@ -936,6 +936,10 @@ async def get_catalog(car_id: int | None = None) -> list[dict[str, Any]]:
                 "id": category["id"],
                 "name": category["name"],
                 "icon": category["icon"] if "icon" in keys else None,
+                # Mini App filtr chiplari SHU tartibda chiziladi (alifbo
+                # bo'yicha emas) — admin bo'limlar ketma-ketligini
+                # `sort` bilan boshqaradi.
+                "sort": int(category["sort"] or 0) if "sort" in keys else 0,
                 "products": [product_json(product) for product in products],
             }
         )

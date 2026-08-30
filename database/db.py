@@ -494,17 +494,169 @@ DEMO_SERVICES = [
     ),
 ]
 
+# =====================================================================
+#  DO'KON BO'LIMLARI (kategoriyalar)
+#
+#  Mini App'dagi filtr chiplari AYNAN shu ro'yxatdan chiziladi va AYNAN
+#  shu tartibda turadi (`sort` bo'yicha, alifbo bo'yicha EMAS).
+#
+#  DIQQAT — CHIPLARNING NOMI KODDA EMAS, BAZADA.
+#  Mini App chip yorlig'ini kategoriya NOMIDAN oladi (`app.js: _cat`).
+#  Shu sababli nomni o'zgartirish = bazadagi yozuvni o'zgartirish.
+# =====================================================================
 DEMO_CATEGORIES = [
-    ("Lampalar", "💡", 1),
-    ("DRL va lentalar", "🔆", 2),
-    ("Fara uchun materiallar", "🧰", 3),
+    ("BI-ledlar", "🔵", 1),
+    ("Lampalar", "💡", 2),
+    ("Aksesuarlar", "🧰", 3),
 ]
 
-# kategoriya tartibi, mashina slug (None = universal), nom, tavsif,
+# Do'konda BOR BO'LISHI kerak bo'lgan bo'limlar (nom, ikonka, tartib).
+# `normalize_shop_categories()` shu ro'yxatga qarab ishlaydi.
+TARGET_CATEGORIES: tuple[tuple[str, str, int], ...] = (
+    ("BI-ledlar", "🔵", 1),
+    ("Lampalar", "💡", 2),
+    ("Aksesuarlar", "🧰", 3),
+)
+
+# Eski (yoki xato yozilgan) nom -> yangi nom. Kalitlar KICHIK harflarda.
+#
+# BIR NECHTA eski bo'lim BITTA yangisiga birlashishi mumkin: masalan
+# «DRL va lentalar» va «Fara uchun materiallar» — ikkisi ham
+# «Aksesuarlar» ga. Bunda mahsulotlar KO'CHIRILADI, eski bo'lim esa
+# YASHIRILADI (o'chirilmaydi — sababi pastda).
+_CATEGORY_MERGE: dict[str, str] = {
+    # eski demo bo'limlari
+    "drl va lentalar": "Aksesuarlar",
+    "fara uchun materiallar": "Aksesuarlar",
+    # `default_category_id()` yasagan eski standart bo'lim
+    "mahsulotlar": "Aksesuarlar",
+    # imlo va til variantlari
+    "aksessuarlar": "Aksesuarlar",
+    "aksesuar": "Aksesuarlar",
+    "аксессуары": "Aksesuarlar",
+    "lampa": "Lampalar",
+    "лампы": "Lampalar",
+    "bi-led": "BI-ledlar",
+    "bi led": "BI-ledlar",
+    "biled": "BI-ledlar",
+    "biledlar": "BI-ledlar",
+    "bi-led linzalar": "BI-ledlar",
+    "linzalar": "BI-ledlar",
+    # `restore_catalog()` bog'lanmagan tovar uchun yasaydigan bo'lim
+    "boshqa": "Aksesuarlar",
+}
+
+
+async def normalize_shop_categories() -> None:
+    """Do'kon bo'limlarini `TARGET_CATEGORIES` holatiga keltiradi.
+
+    IDEMPOTENT — har ishga tushishda xavfsiz chaqirilishi mumkin va
+    ATAYLAB bir martalik migratsiya QILINMAGAN. Sabab tartibda:
+
+        init_db()      -> normalize (SQLite tozalanadi)
+        initial_sync() -> restore_catalog()   <- BULUTDAN eski nomlar
+                                                 QAYTA TIKLANISHI mumkin
+                       -> normalize (yana)   <- shuning uchun ikkinchi marta
+                       -> push_all_catalog() -> bulutga yangi nomlar ketadi
+
+    Bir martalik bo'lsa, bulutda eski nom qolgani uchun bo'lim
+    `restore_catalog()` dan keyin qayta paydo bo'lardi va do'konda
+    to'rt-besh chip ko'rinib turardi.
+
+    NIMA QILADI
+      1. `TARGET_CATEGORIES` dagi uchta bo'lim BOR bo'lishini ta'minlaydi
+         (yo'q bo'lsa qo'shadi, ikonka/tartibini to'g'rilaydi);
+      2. `_CATEGORY_MERGE` dagi eski nomlarni topib, ularning
+         MAHSULOTLARINI nishon bo'limga ko'chiradi;
+      3. eski bo'limni YASHIRADI (`is_active = 0`).
+
+    NEGA O'CHIRILMAYDI — ENG MUHIM JOY.
+    `products.category_id` ustunida `ON DELETE CASCADE` bor:
+
+        category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE
+
+    Ya'ni bo'limni `DELETE` qilish uning BARCHA MAHSULOTLARINI ham
+    o'chirib yuboradi. Shuning uchun bu funksiya hech qachon `DELETE`
+    ishlatmaydi — faqat ko'chiradi va yashiradi.
+
+    Tanimagan nomlarga TEGMAYDI: admin o'zi qo'shgan bo'lim
+    `_CATEGORY_MERGE` da bo'lmasa, o'z holida qoladi.
+    """
+    db = get_db()
+
+    # ---- 1) nishon bo'limlar mavjud bo'lsin
+    ids: dict[str, int] = {}
+    for name, icon, sort in TARGET_CATEGORIES:
+        async with db.execute(
+            "SELECT id FROM categories WHERE LOWER(TRIM(name)) = ?", (name.lower(),)
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            ids[name] = int(row["id"])
+            # Nomni AYNAN kerakli ko'rinishga keltiramiz (katta-kichik harf)
+            # va yashirilgan bo'lsa qaytaramiz.
+            await db.execute(
+                "UPDATE categories SET name = ?, icon = COALESCE(NULLIF(TRIM(icon), ''), ?),"
+                " sort = ?, is_active = 1 WHERE id = ?",
+                (name, icon, sort, ids[name]),
+            )
+        else:
+            cur = await db.execute(
+                "INSERT INTO categories (name, icon, sort) VALUES (?, ?, ?)",
+                (name, icon, sort),
+            )
+            ids[name] = int(cur.lastrowid)
+
+    # ---- 2) eski bo'limlarni ko'chiramiz
+    async with db.execute("SELECT id, name, is_active FROM categories") as cur:
+        rows = await cur.fetchall()
+
+    moved = 0
+    hidden = 0
+    for row in rows:
+        key = (row["name"] or "").strip().lower()
+        target = _CATEGORY_MERGE.get(key)
+        if not target:
+            continue
+        target_id = ids.get(target)
+        if not target_id or target_id == int(row["id"]):
+            continue
+
+        cur = await db.execute(
+            "UPDATE products SET category_id = ? WHERE category_id = ?",
+            (target_id, row["id"]),
+        )
+        moved += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+        # Faqat HALI FAOL bo'lsa yashiramiz.
+        #
+        # Bu funksiya har ishga tushishda chaqiriladi. Shartsiz
+        # `UPDATE ... is_active = 0` yozilsa, allaqachon yashirilgan
+        # bo'limlar qayta-qayta «yashirilgan» deb hisoblanardi: jurnalda
+        # har safar bir xil son chiqib turardi va hech narsa
+        # o'zgarmagan bo'lsa ham `commit()` qilinardi.
+        #
+        # DIQQAT: `DELETE` EMAS — yuqoridagi izohga qara (CASCADE).
+        if row["is_active"]:
+            await db.execute("UPDATE categories SET is_active = 0 WHERE id = ?", (row["id"],))
+            hidden += 1
+
+    await db.commit()
+    if moved or hidden:
+        logger.info(
+            "Do'kon bo'limlari tartibga solindi: %s tovar ko'chirildi, %s bo'lim yashirildi",
+            moved,
+            hidden,
+        )
+
+# bo'lim NOMI, mashina slug (None = universal), nom, tavsif,
 # narx, eski narx, ombor, badge
+#
+# Bo'lim TARTIB RAQAMI bilan emas, NOMI bilan ko'rsatiladi — bo'limlar
+# ro'yxati o'zgarganda tovarlar boshqa bo'limga tushib qolmasin.
 DEMO_PRODUCTS = [
     (
-        1,
+        "Lampalar",
         None,
         "LED lampa H4 (juft)",
         "6000K, radiatorli sovutish, 12V",
@@ -513,9 +665,9 @@ DEMO_PRODUCTS = [
         24,
         "Chegirma",
     ),
-    (1, None, "LED lampa H7 (juft)", "6000K, CANBUS bilan", 300_000, None, 18, None),
+    ("Lampalar", None, "LED lampa H7 (juft)", "6000K, CANBUS bilan", 300_000, None, 18, None),
     (
-        1,
+        "Lampalar",
         "gentra",
         "Gentra uchun H4 to'plami",
         "Gentra faralariga aynan mos, adapter bilan",
@@ -525,7 +677,7 @@ DEMO_PRODUCTS = [
         "Mos keladi",
     ),
     (
-        1,
+        "Lampalar",
         "nexia2",
         "Nexia 2 uchun H4 to'plami",
         "Nexia 2 fara korpusiga mos, uzaytirgich bilan",
@@ -535,7 +687,7 @@ DEMO_PRODUCTS = [
         "Mos keladi",
     ),
     (
-        2,
+        "Aksesuarlar",
         None,
         "DRL lenta COB (2 dona)",
         "Kunduzgi yurish chirog'i, egiluvchan",
@@ -545,7 +697,7 @@ DEMO_PRODUCTS = [
         None,
     ),
     (
-        2,
+        "Aksesuarlar",
         "gentra",
         "Gentra DRL bamper lentasi",
         "Bamperga o'rnatiladigan to'plam",
@@ -554,9 +706,9 @@ DEMO_PRODUCTS = [
         8,
         None,
     ),
-    (3, None, "Fara germetigi (qora)", "Issiqqa chidamli, 310 ml", 85_000, None, 40, None),
+    ("Aksesuarlar", None, "Fara germetigi (qora)", "Issiqqa chidamli, 310 ml", 85_000, None, 40, None),
     (
-        3,
+        "Aksesuarlar",
         None,
         "Polirovka to'plami",
         "Pasta + doska, faralarni tiklash uchun",
@@ -565,7 +717,7 @@ DEMO_PRODUCTS = [
         15,
         None,
     ),
-    (3, "nexia2", "Nexia 2 fara shishasi", "Original o'lchamda, shaffof", 480_000, None, 6, None),
+    ("Aksesuarlar", "nexia2", "Nexia 2 fara shishasi", "Original o'lchamda, shaffof", 480_000, None, 6, None),
 ]
 
 DEMO_BANNERS = [
@@ -1221,6 +1373,10 @@ async def _ensure_catalog() -> None:
         await _migrate_services()
         await _ensure_services()
         await _ensure_cars()
+        # Do'kon bo'limlari (chip nomlari). IDEMPOTENT — `initial_sync()`
+        # bulutdan katalogni tiklagandan keyin YANA chaqiriladi, chunki
+        # bulutda eski nomlar qolgan bo'lishi mumkin.
+        await normalize_shop_categories()
     except Exception as error:  # noqa: BLE001 — to'ldirish ilovani yiqitmasin
         logger.warning("Katalogni to'ldirib bo'lmadi: %s", error)
 
@@ -1285,12 +1441,16 @@ async def _seed() -> None:
     # mashina slug -> id
     async with db.execute("SELECT id, slug FROM cars") as cur:
         car_ids = {row["slug"]: row["id"] async for row in cur}
-    async with db.execute("SELECT id FROM categories ORDER BY id") as cur:
-        category_ids = [row["id"] async for row in cur]
+    # Bo'lim NOMI -> id. Ilgari `category_ids[cat_index - 1]` edi, ya'ni
+    # demo tovar bo'limga TARTIB RAQAMI bilan bog'langan edi. Bo'limlar
+    # ro'yxati o'zgarganda (nomi yoki tartibi) tovarlar jimgina boshqa
+    # bo'limga tushib qolardi. Nom bilan bog'lash bunga yo'l qo'ymaydi.
+    async with db.execute("SELECT id, name FROM categories") as cur:
+        category_by_name = {row["name"]: row["id"] async for row in cur}
 
     products = [
         (
-            category_ids[cat_index - 1],
+            category_by_name[cat_name],
             car_ids.get(car_slug) if car_slug else None,
             name,
             description,
@@ -1299,7 +1459,9 @@ async def _seed() -> None:
             stock,
             badge,
         )
-        for cat_index, car_slug, name, description, price, old_price, stock, badge in DEMO_PRODUCTS
+        for cat_name, car_slug, name, description, price, old_price, stock, badge in DEMO_PRODUCTS
+        # Nomi topilmagan bo'lim — demo tovar tashlab ketiladi (yiqilmaydi)
+        if cat_name in category_by_name
     ]
     await db.executemany(
         "INSERT INTO products (category_id, car_id, name, description, price,"
