@@ -679,6 +679,43 @@ def _service_json(svc) -> dict:
     }
 
 
+@routes.get("/api/music")
+async def api_music(request: web.Request) -> web.Response:
+    """Mini App'dagi fon musiqasi.
+
+    Har trek uchun tayyor manzil qaytariladi: tashqi URL bo'lsa o'zi,
+    Telegram fayli bo'lsa `/api/media/music/{id}/audio` proksisi.
+
+    Manzili YO'Q treklar ro'yxatga tushmaydi — ilova ularni eshita
+    olmaydi va bo'sh yozuv faqat chalkashtirardi.
+    """
+    await _current_user(request)
+    try:
+        rows = await q.get_music()
+    except Exception as error:  # noqa: BLE001 — musiqa bo'lmasa ilova ishlaydi
+        logger.warning("Musiqa o'qilmadi: %s", error)
+        rows = []
+
+    tracks = []
+    for row in rows:
+        url, external = _media_from_raw(
+            "music", row["id"], row["audio_url"], bool(row["audio_id"]), "audio"
+        )
+        if not url:
+            continue
+        tracks.append(
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "url": url,
+                "external": external,
+                "duration": int(row["duration"] or 0),
+            }
+        )
+
+    return web.json_response({"tracks": tracks})
+
+
 @routes.get("/api/dates")
 async def api_dates(request: web.Request) -> web.Response:
     await _current_user(request)

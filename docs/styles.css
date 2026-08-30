@@ -3975,6 +3975,51 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   }
 }
 
+/* ==========================================================================
+   FON MUSIQASI TUGMASI
+
+   Bosh sahifaning tepasida, zaxira rejim belgisi yonida. Musiqa
+   qo'shilmagan bo'lsa BUTUNLAY yashiriladi (`admin.js` emas,
+   `app.js: paintMusicBtn`) — bosilganda hech narsa bo'lmaydigan tugma
+   turmasligi kerak.
+   ========================================================================== */
+.music-btn {
+  flex: 0 0 auto;
+  width: 30px; height: 30px; margin-left: 6px; padding: 0;
+  display: grid; place-items: center;
+  font-size: 13px; line-height: 1;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 0.16s var(--spring), background 0.2s, border-color 0.2s,
+    color 0.2s;
+}
+.music-btn:active { transform: scale(0.9); }
+
+/* Yoniq holat — ko'zga tashlanadi, lekin bezovta qilmaydi */
+.music-btn.on {
+  background: rgba(47, 212, 95, 0.12);
+  border-color: rgba(47, 212, 95, 0.32);
+  color: #b8f5cd;
+  animation: musicPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes musicPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 212, 95, 0.26); }
+  50%      { box-shadow: 0 0 0 5px rgba(47, 212, 95, 0); }
+}
+
+/* `<audio>` elementi ko'rinmaydi — u faqat ovoz uchun */
+#bg-music { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .music-btn { transition: none; animation: none; }
+  .music-btn.on { animation: none; }
+  .music-btn:active { transform: none; }
+}
+
 
 /* ==========================================================================
    TOVAR BOSHQARUVI (admin-shop.js) — Avto_A1 dizayni, Zimmer ranglari

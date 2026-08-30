@@ -814,6 +814,44 @@
     }
   }
 
+  /** `/api/music` zaxirasi — Mini App fon musiqasi.
+   *
+   *  FAQAT TASHQI HAVOLALI treklar qaytariladi. Telegram `file_id`
+   *  brauzerda ochilmaydi — uni Render'ning `/api/media` proksisi
+   *  beradi, Render esa aynan shu holatda uxlagan. Shu sababli
+   *  `audio_id` bilan saqlangan trek bu yerda tashlab ketiladi:
+   *  ochilmaydigan manzilni qaytarish faqat xato ovoziga olib kelardi. */
+  async function music() {
+    try {
+      var list = rows(await readNode("music"))
+        .filter(function (r) {
+          return (
+            !r.deleted &&
+            Number(r.is_active) !== 0 &&
+            /^https?:\/\//i.test(String(r.audio_url || ""))
+          );
+        })
+        .map(function (r) {
+          return {
+            id: r.id,
+            title: r.title || "Fon musiqasi",
+            url: String(r.audio_url),
+            external: true,
+            duration: Number(r.duration) || 0,
+            sort: Number(r.sort) || 0,
+          };
+        });
+      list.sort(function (a, b) {
+        return (a.sort || 0) - (b.sort || 0) || (a.id || 0) - (b.id || 0);
+      });
+      return { tracks: list };
+    } catch (err) {
+      /* Musiqa — qo'shimcha imkoniyat. O'qilmasa jim qolamiz: tugma
+         ko'rinmaydi va mijoz hech qanday xato ko'rmaydi. */
+      return { tracks: [] };
+    }
+  }
+
   /* ---- Umumiy kesh (bosh sahifa keshi alohida — u `save`/`cached`) ----
      Firebase ham o'qilmagan holat uchun: mijoz ilgari ko'rgan variantlar
      saqlanib qoladi, ya'ni konfigurator butunlay bo'sh chiqmaydi. */
@@ -1458,6 +1496,7 @@
     cars: cars,
     tuning: tuning,
     services: services,
+    music: music,
     // Navbat va Bi-LED — bazaga to'g'ridan
     bookingDates: bookingDates,
     bookingSlots: bookingSlots,

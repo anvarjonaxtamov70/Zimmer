@@ -151,6 +151,20 @@
       aria-label="Server bilan aloqa yo'q — faqat ko'rish mumkin"
       title="Server bilan aloqa yo'q"
     >☁️</button>
+    <!-- Fon musiqasi tugmasi.
+         Musiqa qo'shilmagan bo'lsa BUTUNLAY yashiriladi (`paintMusicBtn`) —
+         bosilganda hech narsa bo'lmaydigan tugma turmasin.
+
+         DIQQAT: brauzer ovozni o'zi boshlamaydi (Chrome/Safari qoidasi),
+         shuning uchun boshlash uchun aynan shu tugma kerak. Tanlov
+         eslab qolinadi va keyingi kirishda o'zi davom etadi. -->
+    <button
+      class="music-btn hidden"
+      id="music-btn"
+      type="button"
+      aria-pressed="false"
+      aria-label="Fon musiqasini yoqish"
+    >🔇</button>
   </header>
 
   <!-- DIQQAT: «Xayrli tong / Xayrli kun / Xayrli kech» salomlashuv bloki

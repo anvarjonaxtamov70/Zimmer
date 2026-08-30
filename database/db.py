@@ -257,6 +257,28 @@ CREATE TABLE IF NOT EXISTS promos (
     sort       INTEGER NOT NULL DEFAULT 0,
     is_active  INTEGER NOT NULL DEFAULT 1
 );
+
+-- Mini App'dagi FON MUSIQASI.
+--
+-- Admin botga audio tashlaydi, u shu jadvalga tushadi va Mini App'da
+-- orqa fonda eshitiladi (mijoz xohlasa).
+--
+-- `audio_id`  — Telegram file_id (bot orqali yuborilgan fayl);
+-- `audio_url` — tashqi manzil (Firebase Storage / CDN).
+--
+-- IKKISI HAM BOR, chunki ular BOSHQA-BOSHQA holatda ishlaydi:
+-- `file_id` ni brauzer o'zi ocholmaydi — u Render'ning `/api/media`
+-- proksisi orqali beriladi. Render uxlaganda esa faqat `audio_url`
+-- ishlaydi. Shuning uchun uzun/sifatli musiqa uchun URL tavsiya etiladi.
+CREATE TABLE IF NOT EXISTS music (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    title     TEXT NOT NULL,
+    audio_id  TEXT,
+    audio_url TEXT,
+    duration  INTEGER NOT NULL DEFAULT 0,
+    sort      INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1
+);
 """
 
 # ------------------------------------------------------------------ demo ma'lumot
