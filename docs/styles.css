@@ -1119,11 +1119,12 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 
 /* Foydalanuvchi animatsiyani kamaytirsa — hammasi jim turadi */
 @media (prefers-reduced-motion: reduce) {
-  .adm-tile, .adm-tile-ico { transition: none; }
+  .adm-tile, .adm-tile-ico, .adm-sort { transition: none; }
   .adm-tiles.enter > *,
   .adm-figure,
   .adm-row,
   .adm-order { animation: none; }
+  .adm-sort:active { transform: none; }
 }
 
 /* --------------------------------------------------------------- ro'yxat */
@@ -1138,16 +1139,51 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   transition: border-color 0.2s, transform 0.15s var(--spring);
   animation: rowIn 0.34s var(--silk) both;
 }
-.adm-row:nth-child(2) { animation-delay: 0.03s; }
-.adm-row:nth-child(3) { animation-delay: 0.06s; }
-.adm-row:nth-child(4) { animation-delay: 0.09s; }
-.adm-row:nth-child(5) { animation-delay: 0.12s; }
-.adm-row:nth-child(6) { animation-delay: 0.15s; }
+/* Kechikish JS'dan `--d` bilan keladi (`admin.js: renderRow`). Ilgari
+   `:nth-child(2..6)` edi — ro'yxatga GURUH SARLAVHALARI qo'shilgandan
+   keyin sanoq buzilib, kechikish tasodifiy qatorlarga tushib qolardi. */
+.adm-row { animation-delay: var(--d, 0ms); }
 .adm-row.off { opacity: 0.48; }
 @keyframes rowIn {
   from { opacity: 0; transform: translateY(9px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* ---- guruh sarlavhasi (xizmatlar: konfigurator / oddiy / tez kunda) ---- */
+.adm-group-head {
+  display: flex; align-items: center; gap: 8px;
+  margin: 16px 0 8px;
+}
+.adm-group-head:first-of-type { margin-top: 6px; }
+.adm-group-ic { font-size: 13px; line-height: 1; }
+.adm-group-head b {
+  font-size: 10.5px; font-weight: 800; color: var(--muted);
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+/* Sarlavhadan keyin ingichka chiziq — guruhlar ko'z bilan ajralsin */
+.adm-group-head::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
+
+/* ---- tartib tugmalari (↑/↓) ----
+   Ilgari tartibni o'zgartirishning YAKKA yo'li «Tartib» maydoniga qo'lda
+   raqam yozish edi. Endi ikki tugma; guruh chetida `disabled` bo'ladi. */
+.adm-row-sort {
+  display: flex; flex-direction: column; gap: 3px; flex: none;
+}
+.adm-sort {
+  width: 26px; height: 21px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 7px; color: var(--muted);
+  font-size: 11px; line-height: 1;
+  display: grid; place-items: center;
+  transition: transform 0.14s var(--spring), color 0.18s, border-color 0.18s;
+}
+.adm-sort:active { transform: scale(0.88); }
+.adm-sort:not([disabled]):hover { color: var(--text); border-color: var(--line-2); }
+/* Guruh cheti: tugma bor, lekin ishlamaydi — nima uchun ekani
+   ko'rinib turishi kerak, shuning uchun YASHIRILMAYDI. */
+.adm-sort[disabled] { opacity: 0.28; }
 
 /* Yangi qo'shish tugmasi — ko'zga tashlanadigan, lekin bosiq */
 .adm-add {
@@ -1218,7 +1254,162 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .adm-media-btns { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .adm-media-btns .btn { width: 100%; }
 .adm-media-btns .danger { color: var(--red); border-color: rgba(255, 45, 58, 0.3); }
-.adm-media-ok { font-size: 11px; color: var(--muted); text-align: center; padding: 4px; }
+.adm-media-ok {
+  font-size: 10.5px; color: var(--muted); text-align: center;
+  padding: 4px; line-height: 1.3;
+}
+/* Tanlangan fayl ko'rinishi — ilgari bu yerda shunchaki «✓» harfi
+   turardi va admin qaysi rasmni tanlaganini KO'RMASDI. */
+.adm-media .adm-thumb.big img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ==========================================================================
+   FORMA — KARTOCHKALAR
+
+   Ilgari barcha maydonlar bitta uzun ustunda edi: 12 ta bir xil kulrang
+   input ketma-ket. Qaysi maydon nimaga tegishli ekani ko'rinmasdi.
+   Endi maydonlar MA'NOSI bo'yicha kartochkalarga bo'linadi (guruhlarni
+   server beradi: `handlers/admin_schema.py: FORM_GROUPS`).
+   ========================================================================== */
+.adm-fgroup {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 15px; margin-bottom: 13px;
+  animation: rowIn 0.36s var(--silk) both;
+}
+.adm-fgroup-h {
+  display: flex; align-items: center; gap: 11px; margin-bottom: 12px;
+}
+.adm-fgroup-i {
+  width: 36px; height: 36px; flex: none; border-radius: 11px;
+  display: grid; place-items: center; font-size: 17px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.adm-fgroup-t { min-width: 0; }
+.adm-fgroup-t b { display: block; font-size: 14px; font-weight: 800; color: #fff; }
+.adm-fgroup-t i {
+  display: block; margin-top: 2px; font-style: normal;
+  font-size: 11px; color: var(--muted); line-height: 1.35;
+}
+/* Kartochka ichida maydonlar orasidagi masofa — `.field` ning eski
+   `margin: 12px 0` i bilan qo'shilib ketmasin. */
+.adm-fgroup .adm-field { margin: 0 0 11px; }
+.adm-fgroup .adm-field:last-child { margin-bottom: 0; }
+
+/* ---- xato holati ----
+   Ilgari xato FAQAT toast'da chiqardi: uzun formada qaysi maydon
+   ekani ko'rinmasdi. Endi maydonning o'zi belgilanadi. */
+.adm-err { display: none; font-size: 11px; color: var(--red); line-height: 1.4; }
+.adm-field.is-err .adm-err { display: block; }
+.adm-field.is-err input,
+.adm-field.is-err select,
+.adm-field.is-err textarea {
+  border-color: var(--red);
+  background: rgba(255, 45, 58, 0.06);
+}
+/* Xato bo'lgan maydonga e'tibor tortamiz — bir marta silkinadi */
+.adm-field.is-err { animation: admShake 0.32s var(--silk) both; }
+@keyframes admShake {
+  0%, 100% { transform: none; }
+  25%      { transform: translateX(-4px); }
+  75%      { transform: translateX(4px); }
+}
+
+/* ---- tanlov (select) ----
+   `appearance: none` o'qni ham olib tashlaydi, shu sababli o'zimiz
+   chizamiz — aks holda maydon oddiy matn maydonidan ajralmaydi. */
+.adm-select { position: relative; }
+.adm-select::after {
+  content: "▾"; position: absolute; right: 12px; top: 50%;
+  transform: translateY(-50%); pointer-events: none;
+  font-size: 11px; color: var(--muted);
+}
+.adm-select select { padding-right: 30px !important; }
+
+/* ---- son va narx ----
+   Ming ajratgich ko'rinsin ("150 000"), valyuta esa maydon ichida
+   turadi — admin qaysi birlikda yozayotganini ko'radi. */
+.adm-num { position: relative; }
+.adm-num.is-money input { padding-right: 52px; }
+.adm-num-suf {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  pointer-events: none; font-size: 12px; font-weight: 700; color: var(--muted);
+}
+
+/* ---- belgi sanoqchisi (tavsif) ---- */
+.adm-count {
+  align-self: flex-end; font-size: 10px; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.adm-count.is-near { color: var(--amber); }
+
+/* ---- yopishqoq saqlash paneli ----
+   Ilgari tugma oxirgi maydondan keyin turardi: uzun formada uni ko'rish
+   uchun oxirigacha skroll qilish kerak edi. */
+.adm-footer {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 0 calc(12px + var(--safe-b));
+  background: linear-gradient(180deg, transparent, var(--bg) 42%);
+}
+.adm-footer .btn { width: 100%; }
+.adm-footer-back { opacity: 0.75; }
+
+/* ==========================================================================
+   MIJOZGA QANDAY KO'RINADI (faqat xizmatlar formasida)
+
+   Admin narx yoki dizaynni o'zgartirsa natijani DARHOL ko'radi. Ilgari
+   saqlab, do'konga o'tib, tekshirib qaytish kerak edi.
+   ========================================================================== */
+.adm-preview { margin-bottom: 13px; }
+.adm-preview-h {
+  font-size: 10px; font-weight: 800; color: var(--red);
+  letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 8px;
+}
+.adm-pv {
+  position: relative; display: flex; flex-direction: column; gap: 9px;
+  padding: 13px; border-radius: 16px;
+  background: linear-gradient(150deg, var(--red-soft), rgba(0, 0, 0, 0.3));
+  border: 1px solid rgba(255, 75, 62, 0.26);
+}
+.adm-pv.is-soon {
+  border-style: dashed;
+  background: linear-gradient(150deg, rgba(148, 163, 184, 0.1), rgba(0, 0, 0, 0.28));
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.adm-pv-badge {
+  position: absolute; top: 9px; right: 10px;
+  padding: 3px 7px; border-radius: 999px;
+  font-size: 9px; font-weight: 900; letter-spacing: 0.3px; text-transform: uppercase;
+  color: #94a3b8; background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.adm-pv-ic {
+  width: 42px; height: 42px; border-radius: 13px;
+  display: grid; place-items: center; font-size: 21px;
+  background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line);
+}
+.adm-pv-tx b {
+  display: block; font-size: 14px; font-weight: 800; color: #fff; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adm-pv-tx i {
+  display: block; margin-top: 3px; font-style: normal;
+  font-size: 11px; color: var(--muted);
+}
+.adm-pv-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding-top: 9px; border-top: 1px solid var(--line);
+}
+.adm-pv-price { font-size: 14px; font-weight: 900; color: var(--red); }
+.adm-pv-price.is-soon { font-size: 11.5px; font-weight: 800; color: var(--muted); }
+.adm-pv-war { font-size: 10.5px; color: var(--green); font-weight: 700; }
+.adm-pv-note {
+  margin: 7px 0 0; font-size: 10.5px; color: var(--dim); line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adm-fgroup { animation: none; }
+  .adm-field.is-err { animation: none; }
+}
 
 /* ------------------------------------------------------------ buyurtmalar */
 .adm-orders-tabs { display: flex; gap: 6px; margin-bottom: 12px; }

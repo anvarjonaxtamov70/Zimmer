@@ -38,7 +38,15 @@ from api.errors import bad_request, forbidden, not_found, unauthorized
 from api.media import media_url
 from config import config, is_admin, service_video_allowed
 from database import queries as q
-from handlers.admin_schema import ENTITIES, HEX, Entity, Field, prepare_insert
+from handlers.admin_schema import (
+    ENTITIES,
+    HEX,
+    Entity,
+    Field,
+    form_layout,
+    group_of,
+    prepare_insert,
+)
 from services import firebase_storage as fb_storage
 from services import orders, sync
 from utils.helpers import PERIODS, fmt_price, period_start, today_iso
@@ -263,6 +271,10 @@ def _serialize(entity: Entity, row) -> dict:
         "values": values,
         "media": media,
         "price_label": fmt_price(values["price"]) if values.get("price") else None,
+        # Ro'yxatdagi guruh (`queries.py: row_group`). Panel shu raqamga
+        # qarab sarlavha chizadi va ↑/↓ tugmalarini guruh chetida
+        # o'chiradi — server bilan bir xil qaror qabul qilinsin.
+        "group": q.row_group(entity.table, row),
     }
 
 
@@ -414,11 +426,20 @@ async def admin_schema(request: web.Request) -> web.Response:
                 "kind": field.kind,
                 "required": field.required,
                 "hint": field.hint,
+                # Forma qaysi KARTOCHKAGA joylashi (`admin_schema.FORM_GROUPS`)
+                "group": group_of(field),
             }
             if field.kind == "choice":
                 item["choices"] = await _choice_values(field)
             if _is_media(field):
                 item["media_kind"] = _media_kind(field)
+            # Uzunlik chegarasi. Panel belgi sanoqchisini shu asosda
+            # chizadi — chegara IKKI joyda saqlanmasin, aks holda admin
+            # yozib bo'lgandan keyin 400 xato ko'rardi.
+            if field.kind == "long":
+                item["max"] = MAX_LONG
+            elif field.kind in ("text", "color"):
+                item["max"] = MAX_TEXT
             fields.append(item)
 
         sections.append(
@@ -428,6 +449,19 @@ async def admin_schema(request: web.Request) -> web.Response:
                 "icon": entity.icon,
                 "create": list(entity.create),
                 "fields": fields,
+                # Kartochkalar TARTIBI va sarlavhalari. Bo'sh guruhlar
+                # tushib qoladi — masalan videosi yo'q bo'limda «Rasm va
+                # video» kartochkasi umuman chizilmaydi.
+                "groups": [
+                    {
+                        "key": key,
+                        "icon": icon,
+                        "title": title,
+                        "note": note,
+                        "columns": [f.column for f in group_fields],
+                    }
+                    for key, icon, title, note, group_fields in form_layout(entity)
+                ],
             }
         )
 
@@ -448,6 +482,14 @@ async def section_list(request: web.Request) -> web.Response:
             "title": entity.title,
             "icon": entity.icon,
             "items": [_serialize(entity, row) for row in rows],
+            # Tartibni ↑/↓ bilan o'zgartirish mumkinmi (`sort` ustuni bor).
+            "reorder": "sort" in q.EDITABLE[entity.table],
+            # Guruh sarlavhalari (bo'lsa). Bo'sh bo'lsa panel sarlavha
+            # chizmaydi va ro'yxat oddiy ko'rinishda qoladi.
+            "groups": [
+                {"group": number, "icon": icon, "title": title}
+                for number, icon, title in entity.row_groups
+            ],
         }
     )
 
@@ -504,6 +546,11 @@ async def section_create(request: web.Request) -> web.Response:
     except Exception as error:
         logger.exception("«%s» ga qo'shishda xato", entity.table)
         raise bad_request(f"Qo'shilmadi. {db_error_text(error)}") from error
+
+    # Tartib raqamlarini tozalaymiz (10, 20, 30 ...). Yangi yozuv
+    # `MAX(sort) + 1` oldi — ya'ni raqamlar orasida bo'shliq paydo
+    # bo'lgan bo'lishi mumkin. KO'RINADIGAN tartib o'zgarmaydi.
+    await _tidy_sort(entity.table)
 
     row = await q.admin_get(entity.table, row_id)
     # Bulutga yozamiz — qayta deployda yo'qolmasin
@@ -611,9 +658,69 @@ async def section_delete(request: web.Request) -> web.Response:
             "Uni o'chirish o'rniga «yashirish» tugmasini ishlatib ko'ring."
         ) from error
 
+    # O'chirilgan yozuv `sort` raqamida BO'SHLIQ qoldirdi (1, 2, 4, 5).
+    # Uni darhol tozalaymiz — aks holda bo'shliqlar yig'ilib borardi va
+    # admin qo'lda raqam yozganda nima bo'layotganini tushunmasdi.
+    await _tidy_sort(entity.table)
+
     await sync.delete_catalog(entity.table, row_id, key_value)
     logger.info("Admin %s «%s» #%s ni o'chirdi", admin_id, entity.table, row_id)
     return web.json_response({"ok": True})
+
+
+# ------------------------------------------------------------------- tartib
+
+
+async def _tidy_sort(table: str) -> None:
+    """`sort` raqamlarini tozalaydi. XATO KO'TARMAYDI.
+
+    Bu — qulaylik amali, asosiy ish emas. Yozuv allaqachon qo'shilgan
+    yoki o'chirilgan; tartibni tozalash muvaffaqiyatsiz bo'lsa ham
+    admin amali «xato» bilan tugamasligi kerak.
+    """
+    try:
+        await q.resequence_sort(table)
+    except Exception as error:  # noqa: BLE001 — tartib asosiy ish emas
+        logger.warning("«%s» tartibi qayta raqamlanmadi: %s", table, error)
+
+
+@admin_routes.post("/api/admin/section/{key}/{row_id}/move")
+async def section_move(request: web.Request) -> web.Response:
+    """Yozuvni bir pog'ona yuqori/pastga suradi (↑/↓ tugmalari).
+
+    Ilgari tartibni o'zgartirishning YAKKA yo'li «Tartib» maydoniga
+    qo'lda raqam yozish edi — admin qaysi raqam kimda turganini bilmasa
+    bu deyarli imkonsiz ish.
+
+    Chegaraga yetganda XATO qaytarilmaydi (`moved: false` + sabab):
+    tugmani bosish o'zi noto'g'ri amal emas, shunchaki bajarilmadi.
+    """
+    await _admin_id(request)
+    entity = _entity(request)
+    row_id = _row_id(request)
+    body = await _body(request)
+
+    direction = str(body.get("dir") or body.get("direction") or "").strip().lower()
+    if direction not in ("up", "down"):
+        raise bad_request("Yo'nalish 'up' yoki 'down' bo'lishi kerak")
+
+    if "sort" not in q.EDITABLE[entity.table]:
+        raise bad_request("Bu bo'limda tartib almashtirilmaydi")
+    if not await q.admin_get(entity.table, row_id):
+        raise not_found("Element topilmadi")
+
+    try:
+        result = await q.admin_move(entity.table, row_id, direction)
+    except ValueError as error:
+        raise bad_request(str(error)) from error
+
+    if result["moved"]:
+        # Ko'chirish `sort` ni BUTUN jadvalda qayta yozadi, shuning uchun
+        # bitta qatorni emas, butun jadvalni bulutga yuboramiz — aks holda
+        # do'kon eski tartibda ko'rsatib turardi.
+        await sync.push_table_catalog(entity.table)
+
+    return web.json_response({"ok": True, **result})
 
 
 # -------------------------------------------------------------- rasm va video

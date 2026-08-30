@@ -157,11 +157,63 @@ async def remove_admin(user_id: int) -> bool:
 
 # -------------------------------------------------------------------- xizmatlar
 
+# =====================================================================
+#  XIZMATLARNING KANONIK TARTIBI
+#
+#  Uchta GURUH bor va ular har doim shu ketma-ketlikda turadi:
+#
+#      0. Bi-LED konfigurator (`theme = 'config'`)  — HAR DOIM birinchi
+#      1. Oddiy xizmatlar                          — `sort` bo'yicha
+#      2. «Tez kunda» (`coming_soon = 1`)           — HAR DOIM oxirgi
+#
+#  NEGA GURUH KERAK. Ilgari faqat `ORDER BY sort, id` edi. Natijada:
+#    * konfigurator jonli bazada O'RTADA qolib ketgan edi — u eng muhim
+#      va eng katta plitka, lekin ro'yxatning o'rtasida turardi;
+#    * «Tez kunda» xizmatlar oddiy xizmatlar orasiga aralashib ketardi —
+#      mijoz tayyor xizmatni qidirib ularning ustidan o'tishga majbur.
+#
+#  Admin `sort` raqamini o'zgartirib GURUH ICHIDA tartibni boshqaradi,
+#  lekin guruhlarning O'ZINI aralashtirib yubora olmaydi — bu yaxshi:
+#  konfiguratorni tasodifan o'rtaga tushirib qo'yish mumkin emas.
+#
+#  DIQQAT: bu tartib `docs/js/app.js: sortServices()` bilan AYNAN bir
+#  xil bo'lishi kerak. Ikki til, ikki amalga oshirish — shuning uchun
+#  ular test bilan bog'langan (`verify_order.py`: bir xil kirishga bir
+#  xil natija berishi tekshiriladi).
+# =====================================================================
+
+# Guruh raqamini beruvchi SQL ifodasi (0 / 1 / 2).
+SERVICE_GROUP_SQL = """CASE
+    WHEN COALESCE(coming_soon, 0) = 1 THEN 2
+    WHEN LOWER(TRIM(COALESCE(theme, ''))) = 'config' THEN 0
+    ELSE 1
+END"""
+
+# To'liq ORDER BY. `id` — oxirgi hal qiluvchi: `sort` takrorlansa ham
+# tartib TASODIFIY bo'lmaydi (aks holda har so'rovda boshqacha kelardi).
+SERVICES_ORDER = f"{SERVICE_GROUP_SQL}, sort, id"
+
+
+def service_group(row) -> int:
+    """Xizmatning guruh raqami — `SERVICE_GROUP_SQL` ning Python nusxasi.
+
+    Python tomonda ham kerak: `resequence_sort()` va `admin_move()`
+    qatorlarni guruhlab ishlaydi, ular esa SQL ifodasini emas, tayyor
+    qatorlarni ko'radi.
+    """
+    keys = row.keys()
+    if "coming_soon" in keys and row["coming_soon"]:
+        return 2
+    theme = row["theme"] if "theme" in keys else None
+    if str(theme or "").strip().lower() == "config":
+        return 0
+    return 1
+
 
 async def get_services(
     active_only: bool = True, bookable_only: bool = False
 ) -> list[aiosqlite.Row]:
-    """Xizmatlar ro'yxati.
+    """Xizmatlar ro'yxati — KANONIK tartibda (`SERVICES_ORDER`).
 
     bookable_only -- «Tez kunda» xizmatlarni TASHLAB ketadi. Bot navbat
         olish ro'yxatida shu rejimni ishlatadi: narxi belgilanmagan
@@ -178,8 +230,7 @@ async def get_services(
     sql = "SELECT * FROM services"
     if where:
         sql += " WHERE " + " AND ".join(where)
-    # Tartibni admin `sort` bilan boshqaradi (Mini App shu tartibda chizadi).
-    sql += " ORDER BY sort, id"
+    sql += f" ORDER BY {SERVICES_ORDER}"
     async with db.execute(sql) as cur:
         return await cur.fetchall()
 
@@ -1574,10 +1625,24 @@ def _check(table: str, column: str | None = None) -> None:
         raise ValueError(f"Ruxsat berilmagan ustun: {table}.{column}")
 
 
+# Ba'zi jadvallarda tartib oddiy `sort` dan murakkabroq. Admin paneli
+# mijoz ko'radigan ketma-ketlikni AYNAN ko'rsatishi kerak — aks holda
+# «yuqoriga ko'chirish» tugmasi tushunarsiz ishlaydi: panelda yozuv
+# ko'tariladi, do'konda esa joyi o'zgarmaydi.
+TABLE_ORDER: dict[str, str] = {"services": SERVICES_ORDER}
+
+
+def table_order(table: str) -> str:
+    """Jadval uchun ORDER BY ifodasi (admin paneli va mijoz bir xil ko'rsin)."""
+    if table in TABLE_ORDER:
+        return TABLE_ORDER[table]
+    return "sort, id" if "sort" in EDITABLE.get(table, ()) else "id"
+
+
 async def admin_list(table: str, limit: int = 60) -> list[aiosqlite.Row]:
     _check(table)
     db = get_db()
-    order = "sort, id" if "sort" in EDITABLE[table] else "id"
+    order = table_order(table)
     async with db.execute(f"SELECT * FROM {table} ORDER BY {order} LIMIT ?", (limit,)) as cur:
         return await cur.fetchall()
 
@@ -1640,6 +1705,123 @@ async def admin_next_sort(table: str) -> int:
     async with db.execute(f"SELECT COALESCE(MAX(sort), 0) + 1 FROM {table}") as cur:
         row = await cur.fetchone()
     return int(row[0])
+
+
+# =====================================================================
+#  TARTIBNI BOSHQARISH: QAYTA RAQAMLASH VA KO'CHIRISH
+#
+#  MUAMMO. `sort` — oddiy son va admin uni QO'LDA yozardi. Vaqt o'tib
+#  u ishonchsiz bo'lib qoladi:
+#
+#    * yangi yozuv `MAX(sort) + 1` oladi, o'chirilganda esa raqam
+#      BO'SHLIQ bo'lib qoladi: 1, 2, 4, 7, 8 ...
+#    * ikki yozuvga bir xil raqam yozilsa tartib `id` ga tushib qoladi
+#      va admin nima uchun shunday turganini tushunmaydi;
+#    * o'rtaga bitta yozuv qo'shish uchun keyingi HAMMASINI qo'lda
+#      qayta raqamlash kerak edi.
+#
+#  YECHIM. Ikkita amal:
+#
+#    `resequence_sort()` — tartibni 10, 20, 30 ... qilib qayta yozadi.
+#        KO'RINADIGAN ketma-ketlik SAQLANADI, faqat raqamlar tozalanadi.
+#        Har qo'shish/o'chirish/ko'chirishdan keyin chaqiriladi, ya'ni
+#        bo'shliq va takror hech qachon yig'ilib qolmaydi.
+#        10 qadam ATAYLAB: admin xohlasa qo'lda 15 yozib ikki yozuv
+#        orasiga qo'shishi mumkin.
+#
+#    `admin_move()` — yozuvni bir pog'ona yuqori/pastga suradi. Admin
+#        raqam o'ylab o'tirmaydi, ↑/↓ bosadi.
+#
+#  IKKISI HAM GURUHNI HISOBGA OLADI (`service_group`). Ya'ni
+#  konfiguratorni «pastga» bosib oddiy xizmatlar orasiga tushirib
+#  bo'lmaydi va «Tez kunda» xizmatni yuqoriga chiqarib bo'lmaydi —
+#  guruh chegarasida ko'chirish shunchaki TO'XTAYDI.
+# =====================================================================
+
+_SORT_STEP = 10
+
+
+def row_group(table: str, row) -> int:
+    """Qatorning guruhi. Guruhlash faqat `services` da bor, qolganlarida
+    hammasi bitta guruh (0) — ya'ni oddiy ro'yxat.
+
+    Admin paneli ham shu funksiyaga tayanadi: ro'yxatda guruh sarlavhasi
+    chizish va ↑/↓ tugmalarini guruh chetida o'chirish uchun."""
+    return service_group(row) if table == "services" else 0
+
+
+async def _ordered_rows(table: str) -> list[aiosqlite.Row]:
+    """Jadvalning BARCHA qatorlari ko'rinadigan tartibda (limitsiz)."""
+    db = get_db()
+    async with db.execute(f"SELECT * FROM {table} ORDER BY {table_order(table)}") as cur:
+        return await cur.fetchall()
+
+
+async def resequence_sort(table: str) -> int:
+    """`sort` ni 10, 20, 30 ... qilib qayta yozadi. Tartib O'ZGARMAYDI.
+
+    Nechta qator yangilanganini qaytaradi. Hech narsa o'zgarmasa 0 —
+    ya'ni bekorga `commit()` qilinmaydi.
+    """
+    _check(table)
+    if "sort" not in EDITABLE.get(table, ()):
+        return 0
+
+    rows = await _ordered_rows(table)
+    db = get_db()
+    changed = 0
+    for index, row in enumerate(rows, start=1):
+        want = index * _SORT_STEP
+        if int(row["sort"] or 0) == want:
+            continue
+        await db.execute(f"UPDATE {table} SET sort = ? WHERE id = ?", (want, row["id"]))
+        changed += 1
+
+    if changed:
+        await db.commit()
+    return changed
+
+
+async def admin_move(table: str, row_id: int, direction: str) -> dict[str, Any]:
+    """Yozuvni bir pog'ona yuqori (`up`) yoki pastga (`down`) suradi.
+
+    Qaytaradi: `{"moved": bool, "reason": str | None}`. `moved=False`
+    bo'lsa sabab aytiladi — chegaraga yetgan yoki guruh tugagan.
+    Bu xato EMAS: panel shunchaki «yuqoriga chiqmaydi» deb ko'rsatadi.
+    """
+    _check(table)
+    if "sort" not in EDITABLE.get(table, ()):
+        raise ValueError("Bu bo'limda tartib yo'q")
+    if direction not in ("up", "down"):
+        raise ValueError("Yo'nalish 'up' yoki 'down' bo'lishi kerak")
+
+    rows = await _ordered_rows(table)
+    index = next((i for i, row in enumerate(rows) if int(row["id"]) == int(row_id)), None)
+    if index is None:
+        return {"moved": False, "reason": "Element topilmadi"}
+
+    target = index - 1 if direction == "up" else index + 1
+    if target < 0 or target >= len(rows):
+        return {"moved": False, "reason": "Bu chetiga yetgan"}
+
+    # Guruh chegarasidan o'tmaymiz: konfigurator har doim tepada,
+    # «Tez kunda» har doim oxirida turishi kerak.
+    if row_group(table, rows[index]) != row_group(table, rows[target]):
+        return {"moved": False, "reason": "Bu guruhning chetiga yetgan"}
+
+    # Ro'yxatni almashtirib, butun tartibni qaytadan yozamiz. `sort`
+    # qiymatlarini shunchaki almashtirish YETARLI EMAS: ular teng yoki
+    # bo'sh bo'lsa almashtirish hech narsani o'zgartirmaydi.
+    rows = list(rows)
+    rows[index], rows[target] = rows[target], rows[index]
+
+    db = get_db()
+    for position, row in enumerate(rows, start=1):
+        await db.execute(
+            f"UPDATE {table} SET sort = ? WHERE id = ?", (position * _SORT_STEP, row["id"])
+        )
+    await db.commit()
+    return {"moved": True, "reason": None}
 
 
 async def admin_count(table: str) -> int:

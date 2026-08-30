@@ -789,9 +789,13 @@
         };
       });
       if (list.length) {
-        // Server `ORDER BY sort, id` beradi — bulut yo'li ham shunday
-        // tartiblanishi kerak, aks holda ikki manbada ro'yxat boshqacha
-        // ketma-ketlikda ko'rinardi.
+        /* Barqaror tartib: `sort`, keyin `id`. Bu — MA'LUMOT qatlami,
+           shuning uchun bu yerda faqat oddiy tartiblash.
+
+           GURUHLASH (konfigurator tepada, «Tez kunda» oxirida) esa
+           `app.js: sortServices()` da — u ko'rsatish uchun YAGONA
+           mas'ul va ro'yxat qaysi manbadan kelganidan qat'i nazar
+           qo'llanadi. Shu sababli qoida bu yerda TAKRORLANMAYDI. */
         list.sort(function (a, b) {
           return (a.sort || 0) - (b.sort || 0) || (a.id || 0) - (b.id || 0);
         });

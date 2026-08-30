@@ -15,6 +15,52 @@ Ikki yo'l bor, ikkisi ham bir xil bazaga yozadi:
 > Ilgari faqat ikkinchi yo'l ishlardi: Mini App'ning boshqaruv menyusida
 > «Xizmatlar» plitkasi umuman yo'q edi.
 
+Forma **kartochkalarga** bo'lingan: Asosiy → Narx va muddat → Holat →
+Tavsif → Video → Tartib. Tepada **«Mijozga qanday ko'rinadi»** turadi —
+narx yoki dizaynni o'zgartirsangiz natija darhol ko'rinadi, saqlab
+do'konga o'tib tekshirish shart emas.
+
+Narx maydoni ming ajratgich bilan yoziladi (`150 000`) va yonida
+valyuta turadi. Majburiy maydon bo'sh qolsa forma **o'sha maydonni
+belgilaydi** va unga o'tadi — ilgari xato faqat qisqa xabar bo'lib
+chiqib, qaysi maydon ekani ko'rinmasdi.
+
+## Xizmatlar tartibi
+
+Ro'yxat **uch guruhga** bo'linadi va guruhlar har doim shu ketma-ketlikda
+turadi:
+
+| # | Guruh | Izoh |
+| --- | --- | --- |
+| 1 | 🧮 **Konfigurator** | Har doim **birinchi** |
+| 2 | 🔧 **Xizmatlar** | Tartibni o'zingiz belgilaysiz |
+| 3 | 🕒 **Tez kunda** | Har doim **oxirida** |
+
+Bu tartib mijoz ko'radigan bo'limda ham, admin panelidagi ro'yxatda ham
+**bir xil**.
+
+### Tartibni o'zgartirish
+
+Ro'yxatdagi har yozuvning chap tomonida **↑ / ↓** tugmalari bor. Bosasiz
+— yozuv bir pog'ona ko'chadi. Raqam o'ylab o'tirish kerak emas.
+
+Guruh chetida tugma **o'chib qoladi** (kulrang bo'ladi): konfiguratorni
+o'rtaga tushirib yoki «Tez kunda» xizmatni yuqoriga chiqarib bo'lmaydi.
+Bu ataylab — tasodifan buzib qo'yish mumkin bo'lmasin.
+
+### «Tartib» raqami
+
+Formadagi **Tartib** maydoni hamon bor, lekin qo'lda yozish shart emas.
+Xizmat qo'shilganda yoki o'chirilganda raqamlar **o'zi** `10, 20, 30 …`
+qilib qayta yoziladi — bo'shliq ham, takror ham qolmaydi.
+
+> Ilgari raqamlar `1, 2, 4, 7` bo'lib ketardi (o'chirilgan yozuv
+> bo'shliq qoldirardi) va ikki xizmatga bir xil raqam tushsa tartib
+> tushunarsiz bo'lib qolardi.
+
+Ikki yozuv orasiga qo'shish kerak bo'lsa qo'lda oraliq raqam yozishingiz
+mumkin — masalan `10` va `20` orasiga `15`.
+
 ## Video (faqat uchta fara xizmati)
 
 Video **faqat** shu uchta xizmatga qo'yiladi:
@@ -28,6 +74,14 @@ Video **faqat** shu uchta xizmatga qo'yiladi:
 Boshqa xizmatga video yuborilsa server **rad etadi** (`400`). Ro'yxat
 `config.py: VIDEO_SERVICE_THEMES` da turadi; cheklov xizmat NOMIGA emas,
 `theme` ustuniga bog'langan — nomni o'zgartirsangiz ham ishlaydi.
+
+> **Dizayn** maydoni endi **ro'yxatdan tanlanadi** — kalitni qo'lda
+> yozish kerak emas. Video qo'yish mumkin bo'lgan uchtasi ro'yxatda
+> «(video mumkin)» deb belgilangan.
+>
+> Ilgari bu maydon erkin matn edi va kalitlarni qo'lda yozish kerak
+> bo'lardi: bitta harf xato bo'lsa (`polirovka` / `polish`) kartochka
+> dizayni jimgina buzilardi.
 
 Mijoz tomonida video **avtomatik yuklanmaydi**: avval «▶ Videoni ko'rish»
 tugmasi turadi, `<video>` elementi faqat bosilgandan keyin yaratiladi.

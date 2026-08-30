@@ -51,6 +51,12 @@ window.ZimmerAdmin = (function () {
     orderKind: "biled",
     orderStatus: null, // joriy filtr — holat o'zgargandan keyin saqlanadi
     newMedia: {}, // yangi element uchun tanlangan fayllar (kind -> File)
+    /* Forma QORALAMASI. Fayl tanlanganda forma qaytadan chiziladi —
+       shu payt yozilganlar yo'qolmasligi uchun shu yerda turadi.
+       `{key, id, values}`; `formDraft` — joriy chizishda ishlatilayotgan
+       qiymatlar (`draftFor()` mos kelsa). */
+    draft: null,
+    formDraft: null,
     busy: false,
     // ---- ombor va yangi tovar
     inv: null, // /api/admin/inventory natijasi
@@ -572,7 +578,8 @@ window.ZimmerAdmin = (function () {
       return fail(err, () => openList(key));
     }
 
-    setHead(`${data.icon} ${data.title}`, `${(data.items || []).length} ta element`);
+    const items = data.items || [];
+    setHead(`${data.icon} ${data.title}`, `${items.length} ta element`);
 
     const wrap = document.createElement("div");
     const addBtn = document.createElement("button");
@@ -584,24 +591,95 @@ window.ZimmerAdmin = (function () {
     };
     wrap.append(addBtn);
 
-    if (!(data.items || []).length) {
+    if (!items.length) {
       const empty = document.createElement("p");
       empty.className = "empty";
       empty.textContent = "Bu bo'lim hozircha bo'sh. «Yangi qo'shish» ni bosing.";
       wrap.append(empty);
     }
 
-    (data.items || []).forEach((item) => {
-      wrap.append(renderRow(key, item));
+    /* --- GURUH SARLAVHALARI VA TARTIB TUGMALARI ---
+
+       Server ro'yxatni mijoz ko'radigan AYNAN o'sha tartibda beradi
+       (`queries.py: table_order`). Har yozuvda `group` raqami bor.
+
+       Guruh chegarasida ↑/↓ tugmalari o'chiriladi: konfiguratorni
+       o'rtaga tushirib yoki «Tez kunda» ni yuqoriga chiqarib bo'lmaydi.
+       Server ham shu qoidani tekshiradi (`admin_move`), lekin tugmani
+       o'chirib qo'yish ANIQROQ: admin bosib ko'rib «nega ishlamadi?»
+       deb o'ylamaydi. */
+    const groups = data.groups || [];
+    const groupInfo = (n) => groups.find((g) => Number(g.group) === Number(n));
+    const canReorder = data.reorder !== false && items.length > 1;
+
+    let lastGroup = null;
+    items.forEach((item, index) => {
+      const g = Number(item.group || 0);
+
+      if (groups.length && g !== lastGroup) {
+        const info = groupInfo(g);
+        if (info) {
+          const head = document.createElement("div");
+          head.className = "adm-group-head";
+          head.innerHTML =
+            `<span class="adm-group-ic">${esc(info.icon || "")}</span>` +
+            `<b>${esc(info.title || "")}</b>`;
+          wrap.append(head);
+        }
+        lastGroup = g;
+      }
+
+      /* Guruhning chetidami? Qo'shni yozuv boshqa guruhda bo'lsa —
+         o'sha yo'nalishda ko'chirish mumkin emas. */
+      const prev = items[index - 1];
+      const next = items[index + 1];
+      const canUp = canReorder && !!prev && Number(prev.group || 0) === g;
+      const canDown = canReorder && !!next && Number(next.group || 0) === g;
+
+      wrap.append(renderRow(key, item, { up: canUp, down: canDown, index: index }));
     });
 
     body().innerHTML = "";
     body().append(wrap);
   }
 
-  function renderRow(key, item) {
+  /** Yozuvni bir pog'ona yuqori/pastga suradi va ro'yxatni qayta o'qiydi.
+   *
+   *  Ro'yxat SERVERDAN qayta olinadi — mahalliy massivni o'zimiz
+   *  almashtirmaymiz. Sabab: server tartibni qayta raqamlaydi
+   *  (10, 20, 30 ...) va guruh chegarasini o'zi tekshiradi, ya'ni
+   *  yakuniy holatni faqat u biladi. Mahalliy taxmin bilan ekran
+   *  bazadan ajralib ketishi mumkin edi. */
+  async function moveRow(key, rowId, dir, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api(
+        `/api/admin/section/${encodeURIComponent(key)}/${rowId}/move`,
+        { method: "POST", body: { dir: dir } }
+      );
+      if (!res.moved) {
+        haptic();
+        toast(res.reason || "Ko'chirilmadi");
+        if (btn) btn.disabled = false;
+        return;
+      }
+      haptic("ok");
+      await openList(key);
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Ko'chirilmadi");
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderRow(key, item, move) {
     const row = document.createElement("div");
     row.className = "adm-row" + (item.is_active ? "" : " off");
+    /* Ochilish animatsiyasining kechikishi INLINE beriladi. Ilgari CSS
+       `:nth-child(2..6)` bilan edi — guruh sarlavhalari qo'shilgandan
+       keyin sanoq buzilib, kechikish tasodifiy qatorlarga tushardi. */
+    const step = Math.min(Number(move && move.index) || 0, 6) * 30;
+    row.style.setProperty("--d", step + "ms");
 
     const photo = item.media && item.media.photo && item.media.photo.url;
     const thumb = photo
@@ -609,7 +687,23 @@ window.ZimmerAdmin = (function () {
               onerror="this.style.display='none'">`
       : `<span class="adm-thumb-empty">🖼</span>`;
 
+    /* Tartib tugmalari — faqat bo'limda `sort` bo'lsa chiziladi
+       (`data.reorder`). Guruh chetida `disabled` bo'ladi: bosib
+       ko'rib «nega ishlamadi?» degan savol tug'ilmasin. */
+    const canUp = !!(move && move.up);
+    const canDown = !!(move && move.down);
+    const sortBox =
+      move
+        ? `<div class="adm-row-sort">
+             <button class="adm-sort" data-act="up" title="Yuqoriga"
+                     ${canUp ? "" : "disabled"}>↑</button>
+             <button class="adm-sort" data-act="down" title="Pastga"
+                     ${canDown ? "" : "disabled"}>↓</button>
+           </div>`
+        : "";
+
     row.innerHTML = `
+      ${sortBox}
       <div class="adm-thumb">${thumb}</div>
       <div class="adm-row-mid">
         <b>${esc(item.label)}</b>
@@ -622,6 +716,15 @@ window.ZimmerAdmin = (function () {
         </button>
         <button class="adm-mini danger" data-act="del" title="O'chirish">🗑</button>
       </div>`;
+
+    ["up", "down"].forEach((dir) => {
+      const btn = row.querySelector(`[data-act="${dir}"]`);
+      if (!btn || btn.disabled) return;
+      btn.onclick = () => {
+        haptic("light");
+        moveRow(key, item.id, dir, btn);
+      };
+    });
 
     row.querySelector('[data-act="edit"]').onclick = () => {
       haptic();
@@ -659,7 +762,10 @@ window.ZimmerAdmin = (function () {
         });
         haptic("ok");
         toast("O'chirildi");
-        row.remove();
+        /* Ro'yxatni qayta o'qiymiz, faqat qatorni olib tashlamaymiz:
+           server tartibni qayta raqamladi (bo'shliq qolmasin) va guruh
+           bo'shab qolgan bo'lsa uning sarlavhasi ham ketishi kerak. */
+        await openList(key);
       } catch (err) {
         haptic("err");
         toast((err && err.message) || "O'chirilmadi");
@@ -673,9 +779,49 @@ window.ZimmerAdmin = (function () {
      FORMA (qo'shish / tahrirlash)
      ==================================================================== */
 
+  /* ------------------------------------------------------- QORALAMA
+     MUAMMO (haqiqiy xato). Fayl tanlanganda forma butunlay qaytadan
+     chizilardi (`openForm(...)`), qiymatlar esa faqat serverdan
+     o'qilardi. Natijada admin nom, narx va tavsifni yozib bo'lib
+     rasm tanlasa — YOZGANLARINING HAMMASI YO'QOLARDI.
+
+     Endi qayta chizishdan oldin forma o'qib olinadi va qoralama
+     sifatida saqlanadi, chizishda esa qoralama serverdan kelgan
+     qiymatdan USTUN turadi. */
+
+  /** Formadagi hozirgi qiymatlarni o'qiydi: {ustun: qiymat}. */
+  function readForm() {
+    const out = {};
+    body()
+      .querySelectorAll("[data-col]")
+      .forEach((node) => {
+        out[node.dataset.col] = node.value;
+      });
+    return out;
+  }
+
+  /** Qayta chizishdan oldin yozilganlarni eslab qoladi. */
+  function keepDraft(key, id) {
+    S.draft = { key: key, id: id == null ? null : id, values: readForm() };
+  }
+
+  function clearDraft() {
+    S.draft = null;
+  }
+
+  /** Qoralama AYNAN shu formaga tegishlimi? */
+  function draftFor(key, id) {
+    const d = S.draft;
+    const same = d && d.key === key && d.id === (id == null ? null : id);
+    return same ? d.values : null;
+  }
+
   async function openForm(key, id) {
     // Boshqa bo'limga o'tilsa tanlangan fayllar saqlanib qolmasin
-    if (S.key !== key || (id != null && S.view !== "form")) S.newMedia = {};
+    if (S.key !== key || (id != null && S.view !== "form")) {
+      S.newMedia = {};
+      clearDraft();
+    }
     S.view = "form";
     S.key = key;
     loading();
@@ -694,6 +840,7 @@ window.ZimmerAdmin = (function () {
     }
 
     S.item = item;
+    S.formDraft = draftFor(key, id);
     setHead(
       `${section.icon} ${item ? "Tahrirlash" : "Yangi qo'shish"}`,
       item ? item.label : section.title
@@ -702,36 +849,179 @@ window.ZimmerAdmin = (function () {
     const form = document.createElement("div");
     form.className = "adm-form";
 
-    section.fields.forEach((field) => {
-      form.append(renderField(section, field, item));
-    });
+    /* --- MIJOZGA QANDAY KO'RINADI ---
+       Faqat xizmatlarda: admin narx va dizaynni o'zgartirganda natijani
+       DARHOL ko'radi. Ilgari saqlab, do'konga o'tib, tekshirib qaytish
+       kerak edi. */
+    const preview = buildPreview(section);
+    if (preview) form.append(preview);
+
+    /* --- MAYDONLAR KARTOCHKALARDA ---
+       Guruhlarni SERVER beradi (`admin_schema.py: FORM_GROUPS`). Eski
+       backend bo'lsa `groups` bo'lmaydi — u holda hammasi bitta
+       ro'yxatda chiziladi, ya'ni panel ishlashdan to'xtamaydi. */
+    const groups = (section.groups || []).filter((g) => (g.columns || []).length);
+    const byColumn = {};
+    (section.fields || []).forEach((f) => (byColumn[f.column] = f));
+
+    if (!groups.length) {
+      (section.fields || []).forEach((field) => {
+        form.append(renderField(section, field, item));
+      });
+    } else {
+      groups.forEach((group) => {
+        const card = document.createElement("div");
+        card.className = "adm-fgroup";
+        card.innerHTML =
+          '<div class="adm-fgroup-h">' +
+          `<span class="adm-fgroup-i">${esc(group.icon || "")}</span>` +
+          `<span class="adm-fgroup-t"><b>${esc(group.title || "")}</b>` +
+          (group.note ? `<i>${esc(group.note)}</i>` : "") +
+          "</span></div>";
+        (group.columns || []).forEach((column) => {
+          const field = byColumn[column];
+          if (field) card.append(renderField(section, field, item));
+        });
+        form.append(card);
+      });
+    }
+
+    /* --- YOPISHQOQ SAQLASH PANELI ---
+       Ilgari tugma oxirgi maydondan keyin turardi: uzun formada uni
+       ko'rish uchun oxirigacha skroll qilish kerak edi. */
+    const bar = document.createElement("div");
+    bar.className = "adm-footer";
 
     const save = document.createElement("button");
     save.className = "btn btn-primary";
-    save.textContent = item ? "Saqlash" : "Qo'shish";
+    save.textContent = item ? "💾 Saqlash" : "＋ Qo'shish";
     save.onclick = () => submitForm(section, item, save);
-    form.append(save);
 
     const back = document.createElement("button");
-    back.className = "btn btn-ghost btn-sm";
+    back.className = "btn btn-ghost btn-sm adm-footer-back";
     back.textContent = "Ro'yxatga qaytish";
-    back.onclick = () => openList(key);
-    form.append(back);
+    back.onclick = () => {
+      clearDraft();
+      openList(key);
+    };
+
+    bar.append(save, back);
+    form.append(bar);
 
     body().innerHTML = "";
     body().append(form);
+
+    refreshPreview(section);
+  }
+
+  /* ------------------------------------------- MIJOZGA QANDAY KO'RINADI */
+
+  /** Dizayn ikonkasi. Tanlov YORLIG'IDAN olinadi ("✨ Fara polirovkasi"),
+   *  ya'ni ikonkalar ro'yxati bu yerda TAKRORLANMAYDI — u serverda
+   *  (`admin_schema.py: SERVICE_THEMES`) va Mini App'da turadi. */
+  function themeIcon(section, value) {
+    /* Dizayn tanlanmagan bo'lsa ikonkani Mini App NOM bo'yicha o'zi
+       tanlaydi (`app.js: themeOf`). Uni bu yerda hisoblab bo'lmaydi —
+       qoidani takrorlash kerak bo'lardi. Shu sababli betaraf ikonka
+       ko'rsatiladi. «🎲 Nom bo'yicha...» variantining ikonkasini
+       OLMAYMIZ: mijoz hech qachon zar ko'rmaydi, ya'ni oldindan
+       ko'rish yolg'on bo'lib qolardi. */
+    const key = String(value == null ? "" : value).trim();
+    if (!key) return "🔧";
+    const field = (section.fields || []).find((f) => f.column === "theme");
+    const choice = (field && (field.choices || []).find((c) => String(c.value) === key)) || null;
+    const label = (choice && choice.label) || "";
+    const first = String(label).trim().split(/\s+/)[0] || "";
+    // Emoji bo'lsa qaytaramiz; harf bo'lsa (masalan "Nom") — standart
+    return /[a-z0-9]/i.test(first) ? "🔧" : first || "🔧";
+  }
+
+  /** Oldindan ko'rish bloki (faqat xizmatlar bo'limida). */
+  function buildPreview(section) {
+    if (section.key !== "srv") return null;
+    const box = document.createElement("div");
+    box.className = "adm-preview";
+    box.id = "adm-preview";
+    return box;
+  }
+
+  /** Oldindan ko'rishni formadagi HOZIRGI qiymatlar bilan qayta chizadi. */
+  function refreshPreview(section) {
+    const box = $("adm-preview");
+    if (!box) return;
+
+    const values = readForm();
+    const name = String(values.name || "").trim() || "Xizmat nomi";
+    const soon = String(values.coming_soon || "0") === "1";
+    const price = Number(String(values.price || "").replace(/\D/g, "")) || 0;
+    const dur = Number(values.duration_min) || 0;
+    const war = String(values.warranty || "").trim();
+    const icon = themeIcon(section, values.theme);
+
+    const priceText = soon ? "Tez kunda" : price > 0 ? money(price) : "Narx yo'q";
+
+    // Dizayn tanlanmagan — ikonkani Mini App nom bo'yicha o'zi tanlaydi
+    const autoIcon = !String(values.theme || "").trim();
+
+    box.innerHTML =
+      '<div class="adm-preview-h">Mijozga qanday ko\'rinadi</div>' +
+      '<div class="adm-pv' + (soon ? " is-soon" : "") + '">' +
+      (soon ? '<span class="adm-pv-badge">Tez kunda</span>' : "") +
+      `<span class="adm-pv-ic">${esc(icon)}</span>` +
+      '<span class="adm-pv-tx">' +
+      `<b>${esc(name)}</b>` +
+      `<i>${esc(soon ? "Narx va navbat yopiq" : dur ? svcDur(dur) : "Davomiyligi ko'rsatilmagan")}</i>` +
+      "</span>" +
+      '<span class="adm-pv-foot">' +
+      `<span class="adm-pv-price${soon ? " is-soon" : ""}">${esc(priceText)}</span>` +
+      (soon || !war ? "" : `<span class="adm-pv-war">🛡 ${esc(war)}</span>`) +
+      "</span>" +
+      "</div>" +
+      (autoIcon
+        ? '<p class="adm-pv-note">Ikonka nom bo\'yicha o\'zi tanlanadi — ' +
+          "aniq ko'rinishni «Dizayn» dan belgilashingiz mumkin.</p>"
+        : "");
+  }
+
+  /** Davomiylikni inson tilida (`app.js: svcDuration` bilan bir xil). */
+  function svcDur(min) {
+    const m = Number(min) || 0;
+    if (m <= 0) return "";
+    if (m < 60) return m + " daqiqa";
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return h + " soat" + (rest ? " " + rest + " daq" : "");
+  }
+
+  /** Pul ko'rinishi — `app.js: fmt` orqali (valyuta bir joyda). */
+  function money(n) {
+    const f = app().fmt;
+    return f ? f(n) : String(n);
   }
 
   /** Maydon turiga qarab kerakli boshqaruvni yasaydi. */
   function renderField(section, field, item) {
+    /* Qiymat MANBASI tartibi:
+         1) qoralama (admin hozir yozgani) — eng ustun
+         2) serverdan kelgan yozuv
+         3) bo'sh
+       Ilgari faqat (2) bor edi va shu sababli qayta chizishda
+       yozilganlar yo'qolardi. */
+    const draft = S.formDraft;
     const value =
-      item && item.values && item.values[field.column] != null
+      draft && field.column in draft
+        ? draft[field.column]
+        : item && item.values && item.values[field.column] != null
         ? item.values[field.column]
         : "";
     const box = document.createElement("label");
     box.className = "field adm-field";
     const req = field.required ? ' <em class="adm-req">*</em>' : "";
     const hint = field.hint ? `<small class="adm-hint">${esc(field.hint)}</small>` : "";
+    // Xato yozuvi uchun joy: har maydonda BO'SH holda turadi va faqat
+    // kerak bo'lganda to'ldiriladi (`markError`). Ilgari xato faqat
+    // toast'da chiqardi — uzun formada qaysi maydon ekani ko'rinmasdi.
+    const err = '<small class="adm-err" data-role="err"></small>';
 
     /* rasm / video */
     if (field.kind === "photo" || field.kind === "video") {
@@ -752,10 +1042,13 @@ window.ZimmerAdmin = (function () {
       const emptyLabel =
         field.column === "car_id" ? "🌐 Barcha mashinaga" : "— tanlanmagan —";
       box.innerHTML = `<span>${esc(field.label)}${req}</span>
-        <select data-col="${esc(field.column)}" data-kind="choice">
-          ${field.required || hasEmpty ? "" : `<option value="">${esc(emptyLabel)}</option>`}
-          ${options}
-        </select>${hint}`;
+        <div class="adm-select">
+          <select data-col="${esc(field.column)}" data-kind="choice">
+            ${field.required || hasEmpty ? "" : `<option value="">${esc(emptyLabel)}</option>`}
+            ${options}
+          </select>
+        </div>${hint}${err}`;
+      watchField(box, section);
       return box;
     }
 
@@ -767,38 +1060,122 @@ window.ZimmerAdmin = (function () {
           <input type="color" value="${esc(hex)}" data-role="picker">
           <input type="text" value="${esc(value)}" placeholder="#ff2d3a"
                  data-col="${esc(field.column)}" data-kind="color">
-        </div>${hint}`;
+        </div>${hint}${err}`;
       const picker = box.querySelector('[data-role="picker"]');
       const text = box.querySelector('[data-kind="color"]');
       picker.oninput = () => (text.value = picker.value);
       text.oninput = () => {
         if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text.value)) picker.value = text.value;
       };
+      watchField(box, section);
       return box;
     }
 
-    /* uzun matn */
+    /* uzun matn — belgi sanoqchisi bilan */
     if (field.kind === "long") {
+      /* Chegarani SERVER beradi (`api/admin.py: MAX_LONG`). Ikki joyda
+         saqlansa ular ajralib ketardi va admin yozib bo'lgandan keyin
+         «juda uzun» xatosini ko'rardi. */
+      const max = Number(field.max) || 1000;
       box.innerHTML = `<span>${esc(field.label)}${req}</span>
         <textarea rows="3" data-col="${esc(field.column)}" data-kind="long"
-                  placeholder="${esc(field.hint)}">${esc(value)}</textarea>${hint}`;
+                  maxlength="${max}"
+                  placeholder="${esc(field.hint)}">${esc(value)}</textarea>
+        <span class="adm-count" data-role="count"></span>${hint}${err}`;
+      const area = box.querySelector("textarea");
+      const count = box.querySelector('[data-role="count"]');
+      const paint = () => {
+        count.textContent = `${area.value.length} / ${max}`;
+        // Chegaraga yaqinlashsa ogohlantiramiz (oxirgi 10%)
+        count.classList.toggle("is-near", area.value.length > max * 0.9);
+      };
+      paint();
+      area.addEventListener("input", paint);
+      watchField(box, section);
       return box;
     }
 
     /* son / narx */
     if (field.kind === "int" || field.kind === "money") {
+      /* NEGA `type="text"`. Narxni o'qish uchun ming ajratgich kerak
+         («150 000»), lekin `type="number"` ichida bo'sh joy YOLG'ON
+         qiymat hisoblanadi va brauzer maydonni bo'sh deb ko'rsatadi.
+         Shu sababli matn maydoni + `inputmode="numeric"` (telefonda
+         raqamli klaviatura chiqadi) va faqat raqam qoldiriladi. */
+      const isMoney = field.kind === "money";
+      const shown = isMoney ? groupDigits(value) : String(value);
       box.innerHTML = `<span>${esc(field.label)}${req}</span>
-        <input type="number" inputmode="numeric" min="0" value="${esc(value)}"
-               data-col="${esc(field.column)}" data-kind="${esc(field.kind)}"
-               placeholder="${esc(field.hint || "0")}">${hint}`;
+        <div class="adm-num${isMoney ? " is-money" : ""}">
+          <input type="text" inputmode="numeric" value="${esc(shown)}"
+                 data-col="${esc(field.column)}" data-kind="${esc(field.kind)}"
+                 placeholder="${esc(field.hint || "0")}">
+          ${isMoney ? `<span class="adm-num-suf">${esc(currency())}</span>` : ""}
+        </div>${hint}${err}`;
+      const input = box.querySelector("input");
+      input.addEventListener("input", () => {
+        const caretAtEnd = input.selectionStart === input.value.length;
+        const digits = input.value.replace(/\D/g, "");
+        input.value = isMoney ? groupDigits(digits) : digits;
+        // Kursor oxirida bo'lsa oxirida qoladi — formatlash paytida
+        // o'rtaga sakrab ketmasin.
+        if (caretAtEnd) input.setSelectionRange(input.value.length, input.value.length);
+      });
+      watchField(box, section);
       return box;
     }
 
     /* oddiy matn */
     box.innerHTML = `<span>${esc(field.label)}${req}</span>
       <input type="text" value="${esc(value)}" data-col="${esc(field.column)}"
-             data-kind="text" placeholder="${esc(field.hint)}">${hint}`;
+             data-kind="text" placeholder="${esc(field.hint)}">${hint}${err}`;
+    watchField(box, section);
     return box;
+  }
+
+  /** Valyuta yozuvi. `app.js: S.currency` da turadi — u `/api/config`
+   *  dan yoki zaxira sozlamadan to'ldiriladi, ya'ni bir joyda. */
+  function currency() {
+    const state = app().state || {};
+    return state.currency || "so'm";
+  }
+
+  /** Raqamlarni uch xonalab ajratadi: "150000" -> "150 000". */
+  function groupDigits(value) {
+    const digits = String(value == null ? "" : value).replace(/\D/g, "");
+    return digits ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ") : "";
+  }
+
+  /** Maydonni «tirik» qiladi: yozilganda xatoni o'chiradi va
+   *  oldindan ko'rishni yangilaydi. */
+  function watchField(box, section) {
+    const control = box.querySelector("[data-col]");
+    if (!control) return;
+    const react = () => {
+      clearError(box);
+      refreshPreview(section);
+    };
+    control.addEventListener("input", react);
+    control.addEventListener("change", react);
+  }
+
+  function clearError(box) {
+    if (!box) return;
+    box.classList.remove("is-err");
+    const slot = box.querySelector('[data-role="err"]');
+    if (slot) slot.textContent = "";
+  }
+
+  /** Maydonni xato deb belgilaydi va unga o'tadi. */
+  function markError(column, message) {
+    const control = body().querySelector(`[data-col="${column}"]`);
+    const box = control && control.closest(".adm-field");
+    if (box) {
+      box.classList.add("is-err");
+      const slot = box.querySelector('[data-role="err"]');
+      if (slot) slot.textContent = message;
+      if (box.scrollIntoView) box.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (control && control.focus) control.focus();
   }
 
   /** Rasm/video: ko'rinish + fayl tanlash + URL + o'chirish. */
@@ -819,23 +1196,54 @@ window.ZimmerAdmin = (function () {
     // Qo'shish va tahrirlash BIR XIL ko'rinadi: ikkisida ham fayl darhol
     // tanlanadi. Yangi elementda fayl xotirada turadi va element
     // saqlangandan keyin o'zi yuklanadi.
-    const chosen = !item && S.newMedia[kind] ? S.newMedia[kind].name : null;
+    const file = !item && S.newMedia[kind] ? S.newMedia[kind] : null;
+    const chosen = file ? file.name : null;
+
+    /* TANLANGAN FAYLNI KO'RSATAMIZ.
+       Ilgari bu yerda shunchaki «✓» harfi turardi — admin qaysi rasmni
+       tanlaganini ko'rmasdi va noto'g'ri fayl tanlaganini faqat
+       saqlagandan keyin bilardi. `URL.createObjectURL` fayl brauzerda
+       turgani uchun DARHOL ishlaydi, hech narsa yuklanmaydi. */
+    let localUrl = "";
+    if (file && kind === "photo" && window.URL && URL.createObjectURL) {
+      try {
+        localUrl = URL.createObjectURL(file);
+        // Eski havolani bo'shatamiz (xotira oqmasin)
+        if (S.mediaBlobUrl) URL.revokeObjectURL(S.mediaBlobUrl);
+        S.mediaBlobUrl = localUrl;
+      } catch (_) {
+        localUrl = "";
+      }
+    }
+
+    const thumb = localUrl
+      ? `<img src="${esc(localUrl)}" alt="">`
+      : chosen
+      ? `<span class="adm-media-ok">${kind === "photo" ? "🖼" : "🎬"} tanlandi</span>`
+      : preview;
 
     box.innerHTML = `
       <span>${esc(field.label)}</span>
       <div class="adm-media-row">
-        <div class="adm-thumb big">${chosen ? "✓" : preview}</div>
+        <div class="adm-thumb big">${thumb}</div>
         <div class="adm-media-btns">
           <button class="btn btn-ghost btn-sm" data-role="pick">
-            ${chosen ? "Almashtirish" : state.empty ? "Fayl tanlash" : "Almashtirish"}</button>
+            ${chosen || !state.empty ? "Almashtirish" : "Fayl tanlash"}</button>
           ${
-            item && !state.empty
+            chosen
+              ? '<button class="btn btn-ghost btn-sm danger" data-role="unpick">Bekor qilish</button>'
+              : item && !state.empty
               ? '<button class="btn btn-ghost btn-sm danger" data-role="clear">O\'chirish</button>'
               : ""
           }
         </div>
       </div>
-      ${chosen ? `<small class="adm-hint">Tanlandi: ${esc(chosen)}</small>` : ""}
+      ${
+        chosen
+          ? `<small class="adm-hint">Tanlandi: ${esc(chosen)} · ${esc(fileSize(file))}` +
+            " — saqlaganda yuklanadi</small>"
+          : ""
+      }
       <input type="text" value="${esc(state.raw_url || "")}"
              data-col="${esc(field.column)}" data-kind="media" data-media="${esc(kind)}"
              data-initial="${esc(state.raw_url || "")}"
@@ -846,8 +1254,18 @@ window.ZimmerAdmin = (function () {
     const fileInput = box.querySelector('[data-role="file"]');
     const pick = box.querySelector('[data-role="pick"]');
     const clear = box.querySelector('[data-role="clear"]');
+    const unpick = box.querySelector('[data-role="unpick"]');
 
     if (pick) pick.onclick = () => fileInput.click();
+
+    // Tanlangan (lekin hali yuklanmagan) fayldan voz kechish
+    if (unpick)
+      unpick.onclick = () => {
+        delete S.newMedia[kind];
+        haptic();
+        keepDraft(section.key, item ? item.id : null);
+        openForm(section.key, item ? item.id : null);
+      };
 
     fileInput.onchange = async () => {
       const file = fileInput.files && fileInput.files[0];
@@ -858,6 +1276,11 @@ window.ZimmerAdmin = (function () {
         S.newMedia[kind] = file;
         haptic("ok");
         toast("Fayl tanlandi — saqlaganda yuklanadi");
+        /* Forma qaytadan chiziladi (rasm ko'rinishi paydo bo'lsin), shu
+           sababli YOZILGANLARNI avval eslab qolamiz. Ilgari bu qadam
+           yo'q edi va admin nom/narx/tavsifni yozib bo'lib rasm
+           tanlasa — hammasi yo'qolardi. */
+        keepDraft(section.key, null);
         openForm(section.key, null);
         return;
       }
@@ -870,6 +1293,8 @@ window.ZimmerAdmin = (function () {
         await uploadMedia(section.key, item.id, kind, file);
         haptic("ok");
         toast("Fayl yuklandi ✅");
+        // Tahrirlashda ham yozilganlar saqlanib qolishi kerak
+        keepDraft(section.key, item.id);
         openForm(section.key, item.id);
       } catch (err) {
         haptic("err");
@@ -892,6 +1317,7 @@ window.ZimmerAdmin = (function () {
           );
           haptic("ok");
           toast("O'chirildi");
+          keepDraft(section.key, item.id);
           openForm(section.key, item.id);
         } catch (err) {
           haptic("err");
@@ -900,6 +1326,71 @@ window.ZimmerAdmin = (function () {
       };
 
     return box;
+  }
+
+  /** Fayl hajmi — inson tilida. Admin 50 MB chegarasini bilishi kerak. */
+  function fileSize(file) {
+    const bytes = Number(file && file.size) || 0;
+    if (!bytes) return "";
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  /** Formani serverga yubormasdan tekshiradi.
+   *
+   *  Qaytaradi: `null` (hammasi joyida) yoki `{column, message}`.
+   *
+   *  MAQSAD — xatoni ADMIN YOZGAN JOYIDA ko'rsatish. Server ham xuddi
+   *  shu qoidalarni tekshiradi (`api/admin.py`), bu esa uni ALMASHTIRMAYDI:
+   *  brauzerdagi tekshiruv faqat qulaylik uchun, ishonch serverda.
+   *
+   *  YARATISHDA faqat `create` ro'yxatidagi maydonlar majburiy — server
+   *  ham shunday qiladi. Tahrirlashda esa forma to'liq, ya'ni barcha
+   *  majburiy maydonlar tekshiriladi. */
+  function validateForm(section, values, item) {
+    const fields = section.fields || [];
+    const createOnly = !item && Array.isArray(section.create) && section.create.length;
+
+    for (const field of fields) {
+      const column = field.column;
+      const raw = values[column];
+      const text = raw == null ? "" : String(raw).trim();
+
+      // Media maydoni `values` ga faqat o'zgargan bo'lsa tushadi —
+      // majburiylik tekshiruvi unga tegishli emas.
+      if (field.kind === "photo" || field.kind === "video") {
+        if (text && !/^https?:\/\//i.test(text)) {
+          return { column: column, message: `«${field.label}» uchun https:// manzil yozing` };
+        }
+        continue;
+      }
+
+      const mustFill = createOnly
+        ? field.required && section.create.indexOf(column) !== -1
+        : field.required;
+
+      if (mustFill && !text) {
+        return { column: column, message: `«${field.label}» to'ldirilishi kerak` };
+      }
+      if (!text) continue;
+
+      if (field.kind === "int" || field.kind === "money") {
+        if (!/^\d+$/.test(text)) {
+          return { column: column, message: `«${field.label}» faqat raqam bo'lishi kerak` };
+        }
+      }
+      if (field.kind === "color" && !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(text)) {
+        return { column: column, message: `«${field.label}» rangi #ff2d3a ko'rinishida bo'lsin` };
+      }
+      const max = Number(field.max) || 0;
+      if (max && text.length > max) {
+        return {
+          column: column,
+          message: `«${field.label}» juda uzun (${max} belgidan kam bo'lsin)`,
+        };
+      }
+    }
+    return null;
   }
 
   /** Formadan qiymatlarni yig'ib serverga yuboradi. */
@@ -916,6 +1407,13 @@ window.ZimmerAdmin = (function () {
 
         if (typeof value === "string") value = value.trim();
 
+        /* Pul va son maydonlari EKRANDA ming ajratgich bilan turadi
+           («150 000»). Serverga faqat raqamlar ketishi kerak, aks holda
+           bo'sh joy tufayli qiymat rad etilardi. */
+        if (kind === "money" || kind === "int") {
+          value = String(value).replace(/\D/g, "");
+        }
+
         if (kind === "media") {
           // MUHIM: media maydonini faqat ODAM o'zgartirgan bo'lsa yuboramiz.
           // Aks holda Telegram'ga yuklangan rasm (file_id) bo'sh URL bilan
@@ -928,6 +1426,19 @@ window.ZimmerAdmin = (function () {
 
         values[column] = value === "" ? null : value;
       });
+
+    /* --- TEKSHIRUV FORMADA, SERVERDAN OLDIN ---
+       Ilgari hech qanday mahalliy tekshiruv yo'q edi: bo'sh majburiy
+       maydon bilan «Qo'shish» bosilsa so'rov ketardi va server 400
+       qaytarardi. Xato faqat toast'da chiqib, uzun formada QAYSI maydon
+       ekani ko'rinmasdi. */
+    const problem = validateForm(section, values, item);
+    if (problem) {
+      haptic("err");
+      markError(problem.column, problem.message);
+      toast(problem.message);
+      return;
+    }
 
     S.busy = true;
     btn.disabled = true;
@@ -942,6 +1453,7 @@ window.ZimmerAdmin = (function () {
         });
         haptic("ok");
         toast("Saqlandi ✅");
+        clearDraft();
         openList(section.key);
       } else {
         const res = await api(`/api/admin/section/${encodeURIComponent(section.key)}`, {
@@ -967,6 +1479,7 @@ window.ZimmerAdmin = (function () {
 
         haptic("ok");
         toast("Qo'shildi ✅");
+        clearDraft();
         openList(section.key);
       }
     } catch (err) {
@@ -1756,6 +2269,9 @@ window.ZimmerAdmin = (function () {
       return true;
     }
     if (S.view === "form" && S.key) {
+      // Formadan chiqdik — qoralama endi kerak emas. Aks holda keyingi
+      // marta shu bo'lim ochilganda eski yozuvlar qaytib chiqardi.
+      clearDraft();
       // Mahsulot tahriri ombordan ochilgan — ombor'ga qaytaramiz
       if (S.key === "prd" && S.inv) {
         openInventory();
@@ -1806,7 +2322,13 @@ window.ZimmerAdmin = (function () {
         if (S.view === "addproduct") return openAddProduct();
         if (S.view === "list") return openList(S.key);
         if (S.view === "orders") return openOrders(S.orderKind, S.orderStatus);
-        if (S.view === "form") return openForm(S.key, S.item && S.item.id);
+        if (S.view === "form") {
+          /* «Yangilash» — ataylab SERVERDAN qayta o'qish. Qoralama
+             tozalanadi, aks holda tugma hech narsani yangilamagandek
+             ko'rinardi: ekranda o'sha yozuvlar qolib turardi. */
+          clearDraft();
+          return openForm(S.key, S.item && S.item.id);
+        }
         if (S.view === "stats") return openStats(S.statKind, S.statPeriod);
         S.schema = null;
         S.summary = null;

@@ -888,6 +888,52 @@ async def publish_imported_products() -> int:
     return imported
 
 
+async def push_table_catalog(table: str) -> int:
+    """BITTA jadvalni bulutga yozadi. Nechta yozuv ketganini qaytaradi.
+
+    NEGA ALOHIDA. Ba'zi amallar bitta jadvalning BARCHA qatorlarini
+    o'zgartiradi — masalan tartibni almashtirish (`admin_move`) `sort`
+    ustunini hammasida qayta yozadi. Bunda:
+
+      * `push_catalog(table, id)` yetarli emas — u faqat bitta qatorni
+        yuboradi, qolganlari bulutda eski tartibda qolib ketardi;
+      * `push_all_catalog()` esa ortiqcha — u sakkizta jadvalni,
+        yuzlab yozuvni bekorga qayta yuboradi.
+
+    Bitta PATCH so'rovi bilan ketadi, ya'ni yozuv soni tezlikka
+    deyarli ta'sir qilmaydi.
+    """
+    if not firebase.is_enabled():
+        return 0
+    if table not in q.CATALOG_KEY:
+        return 0
+
+    try:
+        rows = await q.admin_list(table, limit=1000)
+    except Exception as error:
+        logger.warning("«%s» o'qilmadi: %s", table, error)
+        return 0
+    if not rows:
+        return 0
+
+    payload: dict[str, dict] = {}
+    for row in rows:
+        try:
+            payload[str(row["id"])] = await _catalog_payload(table, row)
+        except Exception as error:
+            logger.warning("«%s» #%s tayyorlanmadi: %s", table, row["id"], error)
+
+    if not payload:
+        return 0
+
+    # PATCH — bulutdagi qo'shimcha yozuvlarni O'CHIRMAYDI (PUT o'chirardi).
+    if await _write(f"{CATALOG_ROOT}/{table}", payload, method="patch"):
+        return len(payload)
+
+    logger.warning("«%s» bulutga yozilmadi (%s yozuv)", table, len(payload))
+    return 0
+
+
 async def push_all_catalog() -> dict[str, int]:
     """BUTUN mahalliy katalogni bulutga yozadi.
 
@@ -916,31 +962,9 @@ async def push_all_catalog() -> dict[str, int]:
 
     stats: dict[str, int] = {}
     for table in q.CATALOG_ORDER:
-        if table not in q.CATALOG_KEY:
-            continue
-        try:
-            rows = await q.admin_list(table, limit=1000)
-        except Exception as error:
-            logger.warning("«%s» o'qilmadi: %s", table, error)
-            continue
-        if not rows:
-            continue
-
-        payload: dict[str, dict] = {}
-        for row in rows:
-            try:
-                payload[str(row["id"])] = await _catalog_payload(table, row)
-            except Exception as error:
-                logger.warning("«%s» #%s tayyorlanmadi: %s", table, row["id"], error)
-
-        if not payload:
-            continue
-
-        # PATCH — bulutdagi qo'shimcha yozuvlarni O'CHIRMAYDI (PUT o'chirardi).
-        if await _write(f"{CATALOG_ROOT}/{table}", payload, method="patch"):
-            stats[table] = len(payload)
-        else:
-            logger.warning("«%s» bulutga yozilmadi (%s yozuv)", table, len(payload))
+        written = await push_table_catalog(table)
+        if written:
+            stats[table] = written
 
     if stats:
         logger.info(

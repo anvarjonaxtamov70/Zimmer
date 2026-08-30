@@ -6223,6 +6223,61 @@
   };
 
   /** Xizmatlar ro'yxati (keshlanadi). */
+  /* ================================================================
+     XIZMATLARNING KANONIK TARTIBI
+
+     Uchta GURUH, har doim shu ketma-ketlikda:
+
+         0. Bi-LED konfigurator   — HAR DOIM birinchi
+         1. Oddiy xizmatlar       — `sort` bo'yicha
+         2. «Tez kunda»           — HAR DOIM oxirgi
+
+     NEGA FRONTENDDA HAM. Server allaqachon shu tartibda yuboradi
+     (`queries.py: SERVICES_ORDER`), lekin ro'yxat UCH manbadan
+     kelishi mumkin:
+
+         • `/api/services`      — server tartiblab beradi
+         • `ZimmerOffline`      — bulut (Render uxlagan), oddiy `sort`
+         • `SERVICES_FALLBACK`  — ichki zaxira ro'yxat
+
+     Oxirgi ikkitasida server YO'Q. Shu sababli tartib shu yerda ham
+     qo'llanadi — natijada mijoz qaysi manbadan o'qilganiga qaramay
+     BIR XIL ketma-ketlikni ko'radi.
+
+     DIQQAT: `queries.py: service_group()` bilan aynan bir xil bo'lishi
+     kerak. Ikki til, ikki amalga oshirish — shuning uchun ular test
+     bilan bog'langan (`verify_order.py`).
+     ================================================================ */
+
+  /** Xizmatning guruh raqami (0 / 1 / 2). */
+  function svcGroup(s) {
+    if (svcSoon(s)) return 2;
+    /* Tema kalitiga qaraymiz, NOMGA emas — admin xizmat nomini
+       o'zgartirsa ham konfigurator tepada qolishi kerak. `themeOf()`
+       nomdan ham taxmin qiladi, ya'ni `theme` ustuni bo'sh eski
+       yozuvlar ham to'g'ri joyga tushadi. */
+    return themeOf(s, 0) === "config" ? 0 : 1;
+  }
+
+  /** Ro'yxatni kanonik tartibda qaytaradi (kirish massivi o'zgarmaydi). */
+  function sortServices(list) {
+    if (!Array.isArray(list)) return [];
+    /* `map` bilan indeksni saqlab olamiz: `sort` ham, `id` ham teng
+       bo'lsa dastlabki ketma-ketlik saqlanadi. `Array.sort` barqaror
+       bo'lsa ham, taqqoslash aniq bo'lishi tushunarliroq. */
+    return list
+      .map((s, i) => ({ s: s, i: i }))
+      .sort(function (a, b) {
+        return (
+          svcGroup(a.s) - svcGroup(b.s) ||
+          (Number(a.s && a.s.sort) || 0) - (Number(b.s && b.s.sort) || 0) ||
+          (Number(a.s && a.s.id) || 0) - (Number(b.s && b.s.id) || 0) ||
+          a.i - b.i
+        );
+      })
+      .map((x) => x.s);
+  }
+
   async function loadServices(force) {
     if (S.services && !force) return S.services;
     let list = null;
@@ -6237,7 +6292,7 @@
     }
     if (!Array.isArray(list)) list = [];
     S.servicesFallback = list.length === 0;
-    S.services = list.length ? list : SERVICES_FALLBACK.slice();
+    S.services = sortServices(list.length ? list : SERVICES_FALLBACK.slice());
     return S.services;
   }
 
