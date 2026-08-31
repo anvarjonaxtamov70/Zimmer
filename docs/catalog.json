@@ -43,29 +43,6 @@
  ],
  "stories": [
   {
-   "key": "natijalar",
-   "title": "Natijalar",
-   "emoji": "🏆",
-   "color_from": "#ff4b3e",
-   "color_to": "#1a0508",
-   "count": 1,
-   "items": [
-    {
-     "id": 8,
-     "heading": "Zoʻri",
-     "body": "Daxshatii",
-     "emoji": "🏆",
-     "color_from": "#ff4b3e",
-     "color_to": "#1a0508",
-     "photo_url": null,
-     "photo_external": false,
-     "video_url": null,
-     "video_external": true,
-     "has_media": false
-    }
-   ]
-  },
-  {
    "key": "kafolat",
    "title": "Kafolat",
    "emoji": "🛡",
@@ -115,11 +92,51 @@
  "catalog": [
   {
    "id": 3,
-   "name": "Fara uchun materiallar",
+   "name": "Aksesuarlar",
    "icon": "🧰",
    "products": [
     {
-     "id": 12,
+     "id": 18,
+     "name": "RGB maska .transformer",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 280000,
+     "old_price": 310000,
+     "badge": "Transformer",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "310 000 so'm",
+     "photo_url": "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg"
+     ]
+    },
+    {
+     "id": 17,
+     "name": "Masska bi led.",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 85000,
+     "old_price": 95000,
+     "badge": "Black",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "85 000 so'm",
+     "old_price_label": "95 000 so'm",
+     "photo_url": "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg"
+     ]
+    },
+    {
+     "id": 11,
      "name": "RGB maska. BMW dizaynda",
      "description": null,
      "price": 280000,
@@ -143,17 +160,124 @@
   },
   {
    "id": 1,
+   "name": "BI-ledlar",
+   "icon": "🔵",
+   "products": [
+    {
+     "id": 16,
+     "name": "Zimmer r50 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 460000,
+     "old_price": 500000,
+     "badge": "R50",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "460 000 so'm",
+     "old_price_label": "500 000 so'm",
+     "photo_url": "https://i.ibb.co/v6BYf0P2/28ecc232f126.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/v6BYf0P2/28ecc232f126.jpg"
+     ]
+    },
+    {
+     "id": 15,
+     "name": "Zemmer r60 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 580000,
+     "old_price": 650000,
+     "badge": "R60",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "580 000 so'm",
+     "old_price_label": "650 000 so'm",
+     "photo_url": "https://i.ibb.co/7d8JvJHD/6e09df73bbc5.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/7d8JvJHD/6e09df73bbc5.jpg"
+     ]
+    },
+    {
+     "id": 14,
+     "name": "Zimmer r70 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 700000,
+     "old_price": 750000,
+     "badge": "R70",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "700 000 so'm",
+     "old_price_label": "750 000 so'm",
+     "photo_url": "https://i.ibb.co/rrDFqD2/eb28a23b47f4.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/rrDFqD2/eb28a23b47f4.jpg"
+     ]
+    },
+    {
+     "id": 12,
+     "name": "Zimmer G90",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 1000000,
+     "old_price": 1200000,
+     "badge": "G90",
+     "stock": 10,
+     "car_id": null,
+     "price_label": "1 000 000 so'm",
+     "old_price_label": "1 200 000 so'm",
+     "photo_url": "https://i.ibb.co/VWpDNtbT/3cdbd269254c.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/VWpDNtbT/3cdbd269254c.jpg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 2,
    "name": "Lampalar",
    "icon": "💡",
    "products": [
     {
-     "id": 11,
+     "id": 13,
+     "name": "Zimmer. E300",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 350000,
+     "old_price": 400000,
+     "badge": "H7",
+     "stock": 10,
+     "car_id": 9,
+     "price_label": "350 000 so'm",
+     "old_price_label": "400 000 so'm",
+     "photo_url": "https://i.ibb.co/d4SN7x0V/e97389a3d21b.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/d4SN7x0V/e97389a3d21b.jpg"
+     ]
+    },
+    {
+     "id": 10,
      "name": "Zimmer r80",
      "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
      "price": 825000,
      "old_price": 850000,
      "badge": null,
-     "stock": 9,
+     "stock": 10,
      "car_id": null,
      "price_label": "825 000 so'm",
      "old_price_label": "850 000 so'm",
@@ -164,26 +288,6 @@
      "has_media": true,
      "images": [
       "https://i.ibb.co/zh8mPjvW/b57e358ffc23.jpg"
-     ]
-    },
-    {
-     "id": 10,
-     "name": "Hhh",
-     "description": "🛡 1 yil kafolat beriladi.",
-     "price": 2200,
-     "old_price": null,
-     "badge": null,
-     "stock": 13,
-     "car_id": null,
-     "price_label": "2 200 so'm",
-     "old_price_label": null,
-     "photo_url": "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/VcVcNMdK/8c3669913bc3.jpg"
      ]
     }
    ]
