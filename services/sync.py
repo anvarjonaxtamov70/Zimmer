@@ -95,6 +95,24 @@ async def _write(path: str, payload, *, method: str = "patch") -> bool:
     if not config.has_firebase:
         return False
 
+    # Bir xil order yo'lida oldin to'liq PUT navbatda turgan bo'lsa, keyingi
+    # status PATCH uni almashtirib yubormasin. Statusni to'liq payload ichiga
+    # qo'shib, PUT sifatida saqlaymiz/yuboramiz. Navbat (odatda) bo'sh bo'lsa
+    # DB'ga tegmaymiz — `_pending_cache` orqali tez tekshiramiz.
+    if _pending_cache and method == "patch" and isinstance(payload, dict):
+        try:
+            queued = await q.outbox_get(path)
+        except Exception:
+            queued = None
+        if queued is not None and queued["method"] == "put" and queued["payload"]:
+            try:
+                base = json.loads(queued["payload"])
+            except (TypeError, ValueError):
+                base = None
+            if isinstance(base, dict):
+                payload = {**base, **payload}
+                method = "put"
+
     if firebase.is_enabled() and await _send(method, path, payload):
         # Yuborildi — agar shu manzil navbatda turgan bo'lsa, o'chiramiz.
         # Navbat bo'sh bo'lsa (odatdagi holat) DB'ga umuman tegmaymiz —
@@ -752,7 +770,7 @@ async def _put_biled_order(order) -> None:
     )
 
 
-async def push_order(order, items_list) -> None:
+async def push_order(order, items_list) -> bool:
     """Do'kon buyurtmasini bulutga yozadi (xato ko'tarmaydi).
 
     Qaytaradi: bulutga yetib bordimi. `False` bo'lsa buyurtma FAQAT SQLite'da
@@ -805,6 +823,14 @@ async def _put_order(order, items_list) -> bool:
                     # qolishi kerak, aks holda Render tozalangandan keyin
                     # tiklangan buyurtmada razmer yo'qolardi.
                     "size": (i["size"] if "size" in i.keys() and i["size"] else None),
+                    # SQLite ID tezkor bog'lash uchun, productKey esa baza
+                    # qayta yaratilganda ham nom orqali barqaror bog'lanish uchun.
+                    "productId": (
+                        i["product_id"]
+                        if "product_id" in i.keys() and i["product_id"] is not None
+                        else None
+                    ),
+                    "productKey": " ".join(str(i["name"] or "").split()).casefold(),
                 }
                 for i in items_list
             ],
@@ -873,9 +899,15 @@ async def push_booking(booking) -> bool:
 
 
 async def push_booking_slot(booking) -> bool:
-    """Ochiq bandlik jadvalini yangilaydi (bekor qilingan navbat o'chiriladi)."""
+    """Ochiq bandlik jadvalini yangilaydi.
+
+    Faqat FAOL navbatlar (`new`/`confirmed`) bandlikni egallab turadi.
+    Bajarilgan (`done`), bekor qilingan yoki boshqa har qanday holatdagi
+    navbat bandlikdan O'CHIRILADI — aks holda tugagan navbat vaqti
+    boshqa mijozga bo'sh ko'rinmay, o'sha interval abadiy band qolardi.
+    """
     path = _slot_path(booking["date"], booking["id"])
-    if booking["status"] == "cancelled":
+    if str(booking["status"]) not in q.ACTIVE_BOOKING_STATUSES:
         return await _write(path, None, method="delete")
     return await _write(path, _slot_payload(booking), method="put")
 
@@ -906,21 +938,49 @@ async def push_all_booking_slots() -> int:
     except Exception as error:
         logger.warning("Faol navbatlar o'qilmadi (slots): %s", error)
         return 0
-    if not rows:
-        return 0
 
-    # Kunlar bo'yicha guruhlab BITTA PATCH bilan yuboramiz — har navbat uchun
-    # alohida so'rov yuborilsa bepul tarifda ishga tushish sekinlashadi.
+    # Butun `slots` tugunini QAYTA YOZAMIZ (PUT). PATCH faqat
+    # qo'shadi/yangilaydi — bulutda qolib ketgan eski (bajarilgan/bekor
+    # qilingan yoki bazadan o'chgan) yozuvlar bandlikni abadiy egallab
+    # turardi. Bazadagi faol navbatlar SQLite kaliti (BUTUN SON) bilan
+    # yoziladi.
     by_day: dict[str, dict[str, dict]] = {}
     for row in rows:
         by_day.setdefault(str(row["date"]), {})[str(row["id"])] = _slot_payload(row)
 
-    written = 0
-    for day, entries in by_day.items():
-        if await _write(f"{SLOTS_ROOT}/{day}", entries, method="patch"):
-            written += len(entries)
-    if written:
-        logger.info("Bandlik jadvaliga %s navbat yozildi", written)
+    # DIQQAT — Mini App/Worker orqali olingan navbatlar FAQAT Firebase'da
+    # yashaydi (kalit `b_<uid>_<...>`, butun son EMAS) va SQLite'ga
+    # import qilinmaydi. To'liq PUT ularni o'chirib yuborsa, o'sha vaqtlar
+    # bo'sh ko'rinib ikki marta band qilinardi. Shuning uchun Worker
+    # egaligidagi (raqamli bo'lmagan) kalitlarni SAQLAB qolamiz; faqat
+    # SQLite egaligidagi (raqamli) eski kalitlar tozalanadi.
+    try:
+        existing = firebase.items(await firebase.get(SLOTS_ROOT))
+    except Exception as error:
+        logger.warning("Mavjud bandlik jadvali o'qilmadi (slots): %s", error)
+        existing = []
+    preserved = 0
+    for day, entries in existing:
+        if not isinstance(entries, dict):
+            continue
+        for key, payload in entries.items():
+            if str(key).isdigit():
+                continue  # SQLite egaligidagi kalit — pastda qayta quriladi
+            if not isinstance(payload, dict):
+                continue
+            by_day.setdefault(str(day), {})[str(key)] = payload
+            preserved += 1
+
+    if not await _write(SLOTS_ROOT, by_day, method="put"):
+        logger.warning("Bandlik jadvali to'liq yozilmadi (slots)")
+        return 0
+
+    written = sum(len(entries) for entries in by_day.values())
+    logger.info(
+        "Bandlik jadvali qayta yozildi: %s yozuv (%s Worker navbati saqlandi)",
+        written,
+        preserved,
+    )
     return written
 
 

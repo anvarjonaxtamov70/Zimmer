@@ -30,12 +30,37 @@ window.ZimmerFB = (function () {
   var CFG = window.ZIMMER_CONFIG || {};
   var DB = (CFG.FIREBASE_DB_URL || "").replace(/\/$/, "");
   var ROOT = (CFG.FIREBASE_ROOT || "zimmer").replace(/^\/|\/$/g, "");
+  var WORKER = (CFG.WORKER_URL || "").replace(/\/$/, "");
 
   /** Brauzer bergan id'lar shu raqamdan boshlanadi (SQLite bilan urishmasin). */
   var ID_BASE = 900000;
 
   function available() {
     return !!DB;
+  }
+
+  /* Worker feature flag'lari qisqa muddatga keshlanadi. Katalog yozuvidan
+     OLDIN Worker'ning `admin_catalog_write` ni qo'llashini tekshirish uchun
+     (item 7): eski Worker `/admin/catalog-write` ni 404 bilan rad etadi va
+     xato tushunarsiz bo'lardi. */
+  var _featCache = null; // { at, features, version }
+
+  async function workerFeatures() {
+    if (!WORKER) return null;
+    if (_featCache && Date.now() - _featCache.at < 60000) return _featCache;
+    try {
+      var res = await fetch(WORKER + "/health", { cache: "no-store" });
+      if (!res.ok) return null;
+      var h = await res.json();
+      _featCache = {
+        at: Date.now(),
+        features: h && Array.isArray(h.features) ? h.features : [],
+        version: (h && h.version) || "?",
+      };
+      return _featCache;
+    } catch (_) {
+      return null;
+    }
   }
 
   function url(path, query) {
@@ -92,6 +117,84 @@ window.ZimmerFB = (function () {
     return { body: body, etag: res.headers.get("ETag") };
   }
 
+  function telegramInitData() {
+    try {
+      return (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function isCatalogPath(path) {
+    return /^catalog\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(String(path || ""));
+  }
+
+  function protectedWrite(path) {
+    return /^(catalog|slots|bookings|biled_orders|pending_orders)(\/|$)/.test(String(path || ""));
+  }
+
+  function blockedWriteError() {
+    var err = new Error("Bu yozuv faqat xavfsiz Worker endpointi orqali bajariladi");
+    err.code = "secure_endpoint_required";
+    return err;
+  }
+
+  /** Katalog yozuvlari faqat admin imzosini tekshiradigan Worker orqali. */
+  async function secureCatalogWrite(method, path, value, table) {
+    if (!WORKER) {
+      var we = new Error("WORKER_URL sozlanmagan — xavfsiz yozish imkonsiz");
+      we.code = "no_worker";
+      throw we;
+    }
+    /* Item 7: `/admin/catalog-write` ga murojaatdan OLDIN Worker feature
+       flag'ini tekshiramiz. Worker eski bo'lsa (feature yo'q) — endpoint
+       tushunarsiz 404 qaytarishidan oldin aniq xabar beramiz. Health'ni
+       aniqlab bo'lmasa (tarmoq) bloklamaymiz: haqiqiy xato quyida chiqadi.
+       Chaqiruvchi (masalan story o'chirish) bu xatoni ushlab, autentifikatsiya
+       qilingan Render zaxirasiga o'tishi mumkin. */
+    var feat = await workerFeatures();
+    if (feat && feat.features.indexOf("admin_catalog_write") === -1) {
+      var oe = new Error("Worker eski (" + feat.version + ") — katalog yozish uchun yangilash kerak");
+      oe.code = "worker_outdated";
+      throw oe;
+    }
+    var initData = telegramInitData();
+    if (!initData) {
+      var ie = new Error("Telegram imzosi yo'q");
+      ie.code = "no_init_data";
+      throw ie;
+    }
+    var res;
+    try {
+      res = await fetch(WORKER + "/admin/catalog-write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          initData: initData,
+          method: method,
+          path: path || null,
+          table: table || null,
+          value: value === undefined ? null : value,
+        }),
+      });
+    } catch (_) {
+      var ne = new Error("Internetga ulanmadi");
+      ne.code = "network";
+      throw ne;
+    }
+    var body = null;
+    try {
+      body = await res.json();
+    } catch (_) {}
+    if (!res.ok || !body || body.ok !== true) {
+      var err = new Error((body && (body.message || body.error)) || "Xavfsiz yozish bajarilmadi");
+      err.code = (body && body.error) || "http_" + res.status;
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  }
+
   /* ------------------------------------------------------- asosiy amallar */
 
   async function get(path) {
@@ -99,19 +202,29 @@ window.ZimmerFB = (function () {
   }
 
   async function put(path, value) {
+    if (isCatalogPath(path)) return (await secureCatalogWrite("put", path, value)).value;
+    if (protectedWrite(path)) throw blockedWriteError();
     return (await request("PUT", path, value)).body;
   }
 
   async function patch(path, value) {
+    if (isCatalogPath(path)) return (await secureCatalogWrite("patch", path, value)).value;
+    if (protectedWrite(path)) throw blockedWriteError();
     return (await request("PATCH", path, value)).body;
   }
 
   async function remove(path) {
+    if (isCatalogPath(path)) return (await secureCatalogWrite("delete", path)).value;
+    if (protectedWrite(path)) throw blockedWriteError();
     return (await request("DELETE", path)).body;
   }
 
-  /** RTDB o'zi kalit yasaydi (push id). */
+  /** RTDB o'zi kalit yasaydi (push id).
+   *  Himoyalangan tugunlar (catalog, slots, bookings, biled_orders,
+   *  pending_orders) push orqali HAM to'g'ridan yozilmaydi — aks holda
+   *  imzolangan Worker endpointi jimgina chetlab o'tilardi (item 9). */
   async function push(path, value) {
+    if (protectedWrite(path)) throw blockedWriteError();
     var out = (await request("POST", path, value)).body;
     return out && out.name ? out.name : null;
   }
@@ -126,35 +239,19 @@ window.ZimmerFB = (function () {
     return { ".sv": { increment: by } };
   }
 
-  /* ------------------------------------------------- id berish (ETag CAS)
-     Sanoqchini o'qib, ETag bilan qaytarib yozamiz. Oradа boshqa admin
-     o'zgartirgan bo'lsa Firebase 412 qaytaradi va qaytadan urinamiz.
-     Shu sababli ikki admin bir vaqtda tovar qo'shsa ham id'lar har xil.
+  /* ------------------------------------------------- id berish (Worker CAS)
+     Sanoqchi ham public yozilmaydi. Worker admin imzosini tekshiradi va
+     ETag/If-Match bilan oshiradi; direct Firebase fallback yo'q.
      -------------------------------------------------------------------- */
   async function nextId(counter) {
-    var node = counter + "/n";
-    for (var attempt = 0; attempt < 6; attempt++) {
-      var cur = await request("GET", node, undefined, {
-        "X-Firebase-ETag": "true",
-      });
-
-      var value = Number(cur.body);
-      if (!Number.isFinite(value) || value < ID_BASE) value = ID_BASE;
-      var next = value + 1;
-
-      try {
-        await request("PUT", node, next, {
-          "if-match": cur.etag || "null_etag",
-        });
-        return next;
-      } catch (err) {
-        // 412 — oradа boshqa admin oshirgan. Qaytadan urinamiz.
-        if (err.status !== 412) throw err;
-      }
-    }
-    // Juda kam uchraydigan holat: 6 marta ham o'tmadi. Vaqt asosida
-    // id beramiz — takrorlanish ehtimoli amalda nolga teng.
-    return ID_BASE + (Date.now() % 1000000);
+    var table = {
+      products_counter: "products",
+      stories_counter: "stories",
+      banners_counter: "banners",
+    }[counter];
+    if (!table) throw new Error("Noma'lum sanoqchi");
+    var out = await secureCatalogWrite("allocate", null, null, table);
+    return Number(out.id);
   }
 
   /** Tovar uchun id (`products_counter`). */
@@ -169,24 +266,9 @@ window.ZimmerFB = (function () {
     return nextId("stories_counter");
   }
 
-  /** Banner uchun id (`banners_counter`).
-   *
-   *  ZAXIRA YO'L: `banners_counter` — QOIDALARGA yangi qo'shilgan tugun.
-   *  Firebase Console'dagi qoidalar hali yangilanmagan bo'lsa sanoqchiga
-   *  yozish 401/403 bilan rad etiladi. O'sha holatda banner qo'shish
-   *  UMUMAN ishlamay qolishi kerak emas — vaqt asosida id beramiz
-   *  (takrorlanish ehtimoli amalda nolga teng, chunki bitta admin bir
-   *  millisekundda ikki banner qo'sha olmaydi). */
-  async function nextBannerId() {
-    try {
-      return await nextId("banners_counter");
-    } catch (err) {
-      if (err && err.code === "rules") {
-        console.warn("[fb] banners_counter yopiq — vaqt asosidagi id ishlatiladi");
-        return ID_BASE + (Date.now() % 1000000);
-      }
-      throw err;
-    }
+  /** Banner uchun id (`banners_counter`). */
+  function nextBannerId() {
+    return nextId("banners_counter");
   }
 
   return {

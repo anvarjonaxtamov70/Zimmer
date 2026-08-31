@@ -61,7 +61,7 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // berishga to'g'ri keladi).
 // Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
 // YANGI nusxa turganini tasdiqlashning eng oson yo'li.
-const VERSION = "1.6.0";
+const VERSION = "1.8.0";
 const FEATURES = [
   "order",
   /* Razmerli tovarlar: buyurtma qatorida `size` bo'ladi va qoldiq AYNAN
@@ -87,6 +87,15 @@ const FEATURES = [
   // 1.5.0 — story'ga javob va Mini App ichidan VIDEO yuklash
   "story_reply",
   "admin_upload",
+  // 1.8.0 — reviewed root-level atomic commits and strict catalog validation.
+  "order_cas_reservation",
+  "admin_catalog_write",
+  "secure_booking",
+  "secure_biled_order",
+  "order_atomic_root",
+  "booking_atomic_root",
+  "admin_status_atomic_compensation",
+  "catalog_write_validated",
 ];
 
 /** Mini App'dan yuklanadigan fayl chegarasi.
@@ -139,6 +148,8 @@ export default {
       if (path === "/me") return handleMe(request, env);
       if (path === "/profile") return handleProfile(request, env);
       if (path === "/order") return handleOrder(request, env);
+      if (path === "/booking") return handleBooking(request, env);
+      if (path === "/biled-order") return handleBiledOrder(request, env);
       // Story'ga javob: adminga QAYSI story'dan kelganini bildirib yuboradi
       if (path === "/story-reply") return handleStoryReply(request, env);
 
@@ -147,6 +158,7 @@ export default {
       if (path === "/admin/catalog") return handleAdminCatalog(request, env);
       if (path === "/admin/product") return handleAdminProduct(request, env);
       if (path === "/admin/edit") return handleAdminEdit(request, env);
+      if (path === "/admin/catalog-write") return handleAdminCatalogWrite(request, env);
       // Mini App ichidan video/rasm yuklash (bot orqali file_id olinadi)
       if (path === "/admin/upload") return handleAdminUpload(request, env);
       if (path === "/admin/orders") return handleAdminOrders(request, env);
@@ -324,6 +336,7 @@ async function handleMe(request, env) {
       if (node && typeof node === "object") {
         orders = Object.values(node)
           .filter((o) => o && typeof o === "object")
+          .filter((o) => o.status !== "processing" && o.status !== "failed")
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
           .map((o) => ({
             code: o.code || "",
@@ -465,6 +478,304 @@ function sizesOfProduct(product) {
 }
 
 async function handleOrder(request, env) {
+  const c = cfg(env);
+  if (!c.dbUrl) return json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500);
+
+  const body = await readJson(request);
+  const verified = await verifyInitData(body.initData, env);
+  if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+
+  const uid = String(verified.user.id);
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  if (!rawItems.length || rawItems.length > 50) {
+    return json({ ok: false, error: rawItems.length ? "Juda ko'p tovar" : "Savatcha bo'sh" }, 400);
+  }
+
+  const items = [];
+  for (const raw of rawItems) {
+    const productId = parseInt(raw && raw.product_id, 10);
+    const qty = parseInt(raw && raw.qty, 10);
+    if (!Number.isInteger(productId) || productId < 1 || !Number.isInteger(qty) || qty < 1 || qty > 999) {
+      return json({ ok: false, error: "Tovar yoki miqdor noto'g'ri" }, 400);
+    }
+    items.push({ product_id: productId, qty, size: clean(raw && raw.size, 40) || null });
+  }
+
+  const address = clean(body.address, 400);
+  if (address.length < 5) return json({ ok: false, error: "Manzilni to'liqroq kiriting" }, 400);
+  const phone = normalizePhone(body.phone);
+  if (!phone) return json({ ok: false, error: "Telefon raqam noto'g'ri" }, 400);
+
+  /* Kalit majburiy va tasodifiy bo'lishi kerak. Savat/manzildan yasalgan
+     deterministik kalit keyingi real buyurtmani eski yozuvga ulab qo'yadi. */
+  const clientKey = clean(body.client_key, 64).replace(/[^A-Za-z0-9_-]/g, "");
+  if (clientKey.length < 16) {
+    return json({ ok: false, error: "client_key_required", message: "Checkout kaliti yo'q" }, 400);
+  }
+
+  const deliveryMethod = ["courier", "bts"].includes(body.delivery_method)
+    ? body.delivery_method
+    : null;
+  const requestShape = {
+    items,
+    address,
+    phone,
+    delivery_method: deliveryMethod,
+    delivery_info: clean(body.delivery_info, 400) || null,
+    payment_method: clean(body.payment_method, 120) || null,
+  };
+  const requestHash = await sha256Hex(JSON.stringify(requestShape));
+  const orderKey = `${uid}_${clientKey}`;
+  const orderPath = `${c.root}/pending_orders/${orderKey}`;
+  const token = await accessToken(env);
+
+  /* 1) Order claim: faqat `null_etag` egasi yaratadi. Parallel retrylar
+     bitta claimni ko'radi; payload almashtirilsa fail-closed. */
+  const claim = {
+    code: orderCode(uid, clientKey),
+    uid: Number(uid),
+    client_key: clientKey,
+    request_hash: requestHash,
+    claim_state: "claimed",
+    status: "processing",
+    source: "miniapp_offline",
+    imported: false,
+    notified_admin: false,
+    createdAt: { ".sv": "timestamp" },
+  };
+  const claimResult = await rtdbCreate(c.dbUrl, orderPath, claim, token);
+  let current = claimResult.value;
+  if (!claimResult.created) {
+    if (!current) return json({ ok: false, error: "order_claim_missing" }, 409);
+    if (current.request_hash !== requestHash) {
+      /* Yetarli qoldiq bo'lmagani uchun reservation qilinmagan urinishda
+         mijoz savatini tuzatishi mumkin. Ayni client_key claimi CAS bilan
+         yangi payloadga qayta bog'lanadi; reserved orderda esa qat'iy conflict. */
+      if (current.status !== "failed" || current.reservation_state !== "failed") {
+        return json({ ok: false, error: "idempotency_conflict", message: "Bu checkout kaliti boshqa buyurtmaga tegishli" }, 409);
+      }
+      current = await casPatchObject(c.dbUrl, orderPath, token, (row) => {
+        if (row.status !== "failed" || row.reservation_state !== "failed") {
+          throw new Error("order claim o'zgardi");
+        }
+        return { ...claim, createdAt: row.createdAt || claim.createdAt };
+      });
+    }
+    if (current.status === "cancelled" || current.status === "delivered") {
+      return json({ ok: false, error: "order_final", message: "Bu buyurtma yakunlangan" }, 409);
+    }
+    if (current.reservation_state === "reserved" && current.status !== "failed") {
+      let notified = !!current.notified_admin;
+      if (!notified) {
+        notified = await notifyOrder(env, c, current);
+        if (notified) {
+          current = await casPatchObject(c.dbUrl, orderPath, token, (row) => ({ ...row, notified_admin: true }));
+        }
+      }
+      return json({
+        ok: true,
+        order: { code: current.code, total: current.total, total_label: fmtPrice(current.total) },
+        notified,
+        repeated: true,
+      });
+    }
+  }
+
+  /* 2) Finalize + qoldiq kamayishi (umumiy VA razmer) + exactly-once
+     rezerv markeri BITTA root ETag CAS ichida. Bir xil kalit + bir xil
+     normalizatsiyalangan payload idempotent replay bo'ladi; boshqa payload
+     esa yuqorida idempotency_conflict qaytaradi. */
+  const user = verified.user;
+  const finalizeFields = {
+    customer_name: clean(
+      body.full_name || [user.first_name, user.last_name].filter(Boolean).join(" "),
+      120
+    ) || "Mijoz",
+    username: clean(user.username, 60) || "",
+    phone,
+    address,
+    delivery_method: deliveryMethod,
+    delivery_info: requestShape.delivery_info,
+    payment_method: requestShape.payment_method,
+  };
+
+  let committed;
+  try {
+    committed = await commitOrder(c, token, orderKey, requestHash, items, finalizeFields);
+  } catch (error) {
+    if (error && error.code === "stock") {
+      await casPatchObject(c.dbUrl, orderPath, token, (row) => ({
+        ...row,
+        status: "failed",
+        claim_state: "failed",
+        reservation_state: "failed",
+        problems: error.problems,
+        status_at: { ".sv": "timestamp" },
+      }));
+      return json({
+        ok: false,
+        error: "order_failed",
+        message: "Ba'zi mahsulotlar yetarli emas. Savatchani yangilang.",
+        problems: error.problems,
+      }, 409);
+    }
+    if (error && error.code === "order_final") {
+      return json({ ok: false, error: "order_final", message: "Bu buyurtma bekor qilingan" }, 409);
+    }
+    throw error;
+  }
+
+  const record = committed.record;
+  let notified = !!record.notified_admin;
+  if (!notified) {
+    notified = await notifyOrder(env, c, record);
+    if (notified) {
+      await casPatchObject(c.dbUrl, orderPath, token, (row) => ({ ...row, notified_admin: true }));
+    }
+  }
+
+  return json({
+    ok: true,
+    order: { code: record.code, total: record.total, total_label: fmtPrice(record.total) },
+    notified,
+  }, claimResult.created && !committed.repeated ? 201 : 200);
+}
+
+/** Buyurtma yozuvini finalize qiladi, qoldiqni kamaytiradi (umumiy VA
+    razmer) va exactly-once rezerv markerini BITTA root ETag CAS ichida
+    yozadi. Crash bo'lsa ham "kamaygan qoldiq + yashirin processing claim"
+    holati QOLMAYDI: hammasi bitta shartli PUT bilan commit bo'ladi. */
+async function commitOrder(c, token, orderKey, requestHash, requested, finalizeFields) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const snap = await rtdbGetEtag(c.dbUrl, c.root, token);
+    const root = snap.value && typeof snap.value === "object" ? snap.value : {};
+    const products = root.catalog && root.catalog.products;
+    if (!products || typeof products !== "object") throw new Error("Katalog o'qilmadi");
+    const pending = root.pending_orders && typeof root.pending_orders === "object"
+      ? root.pending_orders
+      : (root.pending_orders = {});
+    const orderRow = pending[orderKey];
+    if (!orderRow || typeof orderRow !== "object" || orderRow.request_hash !== requestHash) {
+      throw new Error("order claim o'zgardi");
+    }
+    const markers = root.order_reservations && typeof root.order_reservations === "object"
+      ? root.order_reservations
+      : (root.order_reservations = {});
+    const existing = markers[orderKey];
+    if (existing && existing.state === "reserved") {
+      /* Marker faqat yakuniy PUT'da yoziladi — demak buyurtma yozuvi ham
+         AYNI o'sha PUT'da finalize bo'lgan. Idempotent replay. */
+      return { record: orderRow, repeated: true };
+    }
+    if (existing && existing.state === "released") {
+      throw Object.assign(new Error("order final"), { code: "order_final" });
+    }
+    if (!["processing", "failed"].includes(orderRow.status)) {
+      throw new Error("order claim yakunlangan");
+    }
+
+    const grouped = new Map();
+    for (const item of requested) {
+      const k = `${item.product_id}\u0000${item.size || ""}`;
+      const old = grouped.get(k);
+      if (old) old.qty += item.qty;
+      else grouped.set(k, { ...item });
+    }
+
+    const lines = [];
+    const problems = [];
+    const perProduct = new Map();
+    let total = 0;
+
+    for (const item of grouped.values()) {
+      const pid = String(item.product_id);
+      const product = products[pid];
+      if (!product || product.deleted || product.is_active === 0 || product.is_active === false) {
+        problems.push({ product_id: pid, reason: "topilmadi" });
+        continue;
+      }
+      const sizes = sizesOfProduct(product);
+      let sizeRow = null;
+      if (sizes.length) {
+        sizeRow = sizes.find((s) => s.size === item.size) || null;
+        if (!sizeRow) {
+          problems.push({ product_id: pid, name: product.name, reason: item.size ? "razmer topilmadi" : "razmer tanlanmagan", size: item.size });
+          continue;
+        }
+        if (sizeRow.stock < item.qty) {
+          problems.push({ product_id: pid, name: product.name, reason: "yetarli emas", size: item.size, stock: sizeRow.stock });
+          continue;
+        }
+      } else if ((Number(product.stock) || 0) < item.qty) {
+        problems.push({ product_id: pid, name: product.name, reason: "yetarli emas", stock: Number(product.stock) || 0 });
+        continue;
+      }
+
+      const used = perProduct.get(pid) || 0;
+      perProduct.set(pid, used + item.qty);
+      const price = Number(product.price) || 0;
+      const line = { product_id: Number(pid), name: String(product.name || ""), price, qty: item.qty };
+      if (sizeRow) {
+        line.size = sizeRow.size;
+        line._sizeKey = sizeRow.key;
+      }
+      lines.push(line);
+      total += price * item.qty;
+    }
+
+    for (const [pid, qty] of perProduct) {
+      const product = products[pid];
+      if ((Number(product.stock) || 0) < qty) {
+        problems.push({ product_id: pid, name: product.name, reason: "yetarli emas", stock: Number(product.stock) || 0 });
+      }
+    }
+    if (problems.length || !lines.length) throw Object.assign(new Error("stock"), { code: "stock", problems });
+
+    for (const line of lines) {
+      const product = products[String(line.product_id)];
+      product.stock = (Number(product.stock) || 0) - line.qty;
+      if (line._sizeKey != null) {
+        const size = product.sizes && product.sizes[line._sizeKey];
+        if (!size || (Number(size.stock) || 0) < line.qty) {
+          throw Object.assign(new Error("stock"), {
+            code: "stock",
+            problems: [{ product_id: line.product_id, name: line.name, reason: "yetarli emas", size: line.size }],
+          });
+        }
+        size.stock = (Number(size.stock) || 0) - line.qty;
+      }
+    }
+
+    const publicLines = lines.map(({ _sizeKey, ...line }) => line);
+    markers[orderKey] = {
+      state: "reserved",
+      lines: lines.map((line) => ({ ...line })),
+      total,
+      reservedAt: Date.now(),
+    };
+    /* Buyurtma yozuvi AYNI shu snapshot/PUT ichida finalize bo'ladi —
+       qoldiq kamayishi, rezerv markeri va "new" holati birga commit
+       qilinadi. Ikki alohida CAS bo'lsa, oraliqda crash "kamaygan qoldiq +
+       processing claim" ni qoldirar edi. */
+    pending[orderKey] = {
+      ...orderRow,
+      ...finalizeFields,
+      items: publicLines,
+      total,
+      status: "new",
+      claim_state: "complete",
+      reservation_state: "reserved",
+      problems: null,
+    };
+    const put = await rtdbPutIfMatch(c.dbUrl, c.root, root, token, snap.etag);
+    if (put.status === 412) continue;
+    await ensureOk(put, "Buyurtma saqlanmadi");
+    return { record: pending[orderKey], repeated: false };
+  }
+  throw new Error("Qoldiq band — qayta urinib ko'ring");
+}
+
+async function handleOrderLegacy(request, env) {
   const c = cfg(env);
   if (!c.dbUrl) return json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500);
 
@@ -681,6 +992,270 @@ async function handleOrder(request, env) {
     },
     201
   );
+}
+
+// =====================================================================
+//  POST /booking va /biled-order — faqat Telegram imzosi bilan
+// =====================================================================
+function catalogRowById(node, id) {
+  if (!node || typeof node !== "object") return null;
+  const direct = node[String(id)];
+  if (direct && typeof direct === "object") return direct;
+  return Object.values(node).find((row) => row && String(row.id) === String(id)) || null;
+}
+
+function catalogRowAvailable(row) {
+  return !!row && !row.deleted && row.is_active !== 0 && row.is_active !== false;
+}
+
+function tashkentToday() {
+  const d = new Date(Date.now() + 5 * 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
+function addIsoDays(iso, days) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function hhmmMinutes(value) {
+  const m = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/.exec(String(value || ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** Bir kun uchun BO'SH vaqtlarni "HH:MM" ro'yxati sifatida hisoblaydi
+ *  (`utils/helpers.py: free_slots` va `docs/js/offline.js: freeSlots` bilan
+ *  bir xil qoida: 09:00–18:00, 30 daq qadam, bugun uchun hozirdan +30 daq).
+ *  slot_taken javobida qaytariladi — Mini App navbat oynasini darhol
+ *  yangilaydi (err.slots). */
+function computeFreeSlots(day, date, today, durationMin) {
+  const step = 30;
+  const workStart = 9 * 60;
+  const workEnd = 18 * 60;
+  const dur = Math.max(step, Number(durationMin) || step);
+  const busy = [];
+  for (const k of Object.keys(day || {})) {
+    const slot = day[k];
+    if (!slot || typeof slot !== "object") continue;
+    const s = hhmmMinutes(slot.time);
+    if (s === null) continue;
+    busy.push([s, s + Math.max(step, Number(slot.duration_min) || step)]);
+  }
+  let minStart = workStart;
+  if (date === today) {
+    const now = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const lead = now.getUTCHours() * 60 + now.getUTCMinutes() + 30;
+    minStart = Math.max(minStart, Math.ceil(lead / step) * step);
+  }
+  const out = [];
+  for (let start = workStart; start + dur <= workEnd; start += step) {
+    if (start < minStart) continue;
+    const clash = busy.some((b) => start < b[1] && b[0] < start + dur);
+    if (!clash) {
+      out.push(`${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`);
+    }
+  }
+  return out;
+}
+
+async function handleBooking(request, env) {
+  const c = cfg(env);
+  const body = await readJson(request);
+  const verified = await verifyInitData(body.initData, env);
+  if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+  if (!c.dbUrl) return json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500);
+
+  const uid = String(verified.user.id);
+  const date = clean(body.date, 10);
+  const time = clean(body.time, 5);
+  const start = hhmmMinutes(time);
+  const today = tashkentToday();
+  /* Lexical taqqoslash EMAS: Asia/Tashkent bo'yicha bugundan +6 kungacha
+     HAQIQIY kalendar sanalar generatsiya qilinadi va faqat AYNAN mos kelgani
+     qabul qilinadi. Shu sababli 2025-04-31 kabi mavjud bo'lmagan sanalar
+     rad etiladi (avval regex ularni o'tkazib yuborardi). */
+  const validDates = [];
+  for (let i = 0; i < 7; i++) validDates.push(addIsoDays(today, i));
+  if (!validDates.includes(date)) {
+    return json({ ok: false, error: "Sana noto'g'ri" }, 400);
+  }
+  if (start === null || start < 9 * 60 || start >= 18 * 60 || start % 30 !== 0) {
+    return json({ ok: false, error: "Vaqt noto'g'ri" }, 400);
+  }
+
+  const token = await accessToken(env);
+  const services = await rtdbGetStrict(c.dbUrl, `${c.root}/catalog/services`, token);
+  const service = catalogRowById(services, body.service_id);
+  if (!catalogRowAvailable(service) || service.coming_soon) {
+    return json({ ok: false, error: "Xizmat topilmadi" }, 404);
+  }
+  const duration = Math.max(30, Number(service.duration_min) || 30);
+  if (start + duration > 18 * 60) return json({ ok: false, error: "Vaqt ish soatidan tashqarida" }, 400);
+  if (date === today) {
+    const now = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const minStart = now.getUTCHours() * 60 + now.getUTCMinutes() + 30;
+    if (start < minStart) return json({ ok: false, error: "Bu vaqt o'tib ketgan" }, 409);
+  }
+
+  const phone = normalizePhone(body.phone);
+  if (!phone) return json({ ok: false, error: "Telefon raqam noto'g'ri" }, 400);
+  const clientKey = clean(body.client_key, 64).replace(/[^A-Za-z0-9_-]/g, "");
+  if (clientKey.length < 16) return json({ ok: false, error: "client_key_required" }, 400);
+  const serviceId = service.id == null ? Number(body.service_id) : service.id;
+  const requestHash = await sha256Hex(JSON.stringify({ service_id: serviceId, date, time, phone }));
+  const key = `b_${uid}_${clientKey}`;
+  const bookingPath = `${c.root}/bookings/${key}`;
+  const claim = {
+    uid: Number(uid),
+    request_hash: requestHash,
+    status: "processing",
+    imported: false,
+    source: "miniapp_worker",
+    createdAt: Date.now(),
+  };
+  const claimed = await rtdbCreate(c.dbUrl, bookingPath, claim, token);
+  if (!claimed.created) {
+    const old = claimed.value;
+    if (!old || old.request_hash !== requestHash) return json({ ok: false, error: "booking_conflict" }, 409);
+    if (["cancelled", "done"].includes(old.status)) return json({ ok: false, error: "booking_final" }, 409);
+  }
+
+  /* Slot rezervatsiyasi VA booking yozuvining finalize'i BITTA umumiy root
+     ETag CAS ichida: `slots/{date}/{key}` va `bookings/{key}` birga commit
+     bo'ladi. Shu sababli "slot band, lekin booking yo'q" (yoki aksincha)
+     oraliq holati qolmaydi. */
+  const bookingFields = {
+    service_id: serviceId,
+    service_name: clean(service.name, 200),
+    date,
+    time,
+    duration_min: duration,
+    price: Math.max(0, Number(service.price) || 0),
+    name: clean(body.name || [verified.user.first_name, verified.user.last_name].filter(Boolean).join(" "), 200),
+    phone,
+  };
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const snap = await rtdbGetEtag(c.dbUrl, c.root, token);
+    const root = snap.value && typeof snap.value === "object" ? snap.value : {};
+    const bookings = root.bookings && typeof root.bookings === "object"
+      ? root.bookings
+      : (root.bookings = {});
+    const bookingRow = bookings[key];
+    if (!bookingRow || typeof bookingRow !== "object" || bookingRow.request_hash !== requestHash) {
+      return json({ ok: false, error: "booking_conflict" }, 409);
+    }
+    if (["cancelled", "done"].includes(bookingRow.status)) {
+      return json({ ok: false, error: "booking_final" }, 409);
+    }
+    const slots = root.slots && typeof root.slots === "object" ? root.slots : (root.slots = {});
+    const day = slots[date] && typeof slots[date] === "object" ? slots[date] : (slots[date] = {});
+    const finalized = bookingRow.status !== "processing" && bookingRow.status !== "failed";
+    if (finalized && day[key]) {
+      /* Avvalgi PUT'da slot + yozuv birga commit bo'lgan — idempotent replay. */
+      return json({ ok: true, booking: { id: key, date: bookingRow.date, time: bookingRow.time, label: bookingRow.date }, repeated: true });
+    }
+    const clash = Object.keys(day).some((k) => {
+      if (k === key) return false;
+      const slot = day[k];
+      if (!slot || typeof slot !== "object") return false;
+      const otherStart = hhmmMinutes(slot.time);
+      const otherDuration = Math.max(30, Number(slot.duration_min) || 30);
+      return otherStart !== null && start < otherStart + otherDuration && otherStart < start + duration;
+    });
+    if (clash) {
+      const freeList = computeFreeSlots(day, date, today, duration);
+      bookings[key] = { ...bookingRow, status: "failed" };
+      const put = await rtdbPutIfMatch(c.dbUrl, c.root, root, token, snap.etag);
+      if (put.status === 412) continue;
+      await ensureOk(put, "Navbat holati saqlanmadi");
+      // `slots` — endi BO'SH vaqtlar ("HH:MM"), UI ularni to'g'ridan ko'rsatadi.
+      return json({ ok: false, error: "slot_taken", message: "Bu vaqt band qilingan", slots: freeList }, 409);
+    }
+    day[key] = { time, duration_min: duration };
+    bookings[key] = { ...bookingRow, ...bookingFields, status: "new" };
+    const put = await rtdbPutIfMatch(c.dbUrl, c.root, root, token, snap.etag);
+    if (put.status === 412) continue;
+    await ensureOk(put, "Navbat band qilinmadi");
+    return json({ ok: true, booking: { id: key, date, time, label: date } }, claimed.created ? 201 : 200);
+  }
+  return json({ ok: false, error: "slot_busy", message: "Vaqtni band qilishda to'qnashuv" }, 409);
+}
+
+async function handleBiledOrder(request, env) {
+  const c = cfg(env);
+  const body = await readJson(request);
+  const verified = await verifyInitData(body.initData, env);
+  if (!verified.ok) return json({ ok: false, error: verified.error }, 401);
+  if (!c.dbUrl) return json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500);
+  const phone = normalizePhone(body.phone);
+  if (!phone) return json({ ok: false, error: "Telefon raqam noto'g'ri" }, 400);
+
+  const token = await accessToken(env);
+  const [cars, bileds, shrouds, colors] = await Promise.all([
+    rtdbGetStrict(c.dbUrl, `${c.root}/catalog/cars`, token),
+    rtdbGetStrict(c.dbUrl, `${c.root}/catalog/biled_types`, token),
+    rtdbGetStrict(c.dbUrl, `${c.root}/catalog/shrouds`, token),
+    rtdbGetStrict(c.dbUrl, `${c.root}/catalog/optic_colors`, token),
+  ]);
+  const car = catalogRowById(cars, body.car_id);
+  const biled = catalogRowById(bileds, body.biled_id);
+  const shroud = body.shroud_id == null ? null : catalogRowById(shrouds, body.shroud_id);
+  const color = body.color_id == null ? null : catalogRowById(colors, body.color_id);
+  if (
+    !catalogRowAvailable(car) ||
+    !catalogRowAvailable(biled) ||
+    (body.shroud_id != null && !catalogRowAvailable(shroud)) ||
+    (body.color_id != null && !catalogRowAvailable(color))
+  ) {
+    return json({ ok: false, error: "Konfigurator tanlovi topilmadi yoki faol emas" }, 409);
+  }
+
+  const uid = String(verified.user.id);
+  const nonce = clean(body.client_key, 64).replace(/[^A-Za-z0-9_-]/g, "");
+  if (nonce.length < 16) return json({ ok: false, error: "client_key_required" }, 400);
+  const key = `bl_${uid}_${nonce}`;
+  const total = (Number(biled.price) || 0) + (Number(shroud && shroud.price) || 0) + (Number(color && color.price) || 0);
+  const record = {
+    uid: Number(uid),
+    car_id: car.id == null ? Number(body.car_id) : car.id,
+    car_name: clean(car.name, 200),
+    biled_id: biled.id == null ? Number(body.biled_id) : biled.id,
+    biled_name: clean(biled.name, 200),
+    biled_price: Number(biled.price) || 0,
+    shroud_id: shroud ? (shroud.id == null ? Number(body.shroud_id) : shroud.id) : null,
+    shroud_name: shroud ? clean(shroud.name, 200) : "",
+    shroud_price: Number(shroud && shroud.price) || 0,
+    color_id: color ? (color.id == null ? Number(body.color_id) : color.id) : null,
+    color_name: color ? clean(color.name, 200) : "",
+    color_price: Number(color && color.price) || 0,
+    comment: clean(body.comment, 2000),
+    total,
+    name: clean(body.name || [verified.user.first_name, verified.user.last_name].filter(Boolean).join(" "), 200),
+    phone,
+    status: "new",
+    createdAt: Date.now(),
+    imported: false,
+    source: "miniapp_worker",
+  };
+  const requestHash = await sha256Hex(JSON.stringify({
+    car_id: record.car_id,
+    biled_id: record.biled_id,
+    shroud_id: record.shroud_id,
+    color_id: record.color_id,
+    comment: record.comment,
+    phone: record.phone,
+  }));
+  record.request_hash = requestHash;
+  const created = await rtdbCreate(c.dbUrl, `${c.root}/biled_orders/${key}`, record, token);
+  if (!created.created) {
+    if (!created.value || created.value.request_hash !== requestHash) {
+      return json({ ok: false, error: "idempotency_conflict" }, 409);
+    }
+    const oldTotal = Number(created.value.total) || 0;
+    return json({ ok: true, order: { id: key, code: "BL-" + shortHash(key).toUpperCase(), total: oldTotal, total_label: fmtPrice(oldTotal) }, repeated: true });
+  }
+  return json({ ok: true, order: { id: key, code: "BL-" + shortHash(key).toUpperCase(), total, total_label: fmtPrice(total) } }, 201);
 }
 
 // =====================================================================
@@ -916,6 +1491,218 @@ async function handleAdminEdit(request, env) {
 }
 
 // ---------------------------------------------------------------------
+//  POST /admin/catalog-write — yagona signed catalog mutation adapteri
+// ---------------------------------------------------------------------
+const CATALOG_WRITE_FIELDS = {
+  products: new Set(["id", "_key", "name", "description", "price", "old_price", "stock", "code", "badge", "photo_url", "photo_id", "photo2_url", "photo2_id", "photo3_url", "photo3_id", "is_active", "deleted", "category_id", "categoryName", "car_id", "carName", "carNames", "product_type", "sizes", "warranty", "flashUntil", "sort", "createdAt", "updatedAt", "source"]),
+  categories: new Set(["id", "_key", "name", "title", "icon", "sort", "is_active", "deleted", "createdAt", "updatedAt", "source"]),
+  cars: new Set(["id", "_key", "name", "years", "note", "sort", "photo_url", "photo_id", "is_active", "deleted", "createdAt", "updatedAt", "source"]),
+  stories: new Set(["id", "_key", "category", "title", "heading", "body", "emoji", "color_from", "color_to", "photo_url", "photo_id", "video_url", "video_id", "link", "sort", "is_active", "deleted", "createdAt", "updatedAt", "source"]),
+  banners: new Set(["id", "_key", "title", "subtitle", "tag", "color_from", "color_to", "photo_url", "photo_id", "video_url", "video_id", "sort", "is_active", "deleted", "createdAt", "updatedAt", "source"]),
+  music: new Set(["id", "_key", "title", "audio_url", "audio_id", "duration", "sort", "is_active", "deleted", "createdAt", "updatedAt", "source"]),
+};
+const CATALOG_COUNTERS = {
+  products: "products_counter",
+  stories: "stories_counter",
+  banners: "banners_counter",
+};
+
+/* Server tomonda katalog mutatsiyasini `database.rules.json` bilan AYNAN
+   mos tekshiramiz. Worker service-account tokeni bilan yozadi va qoidalarni
+   CHETLAB O'TADI — shu sababli tur/diapazon tekshiruvi shu yerda takrorlanadi.
+   `null`/`undefined` — kalitni o'chirish/qoldirish (Firebase semantikasi):
+   qoida faqat MAVJUD qiymatni tekshiradi, shuning uchun ular ruxsat etiladi. */
+const CATALOG_URL_RE = /^https:\/\/[^\s"']{1,600}$/i;
+const CATALOG_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
+const MAX_TS = Number.MAX_SAFE_INTEGER;
+
+function catNum(v, min, max) {
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+}
+function catStr(v, max) {
+  return typeof v === "string" && v.length <= max;
+}
+function catBool01(v) {
+  return typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1);
+}
+function catUrl(v) {
+  return v === "" || (typeof v === "string" && CATALOG_URL_RE.test(v));
+}
+function catColor(v) {
+  return typeof v === "string" && CATALOG_COLOR_RE.test(v);
+}
+
+const CATALOG_FIELD_CHECK = {
+  // raqamlar
+  id: (v) => catNum(v, 0, MAX_TS),
+  sort: (v) => catNum(v, -100000, 100000),
+  price: (v) => catNum(v, 0, 100000000000),
+  old_price: (v) => catNum(v, 0, 100000000000),
+  stock: (v) => catNum(v, 0, 10000000),
+  duration: (v) => catNum(v, 0, MAX_TS),
+  category_id: (v) => typeof v === "number" && Number.isFinite(v),
+  car_id: (v) => typeof v === "number" && Number.isFinite(v),
+  createdAt: (v) => catNum(v, 0, MAX_TS),
+  updatedAt: (v) => catNum(v, 0, MAX_TS),
+  flashUntil: (v) => catNum(v, 0, MAX_TS),
+  // string va uzunlik (qoidalardagi length bilan bir xil)
+  _key: (v) => typeof v === "string" || (typeof v === "number" && Number.isFinite(v)),
+  name: (v) => catStr(v, 300),
+  title: (v) => catStr(v, 300),
+  subtitle: (v) => catStr(v, 500),
+  heading: (v) => catStr(v, 300),
+  body: (v) => catStr(v, 4000),
+  description: (v) => catStr(v, 6000),
+  badge: (v) => catStr(v, 60),
+  tag: (v) => catStr(v, 60),
+  code: (v) => catStr(v, 80),
+  warranty: (v) => catStr(v, 200),
+  emoji: (v) => catStr(v, 16),
+  icon: (v) => catStr(v, 40),
+  category: (v) => catStr(v, 80),
+  years: (v) => catStr(v, 60),
+  note: (v) => catStr(v, 500),
+  product_type: (v) => catStr(v, 40),
+  source: (v) => catStr(v, 40),
+  categoryName: (v) => catStr(v, 200),
+  carName: (v) => catStr(v, 200),
+  // ranglar
+  color_from: catColor,
+  color_to: catColor,
+  // media havolalari (https yoki bo'sh)
+  photo_url: catUrl,
+  photo2_url: catUrl,
+  photo3_url: catUrl,
+  video_url: catUrl,
+  audio_url: catUrl,
+  link: (v) => v === "" || (typeof v === "string" && CATALOG_URL_RE.test(v)),
+  // Telegram file_id
+  photo_id: (v) => catStr(v, 200),
+  photo2_id: (v) => catStr(v, 200),
+  photo3_id: (v) => catStr(v, 200),
+  video_id: (v) => catStr(v, 200),
+  audio_id: (v) => catStr(v, 200),
+  // boolean yoki 0/1
+  is_active: catBool01,
+  deleted: catBool01,
+};
+
+function validateCatalogSizes(raw) {
+  const rows = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === "object" ? Object.values(raw) : null);
+  if (!rows) return "Razmerlar noto'g'ri";
+  if (rows.length > 40) return "Razmerlar juda ko'p";
+  for (const row of rows) {
+    if (row == null) continue; // siyrak massiv teshigi — o'chirish
+    if (typeof row !== "object" || Array.isArray(row)) return "Razmerlar noto'g'ri";
+    if (!catStr(row.size, 40) || !row.size.trim()) return "Razmer nomi noto'g'ri";
+    if (!catNum(row.stock, 0, 10000000)) return "Razmer qoldig'i noto'g'ri";
+  }
+  return null;
+}
+
+function validateCatalogStringArray(raw, max) {
+  const rows = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === "object" ? Object.values(raw) : null);
+  if (!rows) return "Ro'yxat noto'g'ri";
+  if (rows.length > 100) return "Ro'yxat juda uzun";
+  for (const row of rows) {
+    if (row == null) continue;
+    if (!catStr(row, max)) return "Ro'yxat elementi noto'g'ri";
+  }
+  return null;
+}
+
+function validateCatalogMutation(table, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "Yozuv obyekt bo'lishi kerak";
+  if (JSON.stringify(value).length > 65536) return "Yozuv juda katta";
+  const allowed = CATALOG_WRITE_FIELDS[table];
+  if (!allowed) return "Jadval ruxsat etilmagan";
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) return `Ruxsat etilmagan maydon: ${key}`;
+    const v = value[key];
+    // null/undefined = kalitni o'chirish; qoida faqat mavjud qiymatni tekshiradi.
+    if (v === null || v === undefined) continue;
+    if (key === "sizes") {
+      const why = validateCatalogSizes(v);
+      if (why) return why;
+      continue;
+    }
+    if (key === "carNames" || key === "categories" || key === "carnames") {
+      const why = validateCatalogStringArray(v, 200);
+      if (why) return why;
+      continue;
+    }
+    if (key === "images") {
+      const rows = Array.isArray(v) ? v : (typeof v === "object" ? Object.values(v) : null);
+      if (!rows) return "Rasmlar ro'yxati noto'g'ri";
+      for (const u of rows) {
+        if (u == null) continue;
+        if (!catUrl(u)) return "Rasm havolasi https bo'lishi kerak";
+      }
+      continue;
+    }
+    const check = CATALOG_FIELD_CHECK[key];
+    if (check && !check(v)) return `Maydon noto'g'ri: ${key}`;
+  }
+  return null;
+}
+
+async function handleAdminCatalogWrite(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c, body, uid } = gate;
+  const method = clean(body.method, 12).toLowerCase();
+  const token = await accessToken(env);
+
+  if (method === "allocate") {
+    const table = clean(body.table, 30);
+    const counter = CATALOG_COUNTERS[table];
+    if (!counter) return json({ ok: false, error: "Sanoqchi ruxsat etilmagan" }, 400);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const path = `${c.root}/${counter}/n`;
+      const snap = await rtdbGetEtag(c.dbUrl, path, token);
+      const current = Number(snap.value);
+      const next = (Number.isFinite(current) && current >= 900000 ? current : 900000) + 1;
+      const put = await rtdbPutIfMatch(c.dbUrl, path, next, token, snap.etag);
+      if (put.status === 412) continue;
+      await ensureOk(put, "ID ajratilmadi");
+      return json({ ok: true, id: next });
+    }
+    return json({ ok: false, error: "ID band — qayta urinib ko'ring" }, 409);
+  }
+
+  if (!["put", "patch", "delete"].includes(method)) {
+    return json({ ok: false, error: "Method ruxsat etilmagan" }, 400);
+  }
+  const match = /^catalog\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/.exec(clean(body.path, 160));
+  if (!match || !CATALOG_WRITE_FIELDS[match[1]]) {
+    return json({ ok: false, error: "Catalog path ruxsat etilmagan" }, 400);
+  }
+  const table = match[1];
+  const row = match[2];
+  const path = `${c.root}/catalog/${table}/${row}`;
+  let res;
+  if (method === "delete") {
+    res = await rtdbDelete(c.dbUrl, path, token);
+  } else {
+    const why = validateCatalogMutation(table, body.value);
+    if (why) return json({ ok: false, error: "validation", message: why }, 400);
+    const value = { ...body.value, updated_by: Number(uid) };
+    /* Audit maydoni katalog sxemasiga kirmaydi; client whitelist qat'iy,
+       server esa faqat timestampni qo'shadi. */
+    delete value.updated_by;
+    res = method === "put"
+      ? await rtdbPut(c.dbUrl, path, value, token)
+      : await rtdbPatch(c.dbUrl, path, value, token);
+  }
+  await ensureOk(res, "Katalog yozilmadi");
+  return json({ ok: true, table, row, method, value: body.value == null ? null : body.value });
+}
+
+// ---------------------------------------------------------------------
 //  POST /admin/orders — zaxira rejimda tushgan buyurtmalar
 // ---------------------------------------------------------------------
 /** RTDB tuguni dict yoki massiv — ikkisini ham [kalit, qiymat] ga keltiradi. */
@@ -1013,6 +1800,10 @@ function mergeAdminOrders(pendingNode, dbNode) {
   //    Bot ularni SQLite'ga ko'chirgan bo'lsa (`imported` + `sqlite_id`),
   //    yuqoridagi ro'yxatda allaqachon bor — TAKRORLAMAYMIZ.
   for (const [key, row] of entriesOf(pendingNode)) {
+    // Claim hali tugamagan yoki qoldiq xatosi bilan to'xtagan yozuv admin
+    // status amallariga chiqmaydi; aks holda processing order bekor qilinib
+    // reservation/finalize bilan poyga qilishi mumkin.
+    if (row.status === "processing" || row.status === "failed") continue;
     if (row.imported && row.sqlite_id && dbIds.has(String(row.sqlite_id))) continue;
     const total = Number(row.total || 0);
     orders.push({
@@ -1058,14 +1849,7 @@ function mergeAdminOrders(pendingNode, dbNode) {
 async function handleAdminOrders(request, env) {
   const gate = await requireAdmin(request, env);
   if (gate.error) return gate.error;
-  const { c } = gate;
-
-  let body = {};
-  try {
-    body = await request.json();
-  } catch (_) {
-    body = {};
-  }
+  const { c, body } = gate;
   const kind = String(body.kind || "order");
   const token = await accessToken(env);
 
@@ -1145,7 +1929,215 @@ const KIND_TEXT = {
   },
 };
 
+const ALLOWED_STATUS_TRANSITIONS = {
+  order: {
+    new: ["accepted", "cancelled"],
+    accepted: ["delivering", "cancelled"],
+    delivering: ["delivered", "cancelled"],
+    delivered: [],
+    cancelled: [],
+  },
+  biled: {
+    new: ["accepted", "cancelled"],
+    accepted: ["in_work", "cancelled"],
+    in_work: ["done", "cancelled"],
+    done: [],
+    cancelled: [],
+  },
+  booking: {
+    new: ["confirmed", "cancelled"],
+    confirmed: ["done", "cancelled"],
+    done: [],
+    cancelled: [],
+  },
+};
+
 async function handleAdminOrderStatus(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c, body, uid } = gate;
+  const kind = KIND_STATUSES[clean(body.kind, 12)] ? clean(body.kind, 12) : "order";
+  const key = clean(body.key, 120);
+  if (!key || !/^[A-Za-z0-9_-]+$/.test(key)) return json({ ok: false, error: "Buyurtma kaliti noto'g'ri" }, 400);
+  const status = kind === "order" ? normStatus(clean(body.status, 20)) : clean(body.status, 20);
+  if (!KIND_STATUSES[kind].includes(status)) return json({ ok: false, error: "Holat noto'g'ri", allowed: KIND_STATUSES[kind] }, 400);
+
+  /* `orders` — Render/SQLite'ning faqat MIRROR nusxasi. Uni Worker'da
+     patch qilish haqiqiy buyurtmani o'zgartirmaydi, shuning uchun yolg'on
+     success o'rniga canonical server talab qilinadi. */
+  if (kind === "order" && clean(body.source, 12) === "db") {
+    return json({ ok: false, error: "server_required", message: "SQLite buyurtmasi uchun Render serveri kerak" }, 409);
+  }
+  const node = kind === "order" ? "pending_orders" : KIND_NODES[kind];
+  const path = `${c.root}/${node}/${key}`;
+  const token = await accessToken(env);
+  let row = null;
+  let repeated = false;
+  let committed = false;
+
+  /* BEKOR QILISH — do'kon buyurtmasi va navbat uchun status o'zgarishi VA
+     kompensatsiya (qoldiq qaytarish / slot o'chirish) BITTA root ETag CAS
+     ichida bajariladi. Aks holda oraliq crash "cancelled, lekin qoldiq
+     qaytmagan (yoki slot band qolgan)" holatini qoldirar edi. Import
+     qilingan (server-owned) yozuv kompensatsiyani chetlab o'tmaydi —
+     helper avval imported'ni aniqlab server_required qaytaradi. */
+  if (status === "cancelled" && (kind === "order" || kind === "booking")) {
+    const outcome = kind === "order"
+      ? await cancelOrderAtomic(c, token, key, uid)
+      : await cancelBookingAtomic(c, token, key, uid);
+    if (outcome.error) return outcome.error;
+    row = outcome.row;
+    repeated = !!outcome.repeated;
+    committed = true;
+  } else {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const snap = await rtdbGetEtag(c.dbUrl, path, token);
+      row = snap.value;
+      if (!row || typeof row !== "object") return json({ ok: false, error: "Bunday buyurtma yo'q" }, 404);
+      if (row.imported) {
+        return json({ ok: false, error: "server_required", message: "Import qilingan yozuv uchun canonical server kerak" }, 409);
+      }
+      const rawStatus = clean(row.status || "new", 20);
+      const current = kind === "order" ? normStatus(rawStatus) : rawStatus;
+      const knownOrderStatus = ["new", "accepted", "delivering", "delivered", "cancelled", "done", "shipped"].includes(rawStatus);
+      if ((kind === "order" && !knownOrderStatus) || !(current in ALLOWED_STATUS_TRANSITIONS[kind])) {
+        return json({ ok: false, error: "order_not_ready", message: "Buyurtma hali status o'zgarishiga tayyor emas" }, 409);
+      }
+      if (current === status) {
+        repeated = true;
+        committed = true;
+        break;
+      }
+      const allowed = (ALLOWED_STATUS_TRANSITIONS[kind] || {})[current] || [];
+      if (!allowed.includes(status)) {
+        return json({ ok: false, error: "invalid_transition", message: `${current} → ${status} mumkin emas`, allowed }, 409);
+      }
+      const next = { ...row, status, status_by: Number(uid), status_at: Date.now() };
+      const put = await rtdbPutIfMatch(c.dbUrl, path, next, token, snap.etag);
+      if (put.status === 412) continue;
+      await ensureOk(put, "Holat saqlanmadi");
+      row = next;
+      committed = true;
+      break;
+    }
+  }
+  if (!committed) return json({ ok: false, error: "status_busy", message: "Holat bir vaqtda o'zgardi — qayta urinib ko'ring" }, 409);
+
+  const text = (KIND_TEXT[kind] || {})[status];
+  const label = row.code ? String(row.code) : "#" + (row.id != null ? row.id : key);
+  if (!repeated && text && row.uid) {
+    await sendMessage(env, row.uid, `${text}\n\n🧾 ${escHtml(label)}`).catch(() => {});
+  }
+  return json({ ok: true, kind, key, status, node, repeated });
+}
+
+/** Do'kon buyurtmasini bekor qiladi: status→cancelled, qoldiqni qaytarish
+    (umumiy + razmer) va rezerv markerini bo'shatish — BARCHASI bitta root
+    ETag CAS ichida. Import qilingan (server-owned) yozuv kompensatsiyani
+    CHETLAB O'TMAYDI: u avval aniqlanadi va server_required qaytariladi. */
+async function cancelOrderAtomic(c, token, key, uid) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const snap = await rtdbGetEtag(c.dbUrl, c.root, token);
+    const root = snap.value && typeof snap.value === "object" ? snap.value : {};
+    const pending = root.pending_orders && typeof root.pending_orders === "object" ? root.pending_orders : {};
+    const row = pending[key];
+    if (!row || typeof row !== "object") return { error: json({ ok: false, error: "Bunday buyurtma yo'q" }, 404) };
+    if (row.imported) {
+      return { error: json({ ok: false, error: "server_required", message: "Import qilingan yozuv uchun canonical server kerak" }, 409) };
+    }
+    const rawStatus = clean(row.status || "new", 20);
+    const current = normStatus(rawStatus);
+    const knownOrderStatus = ["new", "accepted", "delivering", "delivered", "cancelled", "done", "shipped"].includes(rawStatus);
+    if (!knownOrderStatus || !(current in ALLOWED_STATUS_TRANSITIONS.order)) {
+      return { error: json({ ok: false, error: "order_not_ready", message: "Buyurtma hali status o'zgarishiga tayyor emas" }, 409) };
+    }
+    if (current === "cancelled") {
+      /* Allaqachon bekor qilingan — qoldiq avvalgi CAS'da qaytarilgan.
+         Ikki marta qaytarmaslik uchun kompensatsiyani takrorlamaymiz. */
+      return { row, repeated: true };
+    }
+    if (!(ALLOWED_STATUS_TRANSITIONS.order[current] || []).includes("cancelled")) {
+      return { error: json({ ok: false, error: "invalid_transition", message: `${current} → cancelled mumkin emas`, allowed: ALLOWED_STATUS_TRANSITIONS.order[current] || [] }, 409) };
+    }
+
+    const products = root.catalog && root.catalog.products;
+    if (!products || typeof products !== "object") throw new Error("Katalog o'qilmadi");
+    const markers = root.order_reservations && typeof root.order_reservations === "object"
+      ? root.order_reservations
+      : (root.order_reservations = {});
+    let marker = markers[key];
+    /* Eski Worker yozuvlarida marker yo'q — qatorlardan bir marta tiklaymiz. */
+    if (!marker) {
+      const legacyLines = itemsOf(row.items).map((line) => {
+        const product = products[String(line.product_id)];
+        const sizeRow = line.size && product ? sizesOfProduct(product).find((s) => s.size === line.size) : null;
+        return { ...line, _sizeKey: sizeRow ? sizeRow.key : null };
+      });
+      marker = { state: "reserved", lines: legacyLines, total: Number(row.total) || 0, legacy: true };
+    }
+    if (marker.state === "reserved") {
+      for (const line of marker.lines || []) {
+        const product = products[String(line.product_id)];
+        if (!product) continue;
+        const qty = Math.max(0, Number(line.qty) || 0);
+        product.stock = (Number(product.stock) || 0) + qty;
+        if (line._sizeKey != null && product.sizes && product.sizes[line._sizeKey]) {
+          product.sizes[line._sizeKey].stock = (Number(product.sizes[line._sizeKey].stock) || 0) + qty;
+        }
+      }
+    }
+    marker.state = "released";
+    marker.releasedAt = Date.now();
+    markers[key] = marker;
+
+    pending[key] = { ...row, status: "cancelled", status_by: Number(uid), status_at: Date.now() };
+    root.pending_orders = pending;
+
+    const put = await rtdbPutIfMatch(c.dbUrl, c.root, root, token, snap.etag);
+    if (put.status === 412) continue;
+    await ensureOk(put, "Buyurtma bekor qilinmadi");
+    return { row: pending[key], repeated: false };
+  }
+  throw new Error("Bekor qilish band — qayta urinib ko'ring");
+}
+
+/** Navbatni bekor qiladi: status→cancelled va `slots/{date}/{key}` slotini
+    O'CHIRISH — bitta root ETag CAS ichida (Worker'ga tegishli yozuvlar).
+    Import qilingan yozuv server_required qaytaradi. */
+async function cancelBookingAtomic(c, token, key, uid) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const snap = await rtdbGetEtag(c.dbUrl, c.root, token);
+    const root = snap.value && typeof snap.value === "object" ? snap.value : {};
+    const bookings = root.bookings && typeof root.bookings === "object" ? root.bookings : {};
+    const row = bookings[key];
+    if (!row || typeof row !== "object") return { error: json({ ok: false, error: "Bunday buyurtma yo'q" }, 404) };
+    if (row.imported) {
+      return { error: json({ ok: false, error: "server_required", message: "Import qilingan yozuv uchun canonical server kerak" }, 409) };
+    }
+    const current = clean(row.status || "new", 20);
+    if (!(current in ALLOWED_STATUS_TRANSITIONS.booking)) {
+      return { error: json({ ok: false, error: "order_not_ready", message: "Navbat hali status o'zgarishiga tayyor emas" }, 409) };
+    }
+    if (current === "cancelled") return { row, repeated: true };
+    if (!(ALLOWED_STATUS_TRANSITIONS.booking[current] || []).includes("cancelled")) {
+      return { error: json({ ok: false, error: "invalid_transition", message: `${current} → cancelled mumkin emas`, allowed: ALLOWED_STATUS_TRANSITIONS.booking[current] || [] }, 409) };
+    }
+    if (row.date) {
+      const slots = root.slots && typeof root.slots === "object" ? root.slots : null;
+      const day = slots && slots[row.date] && typeof slots[row.date] === "object" ? slots[row.date] : null;
+      if (day && day[key]) delete day[key];
+    }
+    bookings[key] = { ...row, status: "cancelled", status_by: Number(uid), status_at: Date.now() };
+    root.bookings = bookings;
+    const put = await rtdbPutIfMatch(c.dbUrl, c.root, root, token, snap.etag);
+    if (put.status === 412) continue;
+    await ensureOk(put, "Navbat bekor qilinmadi");
+    return { row: bookings[key], repeated: false };
+  }
+  throw new Error("Bekor qilish band — qayta urinib ko'ring");
+}
+
+async function handleAdminOrderStatusLegacy(request, env) {
   const gate = await requireAdmin(request, env);
   if (gate.error) return gate.error;
   const { c, body, uid } = gate;
@@ -1810,6 +2802,69 @@ function rtdbPatch(dbUrl, path, value, token) {
     headers: authHeaders(token, { "Content-Type": "application/json" }),
     body: JSON.stringify(value),
   });
+}
+
+function rtdbDelete(dbUrl, path, token) {
+  return fetch(rtdbUrl(dbUrl, path), {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+}
+
+async function ensureOk(res, message) {
+  if (res.ok) return res;
+  const text = await res.text().catch(() => "");
+  throw new Error(`${message} (${res.status}): ${text.slice(0, 200)}`);
+}
+
+async function rtdbGetStrict(dbUrl, path, token) {
+  const res = await fetch(rtdbUrl(dbUrl, path), { headers: authHeaders(token) });
+  await ensureOk(res, "Firebase o'qilmadi");
+  return res.json();
+}
+
+async function rtdbGetEtag(dbUrl, path, token) {
+  const res = await fetch(rtdbUrl(dbUrl, path), {
+    headers: authHeaders(token, { "X-Firebase-ETag": "true" }),
+  });
+  await ensureOk(res, "Firebase CAS o'qilmadi");
+  return { value: await res.json(), etag: res.headers.get("ETag") || "null_etag" };
+}
+
+function rtdbPutIfMatch(dbUrl, path, value, token, etag) {
+  return fetch(rtdbUrl(dbUrl, path), {
+    method: "PUT",
+    headers: authHeaders(token, {
+      "Content-Type": "application/json",
+      "If-Match": etag || "null_etag",
+    }),
+    body: JSON.stringify(value),
+  });
+}
+
+async function rtdbCreate(dbUrl, path, value, token) {
+  const put = await rtdbPutIfMatch(dbUrl, path, value, token, "null_etag");
+  if (put.ok) return { created: true, value };
+  if (put.status !== 412) await ensureOk(put, "Firebase claim yaratilmadi");
+  const current = await rtdbGetStrict(dbUrl, path, token);
+  return { created: false, value: current };
+}
+
+async function casPatchObject(dbUrl, path, token, mutate) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const snap = await rtdbGetEtag(dbUrl, path, token);
+    const next = mutate(snap.value && typeof snap.value === "object" ? snap.value : {});
+    const put = await rtdbPutIfMatch(dbUrl, path, next, token, snap.etag);
+    if (put.status === 412) continue;
+    await ensureOk(put, "Firebase CAS yozilmadi");
+    return next;
+  }
+  throw new Error("Firebase yozuvi band — qayta urinib ko'ring");
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // =====================================================================

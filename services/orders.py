@@ -49,6 +49,13 @@ UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
+class TransitionResult:
+    applied: bool
+    current: str | None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class Flow:
     kind: str
     title: str
@@ -183,27 +190,31 @@ def reason_text(kind: str, current: str, target: str, reason: str) -> str:
     return "Bu holatni qo'yish mumkin emas."
 
 
-async def apply(kind: str, order_id: int, status: str) -> None:
-    """Holatni saqlaydi: baza + ombor + Firebase.
-
-    Faqat `check()` ruxsat bergandan keyin chaqirilishi kerak.
-    """
+async def apply(
+    kind: str,
+    order_id: int,
+    status: str,
+    *,
+    expected_status: str,
+) -> TransitionResult:
+    """Holatni atomik CAS bilan saqlaydi va faqat g'olib natijani sync qiladi."""
     kind = resolve(kind)
+    allowed, reason = check(kind, expected_status, status)
+    if not allowed:
+        return TransitionResult(False, expected_status, reason)
 
-    if kind == "biled":
-        await q.set_biled_order_status(order_id, status)
-    elif kind == "order":
-        await q.set_order_status(order_id, status)
-        if status == CANCELLED:
-            # Bekor qilinganda tovarlar omborga QAYTADI (ilgari qaytmasdi)
-            restored = await q.restore_order_stock(order_id)
-            if restored:
-                logger.info(
-                    "Buyurtma #%s bekor qilindi, omborga %s dona qaytdi", order_id, restored
-                )
-    elif kind == "booking":
-        await q.set_booking_status(order_id, status)
-    else:
-        raise ValueError(f"Noma'lum buyurtma turi: {kind}")
+    applied, current, restored = await q.compare_and_set_status(
+        kind, order_id, expected_status, status
+    )
+    if not applied:
+        if current is None:
+            return TransitionResult(False, None, UNKNOWN)
+        _, conflict_reason = check(kind, current, status)
+        return TransitionResult(False, current, conflict_reason or SAME)
 
+    if restored:
+        logger.info(
+            "Buyurtma #%s bekor qilindi, omborga %s dona qaytdi", order_id, restored
+        )
     await sync.push_status(kind, order_id, status)
+    return TransitionResult(True, status)

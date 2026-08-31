@@ -6,7 +6,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from database import queries as q
-from services import orders, sync
 from keyboards.inline import (
     admin_new_booking_kb,
     booking_confirm_kb,
@@ -16,6 +15,7 @@ from keyboards.inline import (
     times_kb,
 )
 from keyboards.reply import main_menu
+from services import orders, sync
 from utils.helpers import (
     available_dates,
     date_label,
@@ -108,6 +108,9 @@ async def choose_date(callback: CallbackQuery) -> None:
 async def choose_time(callback: CallbackQuery) -> None:
     parts = callback.data.split(":")
     service_id, date_iso = int(parts[-2]), parts[-1]
+    if date_iso not in available_dates():
+        await callback.answer("Sana noto'g'ri yoki juda uzoq", show_alert=True)
+        return
     service = await q.get_bookable_service(service_id)
     if not service:
         await callback.answer("Xizmat topilmadi", show_alert=True)
@@ -135,6 +138,9 @@ async def choose_time(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("tm:"))
 async def confirm_booking(callback: CallbackQuery) -> None:
     _, sid, date_iso, time_enc = callback.data.split(":")
+    if date_iso not in available_dates():
+        await callback.answer("Sana noto'g'ri yoki juda uzoq", show_alert=True)
+        return
     service = await q.get_bookable_service(int(sid))
     if not service:
         await callback.answer(
@@ -162,6 +168,9 @@ async def confirm_booking(callback: CallbackQuery) -> None:
 async def save_booking(callback: CallbackQuery, bot: Bot) -> None:
     _, sid, date_iso, time_enc = callback.data.split(":")
     service_id, time_str = int(sid), decode_time(time_enc)
+    if date_iso not in available_dates():
+        await callback.answer("Sana noto'g'ri yoki juda uzoq", show_alert=True)
+        return
     service = await q.get_bookable_service(service_id)
     if not service:
         await callback.answer("Xizmat topilmadi", show_alert=True)
@@ -285,7 +294,16 @@ async def cancel_booking(callback: CallbackQuery, bot: Bot) -> None:
         )
         return
 
-    await orders.apply("booking", booking_id, "cancelled")
+    result = await orders.apply(
+        "booking", booking_id, "cancelled", expected_status=booking["status"]
+    )
+    if not result.applied:
+        current = result.current or booking["status"]
+        await callback.answer(
+            orders.reason_text("booking", current, "cancelled", result.reason),
+            show_alert=True,
+        )
+        return
     await edit_or_send(
         callback.message,
         f"❌ <b>#{booking_id}</b> raqamli navbat bekor qilindi.\n"
