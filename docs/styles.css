@@ -596,9 +596,6 @@ img, video { display: block; max-width: 100%; }
   transition: transform 0.16s var(--spring), background 0.2s, border-color 0.2s;
 }
 .hdr-btn:active { transform: scale(0.9); }
-/* Shogird — yordamchi, shuning uchun ozgina ajralib turadi (lekin
-   e'tiborni katalogdan tortib olmaydi). */
-.sg-open { background: rgba(120, 160, 255, 0.12); border-color: rgba(120, 160, 255, 0.3); }
 
 /* Saqlanganlar soni — tugma ustidagi kichik doira */
 .hdr-dot {
@@ -9419,4 +9416,99 @@ textarea:focus-visible,
 
 @media (prefers-reduced-motion: reduce) {
   .mus-btn:active, .ban-drop-x:active, .ban-drop-swap:active { transform: none; }
+}
+
+
+/* ==========================================================================
+   🎓 SHOGIRD — SUZUVCHI TUGMA (FAB)
+
+   O'ng pastki burchakda, navigatsiya USTIDA suzadi (Avto_A1 dagi «✨»
+   tugmasi kabi). Maqsad — yordamchi doim ko'z oldida bo'lsin, lekin
+   katalogni to'smasin va bir qo'lda yetish oson bo'lsin.
+
+   TUZILISHI: tashqi `.sg-fab` (doira + gradient) + ichki `.sg-fab-glow`
+   (pulslanuvchi halqa) + `.sg-fab-ic` (✨ belgisi). Uch qatlam alohida
+   animatsiyalanadi, shuning uchun harakat tabiiy ko'rinadi.
+   ========================================================================== */
+.sg-fab {
+  position: fixed;
+  right: 16px;
+  /* Navigatsiya ustida: nav balandligi (~62px) + safe-area + oraliq */
+  bottom: calc(84px + var(--safe-b));
+  z-index: 44;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  /* Zimmer oltini — brend rangi. Ichki yorug'lik hajm beradi. */
+  background:
+    radial-gradient(circle at 32% 28%, #ffe6a8 0%, #e6b757 38%, #b8862f 100%);
+  box-shadow:
+    0 6px 18px rgba(212, 168, 83, 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.55);
+  /* Doim yumshoq «nafas olib» turadi — jonli ko'rinadi, lekin bezovta
+     qilmaydi (sekin va kichik amplituda). */
+  animation: sgFabFloat 3.4s ease-in-out infinite;
+  -webkit-tap-highlight-color: transparent;
+}
+.sg-fab:active { transform: scale(0.9); }
+
+/* ✨ belgisi — yengil chayqaladi (nafas olishga hamohang) */
+.sg-fab-ic {
+  position: relative;
+  z-index: 2;
+  font-size: 24px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  animation: sgFabTwinkle 2.6s ease-in-out infinite;
+}
+
+/* Pulslanuvchi halqa — tugmadan «to'lqin» tarqaladi (e'tibor tortadi) */
+.sg-fab-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 0 rgba(212, 168, 83, 0.55);
+  animation: sgFabPulse 2.8s ease-out infinite;
+  z-index: 1;
+}
+
+/* Kirish: pastdan sakrab chiqadi (`syncShogirdFab` har ko'rinishida qo'yadi) */
+.sg-fab.pop-in { animation: sgFabIn 0.5s var(--spring) both, sgFabFloat 3.4s ease-in-out 0.5s infinite; }
+
+@keyframes sgFabIn {
+  0%   { opacity: 0; transform: translateY(24px) scale(0.6); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes sgFabFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+
+@keyframes sgFabTwinkle {
+  0%, 100% { transform: rotate(0deg) scale(1); opacity: 1; }
+  45%      { transform: rotate(-8deg) scale(1.12); opacity: 0.92; }
+  70%      { transform: rotate(6deg) scale(1.05); }
+}
+
+@keyframes sgFabPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(212, 168, 83, 0.5); }
+  70%  { box-shadow: 0 0 0 16px rgba(212, 168, 83, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 168, 83, 0); }
+}
+
+/* Harakat kamaytirilgan bo'lsa (tizim sozlamasi) — tinch turadi, faqat
+   bosilganda kichrayadi. */
+@media (prefers-reduced-motion: reduce) {
+  .sg-fab,
+  .sg-fab.pop-in,
+  .sg-fab-ic,
+  .sg-fab-glow { animation: none; }
 }

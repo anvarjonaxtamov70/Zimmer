@@ -708,6 +708,8 @@
       .querySelectorAll(".nav-btn")
       .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
 
+    syncShogirdFab(page, navVisible);
+
     if (page === "cart") {
       // Katalog bilan moslashtirib chizamiz — o'chirilgan tovar savatda
       // qolib, buyurtmani yiqitmasin.
@@ -749,6 +751,37 @@
     window.scrollTo({ top: saved, behavior: "auto" });
 
     syncBackButton();
+  }
+
+  /* ==================================================================
+     🎓 SHOGIRD SUZUVCHI TUGMASI (FAB)
+
+     Qayerda ko'rinadi: nav ko'rinadigan asosiy VARAQLASH bo'limlarida —
+     bosh sahifa, xizmatlar, saqlangan, kabinet. Savatda YASHIRILADI
+     (u yerda pastda «Rasmiylashtirish» paneli turadi va FAB uni to'sardi),
+     Shogirdning o'zida ham yashiriladi (o'zini ochadigan tugma keraksiz),
+     admin panelida ham (u yerda ish boshqacha).
+
+     Kirish animatsiyasi: har ko'rinishida qaytadan o'ynaydi — buning uchun
+     `hidden` olib tashlangach klass qayta qo'yiladi (reflow bilan). */
+  const FAB_PAGES = ["home", "services", "saved", "profile"];
+
+  function syncShogirdFab(page, navVisible) {
+    const fab = $("sg-fab");
+    if (!fab) return;
+    const show = navVisible && FAB_PAGES.includes(page);
+    if (show) {
+      if (fab.classList.contains("hidden")) {
+        fab.classList.remove("hidden");
+        // Kirish animatsiyasini qayta ishga tushiramiz
+        fab.classList.remove("pop-in");
+        void fab.offsetWidth; // reflow
+        fab.classList.add("pop-in");
+      }
+    } else {
+      fab.classList.add("hidden");
+      fab.classList.remove("pop-in");
+    }
   }
 
   /** Admin panelini ochadi: kerak bo'lsa avval kodini yuklaydi.
@@ -4022,7 +4055,7 @@
          tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
        * TEZ O'TISH PLITKALARI (`#hm-quick`) — «Konfigurator», «Navbat»
          va «Shogird». Uchalasi boshqa joyda bor: birinchi ikkisi
-         «🛠 Xizmatlar» bo'limida, Shogird esa tepadagi «🎓» tugmasida. Ular
+         «🛠 Xizmatlar» bo'limida, Shogird esa o'ng pastdagi «✨» tugmada. Ular
          bilan birga `bindQuickActions()` va `refreshQuickBadges()` ham
          ketdi — ikkinchisi allaqachon hech narsa qilmasdi, lekin
          `saveCart()` va `loadHome()` dan chaqirilib turardi.
@@ -8805,11 +8838,12 @@
   };
   $("sg-reset").onclick = sgReset;
 
-  /* Shogird va Saqlanganlar endi pastdagi navigatsiyada EMAS — bosh
-     sahifaning tepa qatorida (`.home-acts`). Ular `.nav-btn` sinfiga ega
-     bo'lmagani uchun yuqoridagi umumiy bog'lovchi ularni tutmaydi. */
-  if ($("sg-open")) {
-    $("sg-open").onclick = () => {
+  /* Shogird — suzuvchi tugma (FAB), o'ng pastki burchakda navigatsiya
+     ustida. Saqlanganlar esa tepa qatorda (`.home-acts`). Ikkisi ham
+     `.nav-btn` sinfiga ega emas, shuning uchun umumiy bog'lovchi ularni
+     tutmaydi — alohida bog'lanadi. */
+  if ($("sg-fab")) {
+    $("sg-fab").onclick = () => {
       haptic();
       show("shogird");
     };
