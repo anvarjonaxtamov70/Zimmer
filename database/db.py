@@ -119,6 +119,11 @@ CREATE TABLE IF NOT EXISTS biled_orders (
     phone      TEXT,
     comment    TEXT,
     status     TEXT NOT NULL DEFAULT 'new',
+    -- Cloudflare Worker qabul qilgan Bi-LED buyurtmasi (Render o'chgan
+    -- paytda) `bl_<uid>_<nonce>` kaliti bilan belgilanadi va bazaga
+    -- ko'chirilganda shu kod yoziladi — takroriy ko'chirish shu bo'yicha
+    -- to'xtatiladi (`idx_biled_external_code` yagona indeksi bilan).
+    external_code TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_biled_orders_user ON biled_orders(user_id);
@@ -148,6 +153,11 @@ CREATE TABLE IF NOT EXISTS bookings (
     date       TEXT NOT NULL,
     time       TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'new',
+    -- Cloudflare Worker qabul qilgan navbat (Render o'chgan paytda) Firebase
+    -- `b_<uid>_<clientKey>` kaliti bilan belgilanadi va bazaga ko'chirilganda
+    -- shu kod yoziladi — takroriy ko'chirish shu bo'yicha to'xtatiladi
+    -- (`idx_bookings_external_code` yagona indeksi bilan).
+    external_code TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date, status);
@@ -980,6 +990,13 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("size", "TEXT"),
         ("stock_reserved", "INTEGER NOT NULL DEFAULT 1"),
     ],
+    # Cloudflare Worker qabul qilgan navbatlar (Render o'chgan paytda
+    # berilgan) `b_<uid>_<clientKey>` kaliti bilan belgilanadi. Bot ularni
+    # bazaga ko'chirganda shu kod yoziladi — takroriy ko'chirish shu bo'yicha
+    # to'xtatiladi (`idx_bookings_external_code` yagona indeksi bilan).
+    "bookings": [("external_code", "TEXT")],
+    # Xuddi shunday Bi-LED buyurtmalari uchun (`bl_<uid>_<nonce>` kaliti).
+    "biled_orders": [("external_code", "TEXT")],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
     "shrouds": [*MEDIA_COLUMNS],
@@ -1132,6 +1149,16 @@ async def _migrate() -> None:
     await db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_external_code"
         " ON orders(external_code) WHERE external_code IS NOT NULL"
+    )
+    # Worker navbati/Bi-LED buyurtmasi IKKI MARTA ko'chirilmasligi uchun —
+    # do'kon buyurtmalari bilan bir xil dedup backstop (baza darajasida).
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_external_code"
+        " ON bookings(external_code) WHERE external_code IS NOT NULL"
+    )
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_biled_external_code"
+        " ON biled_orders(external_code) WHERE external_code IS NOT NULL"
     )
     # Takroriy bosish BITTA buyurtma bo'lib qolishi uchun (idempotentlik).
     await db.execute(

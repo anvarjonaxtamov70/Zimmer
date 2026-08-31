@@ -742,7 +742,7 @@ def _int(value, default: int = 0) -> int:
 
 async def push_biled_order(order) -> None:
     """Bi-LED buyurtmasini bulutga yozadi (xato ko'tarmaydi — buyurtma allaqachon saqlangan)."""
-    if not firebase.is_enabled():
+    if not config.has_firebase:
         return
     try:
         await _put_biled_order(order)
@@ -750,8 +750,12 @@ async def push_biled_order(order) -> None:
         logger.warning("Bi-LED buyurtma #%s bulutga yozilmadi: %s", order["id"], error)
 
 
-async def _put_biled_order(order) -> None:
-    await firebase.put(
+async def _put_biled_order(order) -> bool:
+    # `_write` orqali — Firebase hozir javob bermasa yozuv DOIMIY navbatga
+    # (outbox) tushadi va keyin yuboriladi. Ilgari `firebase.put` to'g'ridan
+    # chaqirilardi: token vaqtincha olinmagan bo'lsa bulut nusxasi butunlay
+    # yo'qolardi (do'kon buyurtmasi `_put_order` allaqachon `_write` ishlatadi).
+    return await _write(
         f"biled_orders/{order['id']}",
         {
             "id": order["id"],
@@ -767,6 +771,7 @@ async def _put_biled_order(order) -> None:
             "status": order["status"],
             "createdAt": int(time.time() * 1000),
         },
+        method="put",
     )
 
 
@@ -1555,6 +1560,237 @@ async def import_pending_orders(bot=None) -> int:
     return imported
 
 
+async def import_worker_bookings(bot=None) -> int:
+    """Cloudflare Worker qabul qilgan NAVBATLARni SQLite ga ko'chiradi.
+
+    NEGA KERAK
+    Render o'chgan paytda Mini App navbatni Worker orqali qabul qiladi va
+    `{root}/bookings/b_<uid>_<clientKey>` ga yozadi (mijozga xabarni Worker
+    o'zi yuboradi). Bot ko'tarilganda o'sha navbatlar bazaga tushishi kerak —
+    aks holda admin panelida va statistikada ko'rinmaydi.
+
+    DIQQAT — RENDER NAVBATLARIGA TEGMAYMIZ
+    Render yaratgan navbatlar shu tugunda RAQAMLI kalit bilan yashaydi
+    (`push_booking` SQLite ID'sini yozadi). Faqat `source == "miniapp_worker"`,
+    hali ko'chirilmagan (`imported` emas) va `status == "new"` yozuvlar
+    olinadi — qolganlari (raqamli kalit, boshqa holat) chetlab o'tiladi.
+
+    Qaytaradi: ko'chirilgan navbatlar soni.
+    """
+    if not firebase.is_enabled():
+        return 0
+
+    node = await firebase.get("bookings")
+    if not node:
+        return 0
+
+    imported = 0
+    for key, item in firebase.items(node):
+        if not isinstance(item, dict):
+            continue
+        if item.get("source") != "miniapp_worker":
+            continue
+        if item.get("imported") is True:
+            continue
+        if str(item.get("status")) != "new":
+            continue
+
+        try:
+            uid = int(item.get("uid") or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        if not uid:
+            logger.warning("bookings/%s: uid yo'q — tashlab ketildi", key)
+            continue
+
+        date = str(item.get("date") or "")
+        time_str = str(item.get("time") or "")
+        if not date or not time_str:
+            logger.warning("bookings/%s: sana/vaqt yo'q — tashlab ketildi", key)
+            continue
+
+        try:
+            await q.ensure_user(uid, item.get("name"), item.get("phone"))
+            service_id = await q.ensure_service(item.get("service_name"))
+            if not service_id:
+                logger.warning("bookings/%s: xizmat nomi yo'q — tashlab ketildi", key)
+                continue
+
+            booking_id = await q.import_worker_booking(
+                {
+                    "user_id": uid,
+                    "service_id": service_id,
+                    "date": date,
+                    "time": time_str,
+                    "status": "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                    "external_code": key,
+                }
+            )
+
+            if booking_id is None:
+                # Allaqachon ko'chirilgan (external_code bo'yicha) — Worker
+                # qoldiqlarini baribir tozalab qo'yamiz.
+                await _write(f"bookings/{key}", None, method="delete")
+                await _write(_slot_path(date, key), None, method="delete")
+                continue
+
+            # SQLite ID'si bilan bulutga qayta yozamiz (to'liq yozuv + slot),
+            # so'ng Worker vaqtinchalik yozuvlarini o'chiramiz.
+            row = await q.get_booking(booking_id)
+            if row is not None:
+                await push_booking(row)
+            await _write(f"bookings/{key}", None, method="delete")
+            await _write(_slot_path(date, key), None, method="delete")
+
+            imported += 1
+            logger.info("Worker navbati ko'chirildi: %s -> #%s", key, booking_id)
+
+            if bot is not None and not item.get("notified_admin"):
+                try:
+                    from keyboards.inline import admin_new_booking_kb
+                    from utils.helpers import date_label, fmt_price, html_escape
+                    from utils.ui import notify_admins
+
+                    price = row["price"] if row is not None and "price" in row.keys() else None
+                    text = (
+                        "🔔 <b>Yangi navbat</b> (Mini App — server o'chiq edi)\n\n"
+                        f"🆔 #{booking_id}\n"
+                        f"👤 {html_escape(item.get('name')) or 'Mijoz'}\n"
+                        f"📞 {html_escape(item.get('phone')) or '—'}\n"
+                        f"🛠 {html_escape(item.get('service_name')) or '—'}\n"
+                        f"📅 {date_label(date)}\n"
+                        f"🕐 {time_str}"
+                    )
+                    if price:
+                        text += f"\n💰 {fmt_price(price)}"
+                    await notify_admins(bot, text, admin_new_booking_kb(booking_id))
+                except Exception as error:
+                    logger.warning("Navbat %s haqida xabar yuborilmadi: %s", key, error)
+
+        except Exception as error:
+            logger.warning("bookings/%s ko'chirilmadi: %s", key, error)
+
+    if imported:
+        logger.info("Worker navbatlari ko'chirildi: %s ta", imported)
+    return imported
+
+
+async def import_worker_biled_orders(bot=None) -> int:
+    """Cloudflare Worker qabul qilgan Bi-LED buyurtmalarini SQLite ga ko'chiradi.
+
+    `{root}/biled_orders/bl_<uid>_<nonce>` yozuvlari (`source == "miniapp_worker"`,
+    `imported` emas, `status == "new"`) olinadi. Render buyurtmalari shu
+    tugunda RAQAMLI kalit bilan yashaydi — ularga TEGMAYMIZ.
+
+    Qaytaradi: ko'chirilgan buyurtmalar soni.
+    """
+    if not firebase.is_enabled():
+        return 0
+
+    node = await firebase.get("biled_orders")
+    if not node:
+        return 0
+
+    imported = 0
+    for key, item in firebase.items(node):
+        if not isinstance(item, dict):
+            continue
+        if item.get("source") != "miniapp_worker":
+            continue
+        if item.get("imported") is True:
+            continue
+        if str(item.get("status")) != "new":
+            continue
+
+        try:
+            uid = int(item.get("uid") or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        if not uid:
+            logger.warning("biled_orders/%s: uid yo'q — tashlab ketildi", key)
+            continue
+
+        try:
+            await q.ensure_user(uid, item.get("name"), item.get("phone"))
+            car_id = await q.ensure_car(item.get("car_name"))
+            biled_id = await q.ensure_biled(item.get("biled_name"))
+            if not car_id or not biled_id:
+                # Bu ikkisi majburiy — bo'lmasa buyurtmani ko'chirib bo'lmaydi.
+                logger.warning(
+                    "biled_orders/%s: mashina/linza nomi yo'q — tashlab ketildi", key
+                )
+                continue
+            shroud_id = await q.ensure_shroud(item.get("shroud_name") or None)
+            color_id = await q.ensure_color(item.get("color_name") or None)
+
+            order_id = await q.import_worker_biled(
+                {
+                    "user_id": uid,
+                    "car_id": car_id,
+                    "biled_id": biled_id,
+                    "shroud_id": shroud_id,
+                    "color_id": color_id,
+                    "total": int(item.get("total") or 0),
+                    "phone": item.get("phone"),
+                    "comment": item.get("comment"),
+                    "status": "new",
+                    "created_at": _created_at(item.get("createdAt")),
+                    "external_code": key,
+                }
+            )
+
+            if order_id is None:
+                # Allaqachon ko'chirilgan — Worker qoldig'ini tozalaymiz.
+                await _write(f"biled_orders/{key}", None, method="delete")
+                continue
+
+            row = await q.get_biled_order(order_id)
+            if row is not None:
+                await push_biled_order(row)
+            await _write(f"biled_orders/{key}", None, method="delete")
+
+            imported += 1
+            logger.info("Worker Bi-LED buyurtmasi ko'chirildi: %s -> #%s", key, order_id)
+
+            if bot is not None and not item.get("notified_admin"):
+                try:
+                    from keyboards.inline import admin_new_biled_kb
+                    from utils.helpers import fmt_price, html_escape
+                    from utils.ui import notify_admins
+
+                    details = [f"🚗 Mashina: <b>{html_escape(item.get('car_name')) or '—'}</b>"]
+                    details.append(
+                        f"💡 Linza: <b>{html_escape(item.get('biled_name')) or '—'}</b>"
+                    )
+                    if item.get("shroud_name"):
+                        details.append(f"🕶 Ochki: <b>{html_escape(item.get('shroud_name'))}</b>")
+                    if item.get("color_name"):
+                        details.append(
+                            f"🎨 Optika rangi: <b>{html_escape(item.get('color_name'))}</b>"
+                        )
+                    if item.get("comment"):
+                        details.append(f"📝 Izoh: {html_escape(item.get('comment'))}")
+                    text = (
+                        "🔥 <b>Yangi Bi-LED buyurtma</b> (Mini App — server o'chiq edi)\n\n"
+                        f"🆔 #{order_id}\n"
+                        f"👤 {html_escape(item.get('name')) or 'Mijoz'}\n"
+                        f"📞 {html_escape(item.get('phone')) or '—'}\n\n"
+                        + "\n".join(details)
+                        + f"\n\n💰 Jami: <b>{fmt_price(int(item.get('total') or 0))}</b>"
+                    )
+                    await notify_admins(bot, text, admin_new_biled_kb(order_id))
+                except Exception as error:
+                    logger.warning("Bi-LED %s haqida xabar yuborilmadi: %s", key, error)
+
+        except Exception as error:
+            logger.warning("biled_orders/%s ko'chirilmadi: %s", key, error)
+
+    if imported:
+        logger.info("Worker Bi-LED buyurtmalari ko'chirildi: %s ta", imported)
+    return imported
+
+
 async def pending_orders_worker(bot=None, interval: int = 120) -> None:
     """Fon vazifasi: Worker buyurtmalarini vaqti-vaqti bilan bazaga ko'chiradi.
 
@@ -1571,11 +1807,19 @@ async def pending_orders_worker(bot=None, interval: int = 120) -> None:
     # Ishga tushishdagi `initial_sync` bilan to'qnashmaslik uchun kutamiz
     await asyncio.sleep(interval)
     while True:
-        try:
-            if firebase.is_enabled():
+        if firebase.is_enabled():
+            try:
                 await import_pending_orders(bot)
-        except Exception as error:
-            logger.warning("Worker buyurtmalarini ko'chirishda xato: %s", error)
+            except Exception as error:
+                logger.warning("Worker buyurtmalarini ko'chirishda xato: %s", error)
+            try:
+                await import_worker_bookings(bot)
+            except Exception as error:
+                logger.warning("Worker navbatlarini ko'chirishda xato: %s", error)
+            try:
+                await import_worker_biled_orders(bot)
+            except Exception as error:
+                logger.warning("Worker Bi-LED buyurtmalarini ko'chirishda xato: %s", error)
         await asyncio.sleep(max(30, interval))
 
 
@@ -1631,6 +1875,10 @@ async def initial_sync(bot=None) -> None:
         # o'z-o'zidan «to'lib» ketardi va yo'q tovar sotuvda turardi.
         # ============================================================
         await import_pending_orders(bot)
+        # Worker qabul qilgan NAVBAT va Bi-LED buyurtmalari ham xuddi shu
+        # bosqichda ko'chiriladi (Render o'chgan paytda yaratilganlar).
+        await import_worker_bookings(bot)
+        await import_worker_biled_orders(bot)
 
         # ============================================================
         #  DO'KON BO'LIMLARINI TARTIBGA SOLISH — `restore_catalog()` DAN KEYIN
