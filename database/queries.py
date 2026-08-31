@@ -2743,6 +2743,101 @@ async def restore_booking(data: dict[str, Any]) -> bool:
     return cur.rowcount > 0
 
 
+async def import_worker_booking(data: dict[str, Any]) -> int | None:
+    """Worker qabul qilgan navbatni alohida tranzaksiyada dedupe/import qiladi.
+
+    `external_code` (Firebase kaliti `b_<uid>_<clientKey>`) bo'yicha dedup:
+    allaqachon ko'chirilgan bo'lsa `None` qaytadi. Yangi AUTOINCREMENT ID
+    beriladi (Worker navbatlari raqamli ID'ga ega emas). Yagona indeks
+    (`idx_bookings_external_code`) baza darajasidagi backstop — ikki import
+    bir vaqtda ishlasa ham dublikat paydo bo'lmaydi.
+    """
+    code = str(data.get("external_code") or "").strip() or None
+
+    async with write_lock(), _write_transaction() as db:
+        if code:
+            async with db.execute(
+                "SELECT id FROM bookings WHERE external_code = ?", (code,)
+            ) as cur:
+                if await cur.fetchone():
+                    return None
+
+        try:
+            cur = await db.execute(
+                "INSERT INTO bookings"
+                " (user_id, service_id, date, time, status, created_at, external_code)"
+                " VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)",
+                (
+                    int(data["user_id"]),
+                    int(data["service_id"]),
+                    str(data.get("date")),
+                    str(data.get("time")),
+                    str(data.get("status") or "new"),
+                    data.get("created_at"),
+                    code,
+                ),
+            )
+        except aiosqlite.IntegrityError:
+            # Boshqa import shu external_code'ni oldin yozgan bo'lishi mumkin.
+            if code:
+                async with db.execute(
+                    "SELECT id FROM bookings WHERE external_code = ?", (code,)
+                ) as cursor:
+                    if await cursor.fetchone():
+                        return None
+            raise
+
+        return int(cur.lastrowid)
+
+
+async def import_worker_biled(data: dict[str, Any]) -> int | None:
+    """Worker qabul qilgan Bi-LED buyurtmasini dedupe/import qiladi.
+
+    `external_code` (Firebase kaliti `bl_<uid>_<nonce>`) bo'yicha dedup:
+    allaqachon ko'chirilgan bo'lsa `None`. Yangi AUTOINCREMENT ID beriladi.
+    """
+    code = str(data.get("external_code") or "").strip() or None
+
+    async with write_lock(), _write_transaction() as db:
+        if code:
+            async with db.execute(
+                "SELECT id FROM biled_orders WHERE external_code = ?", (code,)
+            ) as cur:
+                if await cur.fetchone():
+                    return None
+
+        try:
+            cur = await db.execute(
+                "INSERT INTO biled_orders"
+                " (user_id, car_id, biled_id, shroud_id, color_id, total, phone,"
+                "  comment, status, created_at, external_code)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)",
+                (
+                    int(data["user_id"]),
+                    int(data["car_id"]),
+                    int(data["biled_id"]),
+                    data.get("shroud_id"),
+                    data.get("color_id"),
+                    int(data.get("total") or 0),
+                    data.get("phone"),
+                    data.get("comment"),
+                    str(data.get("status") or "new"),
+                    data.get("created_at"),
+                    code,
+                ),
+            )
+        except aiosqlite.IntegrityError:
+            if code:
+                async with db.execute(
+                    "SELECT id FROM biled_orders WHERE external_code = ?", (code,)
+                ) as cursor:
+                    if await cursor.fetchone():
+                        return None
+            raise
+
+        return int(cur.lastrowid)
+
+
 def media_of(row: aiosqlite.Row, kind: str = "photo") -> tuple[str | None, str | None]:
     """(file_id, url) juftligini qaytaradi — mavjud bo'lganini."""
     keys = row.keys()
