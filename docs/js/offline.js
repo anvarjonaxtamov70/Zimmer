@@ -1429,6 +1429,13 @@
     return callWorker("/admin/orders", {});
   }
 
+  /** Mijoz profillari (`users`) — yopiq tugun, Worker service-account bilan
+   *  o'qiydi (faqat tasdiqlangan admin). `{ ok, users: {uid:{profile}} }`
+   *  qaytaradi. Batafsil: cloudflare-worker.js `handleAdminUsers`. */
+  function adminUsers() {
+    return callWorker("/admin/users", {});
+  }
+
   /* ==================================================================
      MENING BUYURTMALARIM (Worker qabul qilganlari)
 
@@ -1606,6 +1613,7 @@
     adminAddProduct: adminAddProduct,
     adminEdit: adminEdit,
     adminOrders: adminOrders,
+    adminUsers: adminUsers,
     adminBiledOrders: adminBiledOrders,
     adminBookings: adminBookings,
     myOrders: myOrders,

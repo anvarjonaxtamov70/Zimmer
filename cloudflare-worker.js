@@ -84,6 +84,9 @@ const FEATURES = [
   // aniqlaydi va aniq aytadi.
   "admin_orders_merged",
   "admin_status_kind",
+  // Admin CRM: mijoz profillari (`users`) yopiq tugun — Worker service-account
+  // bilan o'qiydi (brauzer to'g'ridan o'qiy olmaydi, ism/telefon PII).
+  "admin_users",
   // 1.5.0 — story'ga javob va Mini App ichidan VIDEO yuklash
   "story_reply",
   "admin_upload",
@@ -162,6 +165,7 @@ export default {
       // Mini App ichidan video/rasm yuklash (bot orqali file_id olinadi)
       if (path === "/admin/upload") return handleAdminUpload(request, env);
       if (path === "/admin/orders") return handleAdminOrders(request, env);
+      if (path === "/admin/users") return handleAdminUsers(request, env);
       if (path === "/admin/order-status") return handleAdminOrderStatus(request, env);
 
       return json({ ok: false, error: "Bunday manzil yo'q" }, 404);
@@ -1876,6 +1880,25 @@ async function handleAdminOrders(request, env) {
 
   const orders = mergeAdminOrders(pendingNode, dbNode);
   return json({ ok: true, kind: "order", orders, count: orders.length });
+}
+
+// ---------------------------------------------------------------------
+//  POST /admin/users — mijoz profillari (admin CRM ro'yxati uchun)
+//
+//  `users` tuguni YOPIQ (database.rules.json: .read=false) — unda ism va
+//  telefon (PII) bor, shuning uchun brauzer to'g'ridan o'qiy olmaydi.
+//  Worker service-account bilan o'qiydi va FAQAT tasdiqlangan adminga
+//  (`requireAdmin`: initData imzosi -> uid -> ADMIN_IDS) qaytaradi.
+//  Xom tugunni qaytaramiz — `admin-crm.js` uni o'zi mijozga aylantiradi
+//  (`buildCustomers` `users/{uid}/profile` shaklini kutadi).
+// ---------------------------------------------------------------------
+async function handleAdminUsers(request, env) {
+  const gate = await requireAdmin(request, env);
+  if (gate.error) return gate.error;
+  const { c } = gate;
+  const token = await accessToken(env);
+  const node = await rtdbGet(c.dbUrl, `${c.root}/users`, token);
+  return json({ ok: true, users: node && typeof node === "object" ? node : {} });
 }
 
 // ---------------------------------------------------------------------
