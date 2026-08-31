@@ -24,9 +24,11 @@ permissions:
 
 jobs:
   lint:
-    name: Ruff lint (maslahat — bloklamaydi)
+    name: Ruff lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Eski legacy xatoliklar tozalangach lint endi BLOKLOVCHI — asosiy
+    # papkalar toza turishi kerak. Yangi xatolik PR'ni qizartiradi.
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -34,13 +36,7 @@ jobs:
           python-version: '3.11'
       - name: Ruff o'rnatish
         run: pip install --quiet ruff==0.16.1
-      # DIQQAT — `continue-on-error` JOB'da emas, STEP'da turadi.
-      # Job darajasida bo'lsa, workflow bloklanmasa ham TEKSHIRUV commit'da
-      # QIZIL X bo'lib ko'rinardi. Step darajasida esa qadam yiqilsa ham
-      # JOB YASHIL yakunlanadi — ruff natijasi log'da ko'rinadi, lekin
-      # eski (legacy) xatoliklar tufayli CI qizarmaydi.
       - name: Ruff check (asosiy papkalar, auto-fix YO'Q)
-        continue-on-error: true
         run: ruff check --output-format=github api database handlers services middlewares keyboards config.py bot.py scripts
 
   compile:

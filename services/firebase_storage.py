@@ -7,10 +7,8 @@ Agar Firebase Storage sozlanmagan bo'lsa, file_id telegram serverlarda qoladi
 va to'g'ridan-to'g'ri ishlatiladi (vaqtinchalik link).
 """
 
-import asyncio
 import logging
 import os
-from typing import Optional
 from urllib.parse import quote
 
 import aiohttp
@@ -37,7 +35,7 @@ async def upload_telegram_file(
     *,
     content_type: str = "image/jpeg",
     max_bytes: int = 20 * 1024 * 1024,
-) -> Optional[str]:
+) -> str | None:
     """Telegram faylini Firebase Storage'ga ko'chiradi va DOIMIY URL qaytaradi.
 
     NEGA BU MUHIM
@@ -100,7 +98,7 @@ async def upload_telegram_file(
         logger.error("Firebase Storage'ga yuklanmadi (%s) — file_id qaytarilmoqda", storage_path)
         return file_id
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Storage'ga ko'chirishda timeout: %s", file_id)
         return file_id
     except Exception as e:
@@ -110,7 +108,7 @@ async def upload_telegram_file(
 
 async def upload_telegram_photo(
     bot: Bot, file_id: str, product_id: int, index: int = 0
-) -> Optional[str]:
+) -> str | None:
     """Mahsulot rasmi uchun qisqartma (eski nom — moslik uchun saqlangan)."""
     return await upload_telegram_file(
         bot,
@@ -123,18 +121,18 @@ async def upload_telegram_photo(
 
 async def _upload_to_storage(
     file_data: bytes, file_name: str, *, content_type: str = "image/jpeg"
-) -> Optional[str]:
+) -> str | None:
     """Firebase Storage REST API orqali faylni yuklaydi.
-    
+
     Firebase Storage REST API:
     POST https://firebasestorage.googleapis.com/v0/b/{bucket}/o?name={path}
-    
+
     Returns:
         Public download URL yoki None
     """
     if not STORAGE_BUCKET:
         return None
-    
+
     # `ensure_token()` — muddati o'tgan bo'lsa YANGILAYDI.
     # Ilgari `firebase.token()` chaqirilardi va u muddatni tekshirmasdi:
     # eskirgan token bilan har bir yuklash 401 qaytarardi va admin
@@ -190,16 +188,16 @@ async def _upload_to_storage(
 
 async def delete_product_images(product_id: int) -> bool:
     """Mahsulotning barcha rasmlarini Firebase Storage'dan o'chiradi.
-    
+
     Args:
         product_id: Mahsulot ID
-    
+
     Returns:
         True agar muvaffaqiyatli bo'lsa
     """
     if not is_storage_enabled():
         return False
-    
+
     token = await firebase.ensure_token()
     if not token:
         return False

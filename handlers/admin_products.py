@@ -10,11 +10,12 @@ Bu handler mahsulotlarni Firebase'da boshqaradi:
 
 import asyncio
 import logging
-from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from config import is_admin
 from database import queries as q
@@ -89,11 +90,11 @@ async def callback_products_drafts(callback: CallbackQuery):
     if not products:
         await callback.message.answer("📋 Qoralama mahsulotlar yo'q.")
         return
-    
+
     text = f"📋 <b>Qoralama mahsulotlar ({len(products)} ta)</b>\n\n"
     for p in products[:10]:
         text += f"• ID {p['id']}: {p['name']}\n"
-    
+
     await callback.message.answer(text)
 
 
@@ -134,14 +135,14 @@ async def start_add_product(message: Message, state: FSMContext):
 async def process_product_name(message: Message, state: FSMContext):
     """Mahsulot nomini qabul qiladi."""
     name = message.text.strip()
-    
+
     if len(name) < 2:
         await message.answer("❌ Nom juda qisqa. Qayta kiriting:")
         return
-    
+
     await state.update_data(name=name)
     await state.set_state(AddProductStates.price)
-    
+
     await message.answer(
         f"✅ Nom: <b>{name}</b>\n\n"
         f"2️⃣ Narxni yuboring (so'mda, faqat son):\n\n"
@@ -160,10 +161,10 @@ async def process_product_price(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Noto'g'ri narx. Faqat musbat son kiriting:")
         return
-    
+
     await state.update_data(price=price)
     await state.set_state(AddProductStates.stock)
-    
+
     await message.answer(
         f"✅ Narx: <b>{price:,} so'm</b>\n\n"
         f"3️⃣ Ombordagi miqdorni yuboring:\n\n"
@@ -176,7 +177,7 @@ async def process_product_price(message: Message, state: FSMContext):
 async def process_product_stock(message: Message, state: FSMContext):
     """Mahsulot ombor miqdorini qabul qiladi."""
     text = message.text.strip()
-    
+
     if text == "/skip":
         stock = 0
     else:
@@ -187,10 +188,10 @@ async def process_product_stock(message: Message, state: FSMContext):
         except ValueError:
             await message.answer("❌ Noto'g'ri son. Qayta kiriting yoki /skip:")
             return
-    
+
     await state.update_data(stock=stock)
     await state.set_state(AddProductStates.description)
-    
+
     await message.answer(
         f"✅ Ombor: <b>{stock} dona</b>\n\n"
         f"4️⃣ Mahsulot tavsifini yuboring:\n\n"
@@ -203,19 +204,19 @@ async def process_product_stock(message: Message, state: FSMContext):
 async def process_product_description(message: Message, state: FSMContext):
     """Mahsulot tavsifini qabul qiladi."""
     text = message.text.strip()
-    
+
     description = None if text == "/skip" else text[:500]
-    
+
     await state.update_data(description=description)
     await state.set_state(AddProductStates.images)
-    
+
     user_id = message.from_user.id
     # `media_group_id` SHU YERDA ham qo'yilishi SHART. Ilgari faqat
     # {"images": []} yozilardi va `process_product_images` o'sha kalitni
     # o'qiganda KeyError berardi — natijada telefondan bir necha rasmni
     # BIRGA (albom) yuborish umuman ishlamasdi va admin javob ham olmasdi.
     _temp_product_data[user_id] = {"images": [], "media_group_id": None}
-    
+
     await message.answer(
         "✅ Tavsif saqlandi\n\n"
         "5️⃣ Mahsulot rasmlarini yuboring:\n\n"
@@ -230,7 +231,7 @@ async def process_product_description(message: Message, state: FSMContext):
 @router.message(AddProductStates.images, F.photo, F.from_user.id.func(is_admin))
 async def process_product_images(message: Message, state: FSMContext, bot: Bot):
     """Mahsulot rasmlarini qabul qiladi (MediaGroup qo'llab-quvvatlaydi).
-    
+
     Avto_A1 style: rasmlar Telegram file_id sifatida saqlanadi.
     Agar Firebase Storage sozlangan bo'lsa, Firebase'ga yuklanadi va
     doimiy URL qaytariladi.
@@ -297,10 +298,10 @@ async def finish_product_images(message: Message, state: FSMContext):
     """Rasm yuklashni tugatadi va tasdiqni so'raydi."""
     user_id = message.from_user.id
     images = _temp_product_data.get(user_id, {}).get("images", [])
-    
+
     data = await state.get_data()
     await state.set_state(AddProductStates.confirm)
-    
+
     # Xulosa
     text = (
         "📦 <b>Mahsulot ma'lumotlari</b>\n\n"
@@ -308,18 +309,18 @@ async def finish_product_images(message: Message, state: FSMContext):
         f"Narx: <b>{data['price']:,} so'm</b>\n"
         f"Ombor: <b>{data.get('stock', 0)} dona</b>\n"
     )
-    
+
     if data.get('description'):
         desc = data['description'][:100]
         if len(data['description']) > 100:
             desc += "..."
         text += f"Tavsif: <i>{desc}</i>\n"
-    
+
     text += f"Rasmlar: <b>{len(images)} ta</b>\n\n"
     text += "Tasdiqlaysizmi?\n\n"
     text += "/confirm — Tasdiqlash va saqlash\n"
     text += "/cancel — Bekor qilish"
-    
+
     await message.answer(text, parse_mode="HTML")
 
 
@@ -491,11 +492,11 @@ async def cancel_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is None:
         return
-    
+
     user_id = message.from_user.id
     if user_id in _temp_product_data:
         del _temp_product_data[user_id]
-    
+
     await state.clear()
     await message.answer(
         "❌ Bekor qilindi.",
@@ -536,40 +537,40 @@ async def list_products(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     # Faol va nofaol bo'lib guruhlash
     active = [p for p in products if p.get("is_active", True)]
     inactive = [p for p in products if not p.get("is_active", True)]
-    
+
     text = "📦 <b>Mahsulotlar</b>\n\n"
     text += f"Jami: {len(products)} ta\n"
     text += f"✅ Faol: {len(active)} ta\n"
     text += f"⏸ Nofaol: {len(inactive)} ta\n\n"
-    
+
     # Oxirgi 10 ta mahsulot
     text += "<b>Oxirgi mahsulotlar:</b>\n"
     for prod in products[:10]:
         status = "✅" if prod.get("is_active", True) else "⏸"
         stock = prod.get("stock", 0)
         stock_text = f"{stock} dona" if stock > 0 else "❌ Tugagan"
-        
+
         text += (
             f"\n{status} <b>{prod.get('name', 'No name')}</b>\n"
             f"  ID: <code>{prod.get('id')}</code>\n"
             f"  Narx: {prod.get('price', 0):,} so'm\n"
             f"  Ombor: {stock_text}\n"
         )
-    
+
     if len(products) > 10:
         text += f"\n... va yana {len(products) - 10} ta\n"
-    
+
     text += (
         "\n<i>Mahsulot boshqarish:</i>\n"
         "<code>/edit_product {id}</code> - tahrirlash\n"
         "<code>/toggle_product {id}</code> - yoqish/o'chirish\n"
         "<code>/delete_product {id}</code> - o'chirish"
     )
-    
+
     await message.answer(text, parse_mode="HTML")
 
 
@@ -584,13 +585,13 @@ async def toggle_product_handler(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     try:
         product_id = int(args[1].strip())
     except ValueError:
         await message.answer("❌ Noto'g'ri ID")
         return
-    
+
     row = await q.admin_get("products", product_id)
     if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")
@@ -618,13 +619,13 @@ async def delete_product_handler(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     try:
         product_id = int(args[1].strip())
     except ValueError:
         await message.answer("❌ Noto'g'ri ID")
         return
-    
+
     row = await q.admin_get("products", product_id)
     if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")
@@ -658,18 +659,18 @@ async def update_stock_handler(message: Message, bot: Bot):
             parse_mode="HTML"
         )
         return
-    
+
     try:
         product_id = int(args[1])
         quantity = int(args[2])
     except ValueError:
         await message.answer("❌ ID va miqdor raqam bo'lishi kerak")
         return
-    
+
     if quantity < 0:
         await message.answer("❌ Miqdor manfiy bo'lishi mumkin emas")
         return
-    
+
     row = await q.admin_get("products", product_id)
     if row is None:
         await message.answer(f"❌ Mahsulot topilmadi (ID: {product_id})")

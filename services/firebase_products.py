@@ -37,6 +37,7 @@ import time
 from typing import Any
 
 import aiohttp
+
 from services import firebase as fb
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,11 @@ def _timestamp_ms() -> int:
 # =====================================================================
 def product_offsets(raw):
     """RTDB'dan o'qilgan `products` (dict/list/None) dan (keyingi_id, keyingi_indeks).
-    
+
     Avto_A1 tizimida ID va indeks AJRATILGAN:
     - ID: mahsulotning mantiqiy identifikatori (o'chmaydigan, o'zgarmaydigan)
     - Indeks: Firebase massivdagi joylanishi (o'zgarishi mumkin)
-    
+
     Bu tizim race condition'ni oldini oladi va parallel import/qo'shishni xavfsiz qiladi.
     """
     if isinstance(raw, list):
@@ -71,7 +72,7 @@ def product_offsets(raw):
         next_index = (max(nums) + 1) if nums else len(raw)
     else:
         items, next_index = [], 0
-    
+
     next_id = max([p.get("id", 0) for p in items], default=0) + 1
     return next_id, next_index
 
@@ -106,20 +107,20 @@ async def firebase_append_products(
     max_probe: int = 64
 ) -> bool:
     """Yangi mahsulotlarni massivga XAVFSIZ (atomik) append qiladi.
-    
+
     Avto_A1 ning asosiy innovatsiyasi: har bir mahsulot uchun bo'sh slot topiladi
     va u ETag (if-match) bilan ATOMIK egallanadi. Agar admin/boshqa manba ayni
     paytda o'sha slotni egallasa (slot bo'sh emas yoki 412 Precondition Failed),
     keyingi slotga o'tiladi.
-    
+
     Shu sababli mavjud mahsulotlar HECH QACHON ustidan yozilmaydi (race-free).
-    
+
     Args:
         session: aiohttp session
         new_products: yangi mahsulotlar ro'yxati
         start_index: boshlang'ich indeks
         max_probe: maksimal urinishlar (to'liq bo'lsa keyingi slotga o'tadi)
-    
+
     Returns:
         True - hammasi yozildi, False - qattiq xato
     """
@@ -143,7 +144,7 @@ async def firebase_append_products(
     for p in new_products:
         placed = False
         probes = 0
-        
+
         while probes < max_probe:
             probes += 1
             try:
@@ -151,12 +152,12 @@ async def firebase_append_products(
             except Exception as e:
                 logger.error(f"products[{idx}] ETag o'qish xatosi: {e}")
                 return False
-            
+
             # Slot band — ustidan YOZMAYMIZ, keyingisiga o'tamiz
             if value is not None:
                 idx += 1
                 continue
-            
+
             # Bo'sh slot topildi — atomik yozamiz
             headers = fb.auth_headers({"if-match": etag} if etag else None)
             try:
@@ -176,11 +177,11 @@ async def firebase_append_products(
             except Exception as e:
                 logger.error(f"products[{idx}] PUT xatosi: {e}")
                 return False
-        
+
         if not placed:
             logger.error("products append: bo'sh slot topilmadi (max_probe tugadi)")
             return False
-    
+
     return True
 
 
@@ -249,14 +250,14 @@ async def add_product(
             "created_at": _timestamp_ms(),
             "updated_at": _timestamp_ms(),
         }
-        
+
         # Atomik yozish (umumiy sessiya — ichida o'zi oladi)
         success = await firebase_append_products(None, [product_data], next_index)
 
         if success:
             logger.info("Mahsulot qo'shildi: %s (ID=%s)", name, next_id)
             return next_id
-        
+
         logger.error("Mahsulot qo'shilmadi: %s (Firebase: %s)", name, fb.diagnose())
         return 0
 
@@ -266,12 +267,12 @@ async def get_product(product_id: int) -> dict | None:
     all_data = await fb.get("products")
     if not all_data:
         return None
-    
+
     # ID bo'yicha qidirish (indeks emas!)
     for _key, value in fb.items(all_data):
         if isinstance(value, dict) and value.get("id") == product_id:
             return value
-    
+
     return None
 
 
@@ -285,28 +286,28 @@ async def get_all_products(
     all_data = await fb.get("products")
     if not all_data:
         return []
-    
+
     products = []
     for _key, value in fb.items(all_data):
         if not isinstance(value, dict):
             continue
-        
+
         # Filtrlar
         if active_only and not value.get("is_active", True):
             continue
-        
+
         # Draft filtri (3 ta holat: None=hammasi, True=faqat draft, False=faqat tayyor)
         if is_draft is not None:
             if value.get("is_draft", False) != is_draft:
                 continue
         elif not include_drafts and value.get("is_draft", False):
             continue
-        
+
         if batch_id and value.get("batch_id") != batch_id:
             continue
-        
+
         products.append(value)
-    
+
     # ID bo'yicha kamayish tartibida
     products.sort(key=lambda x: x.get("id", 0), reverse=True)
     return products
@@ -314,38 +315,38 @@ async def get_all_products(
 
 async def update_product(product_id: int, **fields) -> bool:
     """Mahsulotni yangilaydi (faqat berilgan maydonlar).
-    
+
     MUHIM: Avto_A1'da patch ishlatiladi (butun mahsulotni qayta yozmaslik uchun).
     """
     if not fields:
         return False
-    
+
     # Mahsulotni topish (indeksini olish kerak)
     all_data = await fb.get("products")
     if not all_data:
         return False
-    
+
     product_index = None
     for key, value in fb.items(all_data):
         if isinstance(value, dict) and value.get("id") == product_id:
             product_index = key
             break
-    
+
     if product_index is None:
         logger.error("Mahsulot topilmadi: ID=%s", product_id)
         return False
-    
+
     # Yangilash vaqtini qo'shamiz
     fields["updated_at"] = _timestamp_ms()
-    
+
     # Patch qilish
     success = await fb.patch(f"products/{product_index}", fields)
-    
+
     if success:
         logger.info("Mahsulot yangilandi: ID=%s, maydonlar=%s", product_id, list(fields.keys()))
     else:
         logger.error("Mahsulot yangilanmadi: ID=%s", product_id)
-    
+
     return success
 
 
@@ -355,24 +356,24 @@ async def delete_product(product_id: int) -> bool:
     all_data = await fb.get("products")
     if not all_data:
         return False
-    
+
     product_index = None
     for key, value in fb.items(all_data):
         if isinstance(value, dict) and value.get("id") == product_id:
             product_index = key
             break
-    
+
     if product_index is None:
         return False
-    
+
     # O'chirish (null qo'yish)
     success = await fb.put(f"products/{product_index}", None)
-    
+
     if success:
         logger.info("Mahsulot o'chirildi: ID=%s", product_id)
     else:
         logger.error("Mahsulot o'chirilmadi: ID=%s", product_id)
-    
+
     return success
 
 
@@ -381,7 +382,7 @@ async def toggle_product(product_id: int) -> bool:
     product = await get_product(product_id)
     if not product:
         return False
-    
+
     new_state = not product.get("is_active", True)
     return await update_product(product_id, is_active=new_state)
 
@@ -396,7 +397,7 @@ async def decrease_stock(product_id: int, amount: int) -> bool:
     product = await get_product(product_id)
     if not product:
         return False
-    
+
     current_stock = product.get("stock", 0)
     new_stock = max(0, current_stock - amount)
     return await update_product(product_id, stock=new_stock)

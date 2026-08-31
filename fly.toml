@@ -42,7 +42,11 @@ primary_region = "fra"   # Frankfurt — Toshkentga eng yaqin arzon mintaqa
     timeout = "5s"
     grace_period = "60s"
     method = "GET"
-    path = "/health"
+    # `/ready` — tayyorlik: baza javob berayaptimi (`SELECT 1`). `/health`
+    # faqat "jarayon tirik" edi; `/ready` esa baza yiqilgan instansiyaga
+    # trafik yubormaslikni ta'minlaydi. init_db server portidan OLDIN
+    # tugagani uchun startupda ham darrov tayyor bo'ladi.
+    path = "/ready"
 
 [[vm]]
   size = "shared-cpu-1x"

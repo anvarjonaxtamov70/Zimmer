@@ -34,13 +34,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import aiohttp
-from aiogram import Router, F
-from aiogram.types import Message
+from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.types import Message
 
 from config import config, is_admin
-from services import firebase, firebase_products as fb_prod
-from services import sync
+from services import firebase, sync
+from services import firebase_products as fb_prod
 
 if TYPE_CHECKING:  # faqat tur ko'rsatkichlari uchun (ishga tushishda yuklanmaydi)
     import pandas as pd
@@ -86,17 +86,17 @@ COLUMN_MAPPINGS = {
 def _normalize_columns(df: "pd.DataFrame") -> "pd.DataFrame":
     """DataFrame ustunlarini standart nomlarga o'zgartiradi."""
     df.columns = df.columns.str.strip().str.lower()
-    
+
     rename_map = {}
     for standard, variants in COLUMN_MAPPINGS.items():
         for col in df.columns:
             if col in variants:
                 rename_map[col] = standard
                 break
-    
+
     if rename_map:
         df = df.rename(columns=rename_map)
-    
+
     return df
 
 
@@ -195,43 +195,43 @@ async def _process_dataframe(df: "pd.DataFrame", batch_id: str) -> dict:
     """DataFrame'ni tahlil qilib mahsulotlarni Firebase'ga qo'shadi."""
     if df.empty:
         return {"success": False, "error": "Fayl bo'sh"}
-    
+
     # Ustunlarni normalizatsiya
     df = _normalize_columns(df)
-    
+
     # Majburiy ustunlar tekshiruvi
     if "name" not in df.columns:
         return {
             "success": False,
             "error": "Majburiy ustun topilmadi: 'name' (yoki 'nomi', 'mahsulot')"
         }
-    
+
     if "price" not in df.columns:
         return {
             "success": False,
             "error": "Majburiy ustun topilmadi: 'price' (yoki 'narx')"
         }
-    
+
     # Mahsulotlarni qayta ishlash
     added = 0
     skipped = 0
     errors = []
-    
+
     for idx, row in df.iterrows():
         name = _parse_str(row.get("name"))
         price = _parse_int(row.get("price"))
-        
+
         # Validate
         if not name or len(name) < 2:
             skipped += 1
             errors.append(f"Qator {idx+2}: Nom juda qisqa yoki bo'sh")
             continue
-        
+
         if price <= 0:
             skipped += 1
             errors.append(f"Qator {idx+2}: Narx noto'g'ri ({price})")
             continue
-        
+
         # Mahsulot ma'lumotlarini tayyorlash (Avto_A1 style)
         try:
             product_id = await fb_prod.add_product(
@@ -248,18 +248,18 @@ async def _process_dataframe(df: "pd.DataFrame", batch_id: str) -> dict:
                 is_draft=True,  # Qoralama
                 batch_id=batch_id,
             )
-            
+
             if product_id > 0:
                 added += 1
             else:
                 skipped += 1
                 errors.append(f"Qator {idx+2}: Firebase'ga qo'shilmadi")
-        
+
         except Exception as e:
             skipped += 1
             errors.append(f"Qator {idx+2}: {e}")
             logger.error("Mahsulot qo'shilmadi (qator %s): %s", idx+2, e)
-    
+
     return {
         "success": True,
         "added": added,
@@ -276,14 +276,14 @@ async def handle_import_file(message: Message):
     doc = message.document
     if not doc:
         return
-    
+
     # Fayl formatini tekshirish
     filename = doc.file_name.lower() if doc.file_name else ""
-    
+
     if not any(filename.endswith(ext) for ext in [".xlsx", ".xls", ".csv"]):
         # Excel/CSV emas — o'tkazib yuboramiz (boshqa handler ishlashi mumkin)
         return
-    
+
     # Import jarayonini boshlash
     status_msg = await message.answer(
         "📊 <b>Import boshlandi...</b>\n\n"
@@ -292,11 +292,11 @@ async def handle_import_file(message: Message):
         "⏳ Fayl yuklanmoqda...",
         parse_mode="HTML"
     )
-    
+
     try:
         # Faylni yuklash
         file_bytes = await _download_file(message.bot, doc.file_id)
-        
+
         await status_msg.edit_text(
             "📊 <b>Import boshlandi...</b>\n\n"
             f"Fayl: <code>{doc.file_name}</code>\n"
@@ -304,16 +304,16 @@ async def handle_import_file(message: Message):
             "⏳ Fayl tahlil qilinmoqda...",
             parse_mode="HTML"
         )
-        
+
         # Batch ID yaratish
         batch_id = f"import_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-        
+
         # Faylni qayta ishlash
         if filename.endswith(".csv"):
             result = await _process_csv(file_bytes, batch_id)
         else:
             result = await _process_excel(file_bytes, batch_id)
-        
+
         # Natijani ko'rsatish
         if not result["success"]:
             await status_msg.edit_text(
@@ -322,7 +322,7 @@ async def handle_import_file(message: Message):
                 parse_mode="HTML"
             )
             return
-        
+
         # Muvaffaqiyat xabari
         text = (
             f"✅ <b>Import yakunlandi</b>\n\n"
@@ -331,27 +331,27 @@ async def handle_import_file(message: Message):
             f"✅ Qo'shildi: {result['added']}\n"
             f"⏭ O'tkazib yuborildi: {result['skipped']}\n\n"
         )
-        
+
         if result['errors']:
             text += "<b>Xatolar:</b>\n"
             for error in result['errors']:
                 text += f"• {error}\n"
             if result['skipped'] > len(result['errors']):
                 text += f"... va yana {result['skipped'] - len(result['errors'])} ta\n"
-        
+
         text += (
             "\n<i>💡 Mahsulotlar QORALAMA holda qo'shildi. "
             "Tekshirib, tasdiqlash uchun:</i>\n"
             "<code>/products_drafts</code>"
         )
-        
+
         await status_msg.edit_text(text, parse_mode="HTML")
-        
+
         logger.info(
             "Import yakunlandi: batch=%s, added=%s, skipped=%s",
             batch_id, result['added'], result['skipped']
         )
-    
+
     except Exception as e:
         logger.error("Import xatosi: %s", e, exc_info=True)
         await status_msg.edit_text(
@@ -369,9 +369,9 @@ async def list_draft_products(message: Message):
         active_only=False,
         include_drafts=True
     )
-    
+
     drafts = [p for p in products if p.get("is_draft", False)]
-    
+
     if not drafts:
         await message.answer(
             "📦 <b>Qoralama mahsulotlar yo'q</b>\n\n"
@@ -379,7 +379,7 @@ async def list_draft_products(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     # Batch'lar bo'yicha guruhlash
     batches = {}
     for product in drafts:
@@ -387,30 +387,30 @@ async def list_draft_products(message: Message):
         if batch_id not in batches:
             batches[batch_id] = []
         batches[batch_id].append(product)
-    
+
     text = "📦 <b>Qoralama mahsulotlar</b>\n\n"
     text += f"Jami: {len(drafts)} ta\n"
     text += f"Guruhlar: {len(batches)}\n\n"
-    
+
     for batch_id, batch_products in list(batches.items())[:5]:
         text += f"<b>{batch_id}</b>\n"
         text += f"  {len(batch_products)} ta mahsulot\n"
-        
+
         # Birinchi 3 ta mahsulot
         for prod in batch_products[:3]:
             text += f"  • {prod.get('name', 'No name')} - {prod.get('price', 0):,} so'm\n"
-        
+
         if len(batch_products) > 3:
             text += f"  ... va yana {len(batch_products) - 3} ta\n"
         text += "\n"
-    
+
     text += (
         "<i>💡 Mahsulotlarni tasdiqlash uchun admin paneldan yoki "
         "quyidagi buyruqlardan foydalaning:</i>\n\n"
         "<code>/approve_batch {batch_id}</code> - butun guruhni tasdiqlash\n"
         "<code>/delete_batch {batch_id}</code> - butun guruhni o'chirish"
     )
-    
+
     await message.answer(text, parse_mode="HTML")
 
 
@@ -425,10 +425,10 @@ async def approve_batch(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     batch_id = args[1].strip()
     products = await fb_prod.get_products_by_batch(batch_id)
-    
+
     if not products:
         await message.answer(
             f"❌ <b>Batch topilmadi</b>\n\n"
@@ -436,7 +436,7 @@ async def approve_batch(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     # Barcha mahsulotlarni tasdiqlash
     approved = 0
     for product in products:
@@ -474,10 +474,10 @@ async def delete_batch(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     batch_id = args[1].strip()
     products = await fb_prod.get_products_by_batch(batch_id)
-    
+
     if not products:
         await message.answer(
             f"❌ <b>Batch topilmadi</b>\n\n"
@@ -485,14 +485,14 @@ async def delete_batch(message: Message):
             parse_mode="HTML"
         )
         return
-    
+
     # Barcha mahsulotlarni o'chirish
     deleted = 0
     for product in products:
         success = await fb_prod.delete_product(product["id"])
         if success:
             deleted += 1
-    
+
     await message.answer(
         f"🗑 <b>Batch o'chirildi</b>\n\n"
         f"Batch ID: <code>{batch_id}</code>\n"

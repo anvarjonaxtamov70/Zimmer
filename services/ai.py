@@ -20,7 +20,6 @@ ASOSIY QOIDALAR
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 from dataclasses import dataclass, field
@@ -170,7 +169,7 @@ async def ask(
                     return AiReply(False, _friendly_error(), "http")
 
                 data = await response.json()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("AI: javob %s soniyada kelmadi", TIMEOUT_SECONDS)
         return AiReply(False, "Javob kechikdi. Qayta yozib ko'ring.", "timeout")
     except Exception as error:  # noqa: BLE001 — AI bot ishini to'xtatmasligi kerak
