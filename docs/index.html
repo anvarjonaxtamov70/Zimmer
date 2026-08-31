@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=61">
+  <link rel="stylesheet" href="styles.css?v=62">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -814,6 +814,13 @@
 
     <p class="pm-desc" id="pm-desc"></p>
 
+    <!-- RAZMER TANLAGICHI.
+         Faqat razmerli tovarda ko'rinadi (`openProductModal` to'ldiradi).
+         Razmer tanlanmaguncha «Savatga qo'shish» tugmasi ISHLAMAYDI —
+         aks holda admin buyurtmani ko'rib «qaysi razmer?» deb mijozga
+         qayta qo'ng'iroq qilishga majbur bo'lardi. -->
+    <div class="pm-sizes hidden" id="pm-sizes"></div>
+
     <div class="pm-specs" id="pm-specs"></div>
   </div>
 
@@ -888,16 +895,16 @@
         pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
         tanlanganda kerak, lekin har ochilishda o'qilardi.
      ========================================================================== -->
-<script defer src="config.js?v=61"></script>
+<script defer src="config.js?v=62"></script>
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script defer src="js/fb.js?v=61"></script>
+<script defer src="js/fb.js?v=62"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script defer src="js/upload.js?v=61"></script>
+<script defer src="js/upload.js?v=62"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<script defer src="js/offline.js?v=61"></script>
-<script defer src="js/headlight.js?v=61"></script>
-<script defer src="js/cars.js?v=61"></script>
-<script defer src="js/app.js?v=61"></script>
+<script defer src="js/offline.js?v=62"></script>
+<script defer src="js/headlight.js?v=62"></script>
+<script defer src="js/cars.js?v=62"></script>
+<script defer src="js/app.js?v=62"></script>
 </body>
 </html>

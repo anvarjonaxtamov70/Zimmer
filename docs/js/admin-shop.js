@@ -76,7 +76,17 @@ window.ZimmerShop = (function () {
     ordKindPrev: null, // filtr almashinuvini kuzatish uchun
     ordFilter: "all", // all | new | run | done | cancelled
     catSel: null, // tanlangan kategoriya nomi
-    carSel: null, // tanlangan mashina id si (ixtiyoriy)
+    /* Tanlangan mashinalar — KO'P TANLOV (id lar massivi).
+       Ilgari bu `carSel` degan BITTA qiymat edi va shu sababli «Damas»
+       bilan «Labo» ga bir vaqtda mos tovarni kiritish MUMKIN EMASDI:
+       admin ikkinchisini bosganda birinchisi o'chib ketardi. Amalda esa
+       ko'p ehtiyot qism o'nlab mashinaga birdek to'g'ri keladi. */
+    carSels: [], // ["12","7"] — bo'sh bo'lsa UNIVERSAL
+    /* Tovar turi — Avto_A1 dagi mantiq.
+         oddiy     -> bitta umumiy qoldiq (`stock`)
+         razmerli  -> har razmerning O'Z qoldig'i (`sizes`) */
+    typeSel: "oddiy", // oddiy | razmerli
+    sizes: [], // [{size:"H4", stock:3}] — faqat `razmerli` uchun
     query: "", // ombor qidiruvi (nom / kod / kategoriya / mashina)
     selected: {}, // ombor ommaviy tanlovi {id:true}
     // ---- ombor (zaxira nazorati)
@@ -734,6 +744,9 @@ window.ZimmerShop = (function () {
         return (
           '<div class="ord-good"><span>' +
           esc(it.name || "Tovar") +
+          /* Razmerli tovar: admin javondan to'g'ri razmerni topishi uchun
+             nom yonida turadi. Razmersizda satr o'zgarmaydi. */
+          (it.size ? ' <em class="ord-size">' + esc(it.size) + "</em>" : "") +
           "</span><i>×" +
           qty +
           "</i>" +
@@ -1537,6 +1550,24 @@ window.ZimmerShop = (function () {
       (off ? ' <span class="lp-off">-' + off + "%</span>" : "") +
       "</div>" +
       (warranty ? '<div class="lp-war">🛡 ' + esc(warranty) + " kafolat</div>" : "") +
+      /* Razmerlar — mijoz kartochkani ochganda AYNAN shu chiplarni ko'radi.
+         Nomi yozilmagan qatorlar chizilmaydi (hali to'ldirilmoqda). */
+      (S.typeSel === "razmerli" && S.sizes.some((s) => s.size)
+        ? '<div class="lp-sizes">' +
+          S.sizes
+            .filter((s) => s.size)
+            .map(
+              (s) =>
+                '<span class="lp-size' + (Number(s.stock) > 0 ? "" : " is-out") + '">' +
+                esc(s.size) + "</span>"
+            )
+            .join("") +
+          "</div>"
+        : "") +
+      /* Mos mashinalar — ko'p tanlangan bo'lsa mijoz shu satrni ko'radi */
+      (selectedCarNames().length
+        ? '<div class="lp-cars">🚗 ' + esc(selectedCarNames().join(", ")) + "</div>"
+        : "") +
       "</div>" +
       (badge ? '<span class="lp-badge">' + esc(badge) + "</span>" : "") +
       "</div>";
@@ -1568,10 +1599,32 @@ window.ZimmerShop = (function () {
     }
     html += "</div>";
 
+    /* ---- TOVAR TURI (kategoriyadan KEYIN so'raladi)
+       Tartib ataylab shunday: admin avval «qaysi bo'limga» deb o'ylaydi,
+       keyin «bu razmerli tovarmi?» degan savolga javob beradi. Ikki savol
+       aralashib ketmasin. */
+    html +=
+      '<div class="apx-sub">Tovar turi</div>' +
+      '<div class="shop-chips" id="shop-types">' +
+      '<button type="button" class="cat-chip shop-type" data-type="oddiy">📦 Razmersiz</button>' +
+      '<button type="button" class="cat-chip shop-type" data-type="razmerli">📐 Razmerli</button>' +
+      "</div>" +
+      '<div class="apx-sale-note" id="shop-type-note"></div>';
+
+    html += "</div>"; // kategoriya + tur guruhi yopiladi
+
+    /* ---- RAZMERLAR — alohida guruh, faqat «razmerli» da ko'rinadi */
+    html += sizesBlock();
+
+    /* ---- MASHINALAR — KO'P TANLOV */
     if (S.cars.length) {
       html +=
-        '<div class="apx-sub">Mashina (ixtiyoriy)</div><div class="shop-chips" id="shop-cars">' +
-        '<button type="button" class="cat-chip shop-car" data-car="">🌐 Universal</button>' +
+        '<div class="admin-form-group"><div class="apx-head">' +
+        '<div class="apx-ic apx-ic-blue">🚗</div>' +
+        '<div class="apx-tx"><b>Mos mashinalar</b>' +
+        "<span>Nechtasini xohlasangiz belgilang</span></div></div>" +
+        '<div class="shop-chips" id="shop-cars">' +
+        '<button type="button" class="cat-chip shop-car is-all" data-car="">🌐 Universal (hammasi)</button>' +
         S.cars
           .map(
             (c) =>
@@ -1581,11 +1634,237 @@ window.ZimmerShop = (function () {
               esc(c.name) +
               "</button>"
           )
-          .join("");
-      html += "</div>";
+          .join("") +
+        "</div>" +
+        '<div class="apx-sale-note" id="shop-car-note"></div>' +
+        "</div>";
     }
-    html += "</div>";
     return html;
+  }
+
+  /* ==================================================================
+     RAZMERLI TOVAR (Avto_A1 modeli)
+
+     NEGA KERAK
+     Bitta «Bi-LED linza» nomi ostida 2.5" va 3" turadi; lampa H4, H7,
+     H11 bo'ladi. Ilgari admin ularni ALOHIDA tovar qilib kiritishga
+     majbur edi: bir xil rasm, bir xil tavsif, bir xil narx — faqat
+     nomining oxiri boshqa. Natijada do'konda bir xil kartochka besh
+     marta turardi va qoldiqni beshta joyda alohida yuritish kerak edi.
+
+     ENDI: bitta tovar, ichida razmerlar ro'yxati va HAR RAZMERNING O'Z
+     QOLDIG'I. Umumiy `stock` — razmer qoldiqlarining YIG'INDISI, shuning
+     uchun savat, buyurtma va «tugagan» belgisi hech qanday o'zgarishsiz
+     ishlashda davom etadi.
+     ================================================================== */
+
+  /* ------------------------------------------------------------------
+     RTDB MASSIVLARINI O'QISH
+
+     Realtime Database bo'sh kataklari bor massivni LUG'AT qilib qaytaradi
+     (`{"0": {...}, "2": {...}}`). Shuning uchun `Array.isArray()` bilan
+     tekshirish yetarli emas — ikki shaklni ham tekislaymiz. Bir joyda,
+     bir marta: bu xato turdagi ma'lumot butun panelni yiqitishi mumkin.
+     ------------------------------------------------------------------ */
+  function rowsOfAny(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object") return Object.values(raw);
+    return [];
+  }
+
+  /** `[{size:"H4", stock:3}]` — nomsiz qatorlar tashlab ketiladi. */
+  function normSizes(raw) {
+    return rowsOfAny(raw)
+      .filter((s) => s && typeof s === "object" && String(s.size || "").trim())
+      .map((s) => ({
+        size: String(s.size).trim().slice(0, 40),
+        stock: Math.max(0, Number(s.stock) || 0),
+      }));
+  }
+
+  /** `["Damas","Labo"]` — eski yozuvdagi bitta `carName` ham qabul qilinadi. */
+  function normCars(raw, single) {
+    const list = rowsOfAny(raw)
+      .map((v) => String(v == null ? "" : v).trim())
+      .filter(Boolean);
+    if (list.length) return list;
+    const one = String(single == null ? "" : single).trim();
+    return one ? [one] : [];
+  }
+
+  /** Tez tanlash uchun tipik razmerlar (ro'yxat CHEKLOV emas — qo'lda
+   *  xohlagan matnni yozish mumkin: «2.5 dyuym», «46-48» va h.k.). */
+  const SIZE_TPL = [
+    "H1", "H3", "H4", "H7", "H11", "HB3", "HB4",
+    "D2S", "D4S", '2.5"', '3"',
+    "S", "M", "L", "XL", "XXL",
+  ];
+
+  function sizesBlock() {
+    return (
+      '<div class="admin-form-group' +
+      (S.typeSel === "razmerli" ? "" : " hidden") +
+      '" id="shop-sizes-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">📐</div>' +
+      '<div class="apx-tx"><b>Razmerlar va qoldiq</b>' +
+      "<span>Har razmerning soni alohida</span></div></div>" +
+      '<div class="apx-tpl" id="shop-size-tpl">' +
+      SIZE_TPL.map(
+        (s) =>
+          '<button type="button" class="apx-tpl-chip shop-size-tpl" data-size="' +
+          esc(s) + '">' + esc(s) + "</button>"
+      ).join("") +
+      "</div>" +
+      '<div class="shop-sizes" id="shop-sizes-list"></div>' +
+      '<button type="button" class="apx-voice" id="shop-size-add">＋ Razmer qo\'shish</button>' +
+      '<div class="apx-sale-note" id="shop-size-note"></div>' +
+      "</div>"
+    );
+  }
+
+  /** Ekrandagi qatorlardan `S.sizes` ni yangilaydi (qayta chizishdan OLDIN
+   *  chaqiriladi — aks holda admin yozgan qiymat yo'qoladi). */
+  function readSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    S.sizes = [...box.querySelectorAll(".shop-size-row")].map((row) => ({
+      size: (row.querySelector(".shop-size-name").value || "").trim(),
+      stock: Math.max(0, parseNum(row.querySelector(".shop-size-stock").value) || 0),
+    }));
+  }
+
+  /** Razmer qatorlarini chizadi va izohni yangilaydi. */
+  function renderSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    box.innerHTML = S.sizes.length
+      ? S.sizes
+          .map(
+            (s, i) =>
+              '<div class="shop-size-row" data-i="' + i + '">' +
+              '<input type="text" class="admin-input shop-size-name" maxlength="40" ' +
+              'placeholder="Razmer (mas: H4)" value="' + esc(s.size || "") + '">' +
+              '<input type="text" inputmode="numeric" class="admin-input shop-size-stock" ' +
+              'placeholder="Soni" value="' + (Number(s.stock) || 0) + '">' +
+              '<button type="button" class="shop-size-del" data-i="' + i + '" ' +
+              'aria-label="O\'chirish">✕</button>' +
+              "</div>"
+          )
+          .join("")
+      : '<div class="adm-hint">Hali razmer qo\'shilmadi — tepadagi chiplardan tanlang yoki «＋ Razmer qo\'shish».</div>';
+
+    bindSizeRows();
+    sizeNote();
+  }
+
+  function bindSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    box.querySelectorAll(".shop-size-del").forEach((btn) => {
+      btn.onclick = () => {
+        haptic("light");
+        readSizeRows();
+        S.sizes.splice(Number(btn.dataset.i), 1);
+        renderSizeRows();
+      };
+    });
+    // Yozilganda faqat IZOH yangilanadi — qatorlar qayta chizilmaydi,
+    // aks holda har harfda kursor maydondan uchib ketardi.
+    box.querySelectorAll(".shop-size-name, .shop-size-stock").forEach((inp) => {
+      inp.oninput = () => {
+        readSizeRows();
+        sizeNote();
+        livePreview();
+      };
+    });
+  }
+
+  /** «Jami: 7 dona · 3 razmer» — admin yig'indini ko'rib turadi. */
+  function sizeNote() {
+    const note = $("shop-size-note");
+    if (!note) return;
+    const filled = S.sizes.filter((s) => s.size);
+    const total = filled.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+    note.textContent = filled.length
+      ? "Jami: " + total + " dona · " + filled.length + " razmer"
+      : "Kamida bitta razmer nomi kerak.";
+  }
+
+  function addSizeRow(name) {
+    readSizeRows();
+    // Ayni razmer allaqachon bor bo'lsa takrorlamaymiz — faqat belgilaymiz
+    const exists = S.sizes.findIndex(
+      (s) => s.size.toLowerCase() === String(name || "").toLowerCase() && s.size
+    );
+    if (name && exists !== -1) {
+      toast("«" + name + "» allaqachon ro'yxatda");
+      return;
+    }
+    if (S.sizes.length >= 40) return toast("40 tadan ko'p razmer bo'lmasin");
+    S.sizes.push({ size: name || "", stock: 0 });
+    renderSizeRows();
+    // Bo'sh qator qo'shilgan bo'lsa darhol yozishga tayyor turadi
+    if (!name) {
+      const rows = $("shop-sizes-list").querySelectorAll(".shop-size-name");
+      const last = rows[rows.length - 1];
+      if (last) last.focus();
+    }
+  }
+
+  /** Tur o'zgarganda: razmer bloki va umumiy «Qoldiq» maydoni
+   *  bir-birini ALMASHTIRADI (ikkisi birga turmaydi — chalkashtiradi). */
+  function paintType() {
+    document.querySelectorAll("#shop-types .shop-type").forEach((b) => {
+      b.classList.toggle("selected", b.dataset.type === S.typeSel);
+    });
+    const sized = S.typeSel === "razmerli";
+    const group = $("shop-sizes-group");
+    if (group) group.classList.toggle("hidden", !sized);
+    const stockWrap = $("shop-stock-wrap");
+    if (stockWrap) stockWrap.classList.toggle("hidden", sized);
+    const note = $("shop-type-note");
+    if (note) {
+      note.textContent = sized
+        ? "Razmerli: har razmerning soni alohida yoziladi, umumiy qoldiq o'zi hisoblanadi."
+        : "Razmersiz: bitta umumiy qoldiq (yuqoridagi «Qoldiq» maydoni).";
+    }
+    if (sized) renderSizeRows();
+    livePreview();
+  }
+
+  /** «🌐 Universal» yoki «Damas, Labo va yana 3 ta» izohi. */
+  function carNote() {
+    const note = $("shop-car-note");
+    if (!note) return;
+    const names = selectedCarNames();
+    if (!names.length) {
+      note.textContent = "Universal — do'konda hamma mashina egasiga ko'rinadi.";
+      return;
+    }
+    const head = names.slice(0, 4).join(", ");
+    note.textContent =
+      "Tanlandi (" + names.length + "): " +
+      head +
+      (names.length > 4 ? " va yana " + (names.length - 4) + " ta" : "");
+  }
+
+  function selectedCarNames() {
+    return S.carSels
+      .map((id) => (S.cars.find((c) => String(c.id) === String(id)) || {}).name)
+      .filter(Boolean);
+  }
+
+  function paintCars() {
+    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+      const id = btn.dataset.car || "";
+      if (!id) {
+        // «Universal» — hech biri tanlanmaganda yonadi
+        btn.classList.toggle("selected", S.carSels.length === 0);
+        return;
+      }
+      btn.classList.toggle("selected", S.carSels.some((x) => String(x) === id));
+    });
+    carNote();
   }
 
   function bindChips() {
@@ -1598,16 +1877,54 @@ window.ZimmerShop = (function () {
       };
       if (btn.dataset.cat === S.catSel) btn.classList.add("selected");
     });
-    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+
+    // ---- tovar turi
+    document.querySelectorAll("#shop-types .shop-type").forEach((btn) => {
       btn.onclick = () => {
         haptic();
-        S.carSel = btn.dataset.car || null;
-        document.querySelectorAll("#shop-cars .shop-car").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
+        S.typeSel = btn.dataset.type === "razmerli" ? "razmerli" : "oddiy";
+        // Razmerliga o'tildi, lekin ro'yxat bo'sh — bitta bo'sh qator
+        // beramiz, aks holda admin nima qilishini bilmay turadi.
+        if (S.typeSel === "razmerli" && !S.sizes.length) S.sizes = [{ size: "", stock: 0 }];
+        paintType();
       };
-      const cur = S.carSel == null ? "" : String(S.carSel);
-      if ((btn.dataset.car || "") === cur) btn.classList.add("selected");
     });
+
+    // ---- razmer chiplari va «＋ qo'shish»
+    document.querySelectorAll("#shop-size-tpl .shop-size-tpl").forEach((chip) => {
+      chip.onclick = () => {
+        haptic("light");
+        addSizeRow(chip.dataset.size);
+      };
+    });
+    if ($("shop-size-add")) {
+      $("shop-size-add").onclick = () => {
+        haptic("light");
+        addSizeRow("");
+      };
+    }
+
+    /* ---- MASHINALAR: KO'P TANLOV
+       «Universal» — alohida mantiq: u tanlovni TOZALAYDI. Qolganlari
+       oddiy kalit (bosildi — yondi, yana bosildi — o'chdi). */
+    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+      btn.onclick = () => {
+        haptic("light");
+        const id = btn.dataset.car || "";
+        if (!id) {
+          S.carSels = [];
+        } else {
+          const at = S.carSels.findIndex((x) => String(x) === id);
+          if (at === -1) S.carSels.push(id);
+          else S.carSels.splice(at, 1);
+        }
+        paintCars();
+        livePreview();
+      };
+    });
+
+    paintType();
+    paintCars();
   }
 
   /* ==================================================================
@@ -1623,7 +1940,13 @@ window.ZimmerShop = (function () {
       '<input type="text" inputmode="numeric" class="admin-input" id="shop-price" placeholder="Narxi — hozirgi sotuv narxi (so\'m)">' +
       '<input type="text" class="admin-input" id="shop-code" placeholder="Artikul / OEM kod (ixtiyoriy)">' +
       '<input type="text" class="admin-input" id="shop-badge" placeholder="Belgi — mas: Yangi, TOP (ixtiyoriy)">' +
+      /* Umumiy qoldiq — FAQAT «razmersiz» tovar uchun. Razmerliga
+         o'tilganda bu maydon yashiriladi (`paintType`) va qoldiq razmerlar
+         yig'indisidan hisoblanadi: ikkita qarama-qarshi raqam bir ekranda
+         turmasin. */
+      '<div id="shop-stock-wrap">' +
       '<input type="number" inputmode="numeric" class="admin-input" id="shop-stock" placeholder="Qoldiq (dona)" value="10">' +
+      "</div>" +
       "</div>" +
       /* ---- aksiya ---- */
       '<div class="admin-form-group apx-sale"><div class="apx-head">' +
@@ -1743,7 +2066,9 @@ window.ZimmerShop = (function () {
     S.editing = null;
     clearPhotos();
     S.catSel = null;
-    S.carSel = null;
+    S.carSels = [];
+    S.typeSel = "oddiy";
+    S.sizes = [];
     setHead("Yangi tovar", "Rasm · nom · narx · kategoriya");
     body().innerHTML =
       '<div class="adm-form">' +
@@ -1777,8 +2102,35 @@ window.ZimmerShop = (function () {
     if (name.length < 2) return { err: "Tovar nomini kiriting" };
     if (name.length > 160) return { err: "Nom juda uzun (160 belgigacha)" };
     if (!price) return { err: "Narxni kiriting" };
-    if (stock === null) return { err: "Qoldiqni kiriting (0 bo'lishi mumkin)" };
     if (!S.catSel) return { err: "Kategoriyani tanlang" };
+
+    /* ---- TUR VA QOLDIQ
+       Razmerli tovarda umumiy «Qoldiq» maydoni yashirin, shuning uchun
+       uni TEKSHIRMAYMIZ — qoldiq razmerlar yig'indisidan chiqadi. */
+    const sized = S.typeSel === "razmerli";
+    let sizes = [];
+    let total = stock;
+
+    if (sized) {
+      readSizeRows();
+      sizes = S.sizes
+        .map((s) => ({ size: String(s.size || "").trim().slice(0, 40), stock: Math.max(0, Number(s.stock) || 0) }))
+        .filter((s) => s.size);
+      if (!sizes.length) return { err: "Kamida bitta razmer nomini yozing" };
+      if (sizes.length > 40) return { err: "40 tadan ko'p razmer bo'lmasin" };
+      // Bir razmer ikki marta yozilib qolsa, do'konda ikkita bir xil chip
+      // chiqadi va mijoz qaysi biri to'g'ri ekanini bilmaydi.
+      const seen = {};
+      for (const s of sizes) {
+        const key = s.size.toLowerCase();
+        if (seen[key]) return { err: "«" + s.size + "» razmeri ikki marta yozilgan" };
+        seen[key] = true;
+      }
+      total = sizes.reduce((sum, s) => sum + s.stock, 0);
+    } else if (stock === null) {
+      return { err: "Qoldiqni kiriting (0 bo'lishi mumkin)" };
+    }
+
     // Avto_A1 da kamida 1 rasm MAJBURIY — rasmsiz tovar do'konda bo'sh
     // kvadrat bo'lib turadi va hech kim bosmaydi.
     if (!photos.length) return { err: "Kamida 1 ta rasm kerak" };
@@ -1795,9 +2147,12 @@ window.ZimmerShop = (function () {
     // qolib ketadi (havola hali kelmagan).
     if (busyPhotos()) return { err: "⏳ Rasm yuklanmoqda — bir lahza kuting" };
 
-    const carName = S.carSel
-      ? (S.cars.find((c) => String(c.id) === String(S.carSel)) || {}).name || null
-      : null;
+    /* ---- MASHINALAR
+       `carNames` — HAQIQIY ro'yxat (ko'p tanlov). `carName` esa BIRINCHISI:
+       u `services/sync.py: _catalog_payload` orqali SQLite'ning bitta
+       `car_id` ustuniga tushadi. Ya'ni eski server tomoni hech narsani
+       sezmaydi, do'kon esa to'liq ro'yxatni ko'radi. */
+    const carNames = selectedCarNames();
 
     // Maydonlar `services/sync.py: _catalog_payload` bilan MOS.
     const rec = {
@@ -1806,7 +2161,7 @@ window.ZimmerShop = (function () {
       description: desc || null,
       price: price,
       old_price: null,
-      stock: stock,
+      stock: total,
       code: code || null,
       badge: badge || null,
       photo_url: photos[0] || null,
@@ -1818,7 +2173,16 @@ window.ZimmerShop = (function () {
       is_active: 1,
       deleted: false,
       categoryName: S.catSel,
-      carName: carName,
+      carName: carNames[0] || null,
+      /* Ko'p mashina. Bo'sh massiv ATAYLAB `null`: RTDB bo'sh massivni
+         saqlamaydi (kalitni o'chiradi) va `patch` bilan tahrirlashda eski
+         ro'yxat qolib ketardi — «Universal» ga qaytarish ishlamasdi. */
+      carNames: carNames.length ? carNames : null,
+      /* Tovar turi va razmerlar. Razmersiz tovarda `sizes` ATAYLAB `null` —
+         tur «razmerli» dan «razmersiz» ga o'zgartirilganda eski razmerlar
+         bulutda qolib ketmasin (`patch` faqat berilgan kalitni yozadi). */
+      product_type: sized ? "razmerli" : "oddiy",
+      sizes: sized ? sizes : null,
       /* Kafolat muddati — erkin matn («1 yil», «3 oy», «19 kun»).
          Bo'sh bo'lsa ATAYLAB `null` yoziladi (bo'sh matn emas): mijoz
          tomonida `p.warranty` tekshiruvi bitta bo'lib qoladi va tahrirlashda
@@ -1992,6 +2356,15 @@ window.ZimmerShop = (function () {
             photo_id: r.photo_id || null,
             categoryName: r.categoryName || "",
             carName: r.carName || "",
+            /* Qidiruv ko'p mashina bo'yicha ham ishlashi kerak: admin
+               «labo» deb yozganda Damas+Labo tovari ham chiqsin. */
+            carNames: normCars(r.carNames).join(", "),
+            /* Razmerli tovarda umumiy qoldiqni QO'LDA o'zgartirish
+               yig'indi qoidasini buzadi (`stock` = razmerlar yig'indisi).
+               Shu sababli omborda stepper o'chiriladi va admin ✏️ orqali
+               razmer qoldig'ini o'zgartiradi. */
+            sized: r.product_type === "razmerli" || normSizes(r.sizes).length > 0,
+            sizes: normSizes(r.sizes),
             _raw: r,
           });
         });
@@ -2322,7 +2695,10 @@ window.ZimmerShop = (function () {
     const meta = [];
     if (p.code) meta.push("🔖 " + esc(p.code));
     if (p.categoryName) meta.push(esc(p.categoryName));
-    if (p.carName) meta.push("🚗 " + esc(p.carName));
+    // Ko'p mashina bo'lsa hammasini yozamiz (ilgari faqat bittasi ko'rinardi)
+    if (p.carNames) meta.push("🚗 " + esc(p.carNames));
+    else if (p.carName) meta.push("🚗 " + esc(p.carName));
+    if (p.sized) meta.push("📐 " + p.sizes.length + " razmer");
     const sale = p.old_price && p.old_price > p.price;
 
     return (
@@ -2347,11 +2723,27 @@ window.ZimmerShop = (function () {
       "</div>" +
       "</div>" +
       '<div class="inv-card-bot">' +
-      '<div class="inv-step">' +
-      '<button data-id="' + id + '" data-d="-1" aria-label="Kamaytirish">−</button>' +
-      '<input type="text" inputmode="numeric" id="inv-st-' + id + '" value="' + p.stock + '">' +
-      '<button data-id="' + id + '" data-d="1" aria-label="Ko\'paytirish">+</button>' +
-      "</div>" +
+      /* RAZMERLI TOVAR — stepper YO'Q.
+         Sabab: `stock` bu yerda mustaqil raqam emas, razmer qoldiqlarining
+         YIG'INDISI. Uni qo'lda 10 qilib qo'yish qoidani buzadi: do'kon
+         «10 dona bor» deydi, razmerlar yig'indisi esa 3 bo'lib qoladi va
+         mijoz buyurtma bergach «yetarli emas» xatosiga tushadi.
+         Shuning uchun taqsimot KO'RSATILADI, o'zgartirish esa ✏️ orqali. */
+      (p.sized
+        ? '<div class="inv-sizes">' +
+          p.sizes
+            .map(
+              (s) =>
+                '<span class="inv-size' + (s.stock > 0 ? "" : " is-out") + '">' +
+                esc(s.size) + "<b>" + s.stock + "</b></span>"
+            )
+            .join("") +
+          "</div>"
+        : '<div class="inv-step">' +
+          '<button data-id="' + id + '" data-d="-1" aria-label="Kamaytirish">−</button>' +
+          '<input type="text" inputmode="numeric" id="inv-st-' + id + '" value="' + p.stock + '">' +
+          '<button data-id="' + id + '" data-d="1" aria-label="Ko\'paytirish">+</button>' +
+          "</div>") +
       '<div class="inv-acts">' +
       '<button class="inv-mini inv-eye" data-id="' + id + '" aria-label="Yashirish">' +
       (p.is_active ? "👁" : "🙈") +
@@ -2725,11 +3117,21 @@ window.ZimmerShop = (function () {
     S.editing = p.id;
     clearPhotos();
     S.catSel = r.categoryName || null;
-    S.carSel = null;
-    if (r.carName) {
-      const car = S.cars.find((c) => c.name === r.carName);
-      if (car) S.carSel = String(car.id);
-    }
+
+    /* MASHINALAR — `carNames` (ko'p) bo'lsa u, bo'lmasa eski `carName`
+       (bitta). Eski tovarlar bulutda `carNames` siz turadi va ular ham
+       to'g'ri ochilishi shart. */
+    S.carSels = normCars(r.carNames, r.carName)
+      .map((nm) => (S.cars.find((c) => c.name === nm) || {}).id)
+      .filter((v) => v != null)
+      .map(String);
+
+    /* TUR VA RAZMERLAR. `product_type` bo'lmasa ham `sizes` to'la bo'lishi
+       mumkin (eski yozuv) — shu holatda ham razmerli deb ochamiz, aks holda
+       admin tahrirlab saqlashi bilan razmerlar jimgina yo'qolardi. */
+    S.sizes = normSizes(r.sizes);
+    S.typeSel = r.product_type === "razmerli" || S.sizes.length ? "razmerli" : "oddiy";
+
     setHead("Tahrirlash", p.name);
 
     body().innerHTML =

@@ -3499,6 +3499,56 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
   white-space: pre-wrap;
 }
 
+/* ==========================================================================
+   RAZMER TANLAGICHI (tovar oynasi)
+
+   Chiplar barmoq uchun katta (min 44px balandlik — Apple HIG tavsiyasi),
+   tanlangan chip ALTIN rangda va ko'tarilgan holda turadi. Tugagan razmer
+   xira + chizilgan: mijoz «bunday razmer bor, hozir yo'q» degan ma'lumotni
+   oladi va keyinroq qaytib kelishi mumkin.
+   ========================================================================== */
+.pm-sizes { margin: 0 0 20px; }
+.pm-sizes-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 10px;
+}
+.pm-sizes-head i { font-size: 11.5px; font-weight: 600; color: var(--dim); font-style: normal; }
+.pm-sizes-head i.on { color: var(--gold); font-weight: 800; }
+.pm-size-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pm-size {
+  position: relative;
+  min-width: 52px; min-height: 44px; padding: 10px 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 13px; cursor: pointer;
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 800;
+  transition: transform 0.15s, background 0.2s, border-color 0.2s, color 0.2s;
+}
+.pm-size:active { transform: scale(0.94); }
+.pm-size.on {
+  background: var(--gold-soft); border-color: var(--gold); color: var(--gold);
+  transform: translateY(-1px);
+}
+/* Kam qolgan razmer ustidagi kichik son (mas: «H4 ²») — shoshiltiradi */
+.pm-size b {
+  position: absolute; top: -6px; right: -4px;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--red); color: #fff; font-size: 9.5px; font-weight: 800;
+}
+.pm-size.is-out {
+  opacity: 0.38; cursor: not-allowed; text-decoration: line-through;
+  border-style: dashed;
+}
+.pm-size.is-out:active { transform: none; }
+
+/* Savatdagi razmer satri */
+.cart-size {
+  display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--gold);
+  background: var(--gold-soft); border-radius: 999px; padding: 2px 8px;
+  margin: 3px 0 1px;
+}
+
 .pm-specs {
   display: grid;
   gap: 12px;
@@ -4269,6 +4319,52 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .cat-chip:active { transform: scale(0.93); }
 .cat-chip.selected { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); font-weight: 800; }
+/* «🌐 Universal» — mashina chiplari orasida ALOHIDA ma'noda: u tanlovni
+   tozalaydi, shuning uchun ko'rinishi ham boshqacha (uzuq chegara). */
+.shop-car.is-all { border-style: dashed; }
+.shop-car.is-all.selected { border-style: solid; }
+
+/* ==========================================================================
+   RAZMERLI TOVAR — admin formasidagi razmer qatorlari
+
+   Har qator: [razmer nomi] [soni] [✕]. Nomi keng, soni ixcham — telefonda
+   bitta qatorga sig'adi va admin ikkinchi ekranga o'tmaydi.
+   ========================================================================== */
+.shop-sizes { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.shop-size-row { display: flex; align-items: center; gap: 8px; }
+.shop-size-row .shop-size-name { flex: 1 1 auto; min-width: 0; margin: 0; }
+.shop-size-row .shop-size-stock {
+  flex: 0 0 76px; width: 76px; margin: 0; text-align: center;
+  font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.shop-size-del {
+  flex: none; width: 36px; height: 36px; border-radius: 11px; cursor: pointer;
+  background: rgba(255, 45, 58, 0.1); border: 1px solid rgba(255, 45, 58, 0.32);
+  color: var(--red); font-size: 15px; font-weight: 700; line-height: 1;
+  transition: transform 0.15s;
+}
+.shop-size-del:active { transform: scale(0.92); }
+
+/* Jonli ko'rinishdagi razmer chiplari (mijoz ko'radigan holat) */
+.lp-sizes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.lp-size {
+  font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+}
+/* Qoldig'i tugagan razmer — mijozga ham shunday xira ko'rinadi */
+.lp-size.is-out { opacity: 0.42; text-decoration: line-through; }
+.lp-cars { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+
+/* Omborda razmer taqsimoti: [H4 3][H7 0] — stepper o'rniga */
+.inv-sizes { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.inv-size {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; padding: 5px 9px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+}
+.inv-size b { color: var(--text); font-variant-numeric: tabular-nums; }
+.inv-size.is-out { border-color: rgba(255, 45, 58, 0.34); }
+.inv-size.is-out b { color: var(--red); }
 
 /* Footer tugmalari */
 .shop-footer { display: flex; flex-direction: column; gap: 10px; padding: 16px 0 6px; }
@@ -4386,6 +4482,11 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 .ord-good span { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ord-good i { font-style: normal; color: var(--muted); font-size: 12px; font-weight: 600; flex-shrink: 0; }
 .ord-good b { color: var(--muted); font-size: 12px; font-weight: 700; flex-shrink: 0; }
+/* Buyurtma qatoridagi razmer yorlig'i — nom yonida, altin rangda */
+.ord-size {
+  font-style: normal; font-size: 10.5px; font-weight: 800; color: var(--gold);
+  background: var(--gold-soft); border-radius: 6px; padding: 1px 5px;
+}
 
 /* ---- tafsilot ---- */
 .ord-meta {
@@ -6304,6 +6405,12 @@ body.paused *, body.paused *::before, body.paused *::after { animation-play-stat
 }
 .prod-hint { font-size: 10px; color: var(--dim); }
 .prod-fit { font-size: 10px; font-weight: 700; color: var(--green); }
+/* Razmerli tovar belgisi: «📐 H4 · H7 · H11». Bir qatorga sig'adi, oshgani
+   uchta nuqta bo'lib qirqiladi — kartochka balandligi o'zgarmasin. */
+.prod-sizes {
+  font-size: 10px; font-weight: 700; color: var(--gold);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Narx endi TANADA (ilgari faqat savat tugmasi ichida edi — chegirmani
    ko'rsatishga joy yo'q edi va narx tugma rangida yo'qolib ketardi). */

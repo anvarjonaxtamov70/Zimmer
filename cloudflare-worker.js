@@ -61,9 +61,13 @@ const DEFAULT_MAX_AGE = 86400; // 24 soat
 // berishga to'g'ri keladi).
 // Har deploy'da ko'tariladi — `/health` dagi bu raqam Cloudflare'da
 // YANGI nusxa turganini tasdiqlashning eng oson yo'li.
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 const FEATURES = [
   "order",
+  /* Razmerli tovarlar: buyurtma qatorida `size` bo'ladi va qoldiq AYNAN
+     o'sha razmerdan kamayadi (`catalog/products/{id}/sizes`). Bu belgi
+     bo'lmasa Mini App eski Worker turganini biladi. */
+  "order_sizes",
   "me",
   "profile",
   "media",
@@ -439,6 +443,27 @@ async function handleProfile(request, env) {
 //    6. Qoldiq atomik kamaytiriladi ({".sv":{"increment":-n}})
 //    7. Adminlarga va mijozga Telegram xabari
 // =====================================================================
+/** Tovarning razmerlar ro'yxati: `[{size, stock}]`.
+ *
+ *  RTDB bo'sh kataklari bor massivni LUG'AT qilib qaytaradi
+ *  (`{"0":{...},"2":{...}}`), shuning uchun ikki shaklni ham tekislaymiz.
+ *  INDEKS SAQLANADI: qoldiqni kamaytirishda aynan `sizes/{i}/stock` yo'li
+ *  kerak bo'ladi. */
+function sizesOfProduct(product) {
+  const raw = product && product.sizes;
+  let entries = [];
+  if (Array.isArray(raw)) entries = raw.map((v, i) => [i, v]);
+  else if (raw && typeof raw === "object") entries = Object.keys(raw).map((k) => [k, raw[k]]);
+
+  return entries
+    .filter(([, v]) => v && typeof v === "object" && String(v.size || "").trim())
+    .map(([key, v]) => ({
+      key: String(key), // RTDB dagi kalit (massiv indeksi yoki lug'at kaliti)
+      size: String(v.size).trim(),
+      stock: Math.max(0, Number(v.stock) || 0),
+    }));
+}
+
 async function handleOrder(request, env) {
   const c = cfg(env);
   if (!c.dbUrl) return json({ ok: false, error: "FIREBASE_DB_URL sozlanmagan" }, 500);
@@ -493,16 +518,63 @@ async function handleOrder(request, env) {
       problems.push({ product_id: pid, reason: "topilmadi" });
       continue;
     }
-    const stock = Number(product.stock) || 0;
-    if (stock < qty) {
-      problems.push({ product_id: pid, name: product.name, reason: "yetarli emas", stock });
-      continue;
+
+    /* ---- RAZMERLI TOVAR
+       Razmerlar `catalog/products/{id}/sizes` da: `[{size, stock}]`.
+       Qoldiq TEKSHIRUVI umumiy `stock` dan EMAS, aynan tanlangan
+       razmerdan olinadi. Aks holda «H4 tugagan, H7 da 10 ta bor» holatida
+       umumiy qoldiq 10 bo'lib turadi va H4 uchun buyurtma o'tib ketardi —
+       ombor esa bo'sh. Narx kabi, bu ham FAQAT katalogdan o'qiladi. */
+    const sizeRows = sizesOfProduct(product);
+    const wantSize = clean(entry && entry.size, 40);
+    let sizeIndex = -1;
+
+    if (sizeRows.length) {
+      if (!wantSize) {
+        problems.push({ product_id: pid, name: product.name, reason: "razmer tanlanmagan" });
+        continue;
+      }
+      sizeIndex = sizeRows.findIndex((s) => s.size === wantSize);
+      if (sizeIndex === -1) {
+        problems.push({
+          product_id: pid,
+          name: product.name,
+          reason: "razmer topilmadi",
+          size: wantSize,
+        });
+        continue;
+      }
+      if (sizeRows[sizeIndex].stock < qty) {
+        problems.push({
+          product_id: pid,
+          name: product.name,
+          reason: "yetarli emas",
+          size: wantSize,
+          stock: sizeRows[sizeIndex].stock,
+        });
+        continue;
+      }
+    } else {
+      const stock = Number(product.stock) || 0;
+      if (stock < qty) {
+        problems.push({ product_id: pid, name: product.name, reason: "yetarli emas", stock });
+        continue;
+      }
     }
 
     // NARX KATALOGDAN — mijoz yuborgan narx umuman o'qilmaydi
     const price = Number(product.price) || 0;
     total += price * qty;
-    lines.push({ product_id: Number(pid), name: String(product.name || ""), price, qty });
+    const line = { product_id: Number(pid), name: String(product.name || ""), price, qty };
+    // `size` faqat razmerli tovarda yoziladi: razmersiz qatorda bo'sh
+    // maydon turishi bot va admin panelini chalkashtiradi.
+    if (sizeIndex !== -1) {
+      line.size = sizeRows[sizeIndex].size;
+      // RTDB kaliti — qoldiqni kamaytirish uchun (buyurtma yozuviga
+      // TUSHMAYDI, pastda `stripLine()` bilan olib tashlanadi).
+      line._sizeKey = sizeRows[sizeIndex].key;
+    }
+    lines.push(line);
   }
 
   if (problems.length || !lines.length) {
@@ -545,7 +617,10 @@ async function handleOrder(request, env) {
     delivery_method: deliveryMethod,
     delivery_info: deliveryInfo || null,
     payment_method: paymentMethod || null,
-    items: lines,
+    /* `_sizeKey` — ICHKI maydon (RTDB kaliti). Buyurtma yozuviga tushmaydi:
+       u bazaning tuzilishi haqidagi tafsilot, botga ham, adminga ham
+       kerak emas va qoidalarda ruxsat etilgan maydonlar ro'yxatida yo'q. */
+    items: lines.map(({ _sizeKey, ...rest }) => rest),
     total,
     // Statusni FAQAT server qo'yadi — mijoz "yetkazildi" deb yozib qo'ya olmaydi
     status: "new",
@@ -575,6 +650,18 @@ async function handleOrder(request, env) {
         { stock: { ".sv": { increment: -line.qty } } },
         token
       );
+      /* RAZMERLI TOVAR: umumiy qoldiqdan tashqari AYNAN o'sha razmerning
+         qoldig'i ham kamayadi. Ikkisi birga kamaymasa yig'indi qoidasi
+         buziladi (`stock` = razmerlar yig'indisi) va do'kon «12 ta bor»
+         deb turib, mijozning buyurtmasini rad etaverardi. */
+      if (line._sizeKey != null) {
+        await rtdbPatch(
+          c.dbUrl,
+          `${c.root}/catalog/products/${line.product_id}/sizes/${line._sizeKey}`,
+          { stock: { ".sv": { increment: -line.qty } } },
+          token
+        );
+      }
     } catch (_) {
       // Qoldiq kamaymasa ham buyurtma allaqachon saqlangan — bot tuzatadi
     }
@@ -849,6 +936,8 @@ function itemsOf(raw) {
       name: String(i.name || ""),
       price: Number(i.price || 0),
       qty: Number(i.qty || 1),
+      // Razmer — admin ro'yxatida va «Buyurtmalarim» da ko'rinishi kerak
+      size: i.size ? String(i.size) : null,
     }))
     .filter((i) => i.name || i.product_id != null);
 }
@@ -1373,7 +1462,13 @@ async function notifyOrder(env, c, order) {
   if (!env.BOT_TOKEN || !c.admins.length) return false;
 
   const itemLines = order.items
-    .map((i) => `• ${escHtml(i.name)} × ${i.qty} = ${fmtPrice(i.price * i.qty)}`)
+    .map(
+      (i) =>
+        // Razmer nom bilan yonma-yon: admin buyurtmani o'qib darhol
+        // to'g'ri razmerni javonda topadi (qayta qo'ng'iroq kerak emas).
+        `• ${escHtml(i.name)}${i.size ? ` <b>[${escHtml(i.size)}]</b>` : ""}` +
+        ` × ${i.qty} = ${fmtPrice(i.price * i.qty)}`
+    )
     .join("\n");
 
   const meta = [];

@@ -215,7 +215,11 @@ CREATE TABLE IF NOT EXISTS order_items (
     product_id INTEGER,
     name       TEXT NOT NULL,
     price      INTEGER NOT NULL,
-    qty        INTEGER NOT NULL
+    qty        INTEGER NOT NULL,
+    -- Razmerli tovarda mijoz tanlagan razmer ("H4", "3\"", "XL").
+    -- Razmersiz tovarda NULL. Bu ustun bo'lmasa admin buyurtmani ko'rib
+    -- "qaysi razmer?" deb mijozga qayta qo'ng'iroq qilishga majbur bo'ladi.
+    size       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 
@@ -914,6 +918,10 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # `idx_orders_idem` yagona indeksi bilan baza o'zi to'xtatadi.
         ("idempotency_key", "TEXT"),
     ],
+    # Razmerli tovarlar. Mavjud bazalarda `order_items` ustunsiz yaratilgan,
+    # shuning uchun migratsiya kerak — aks holda `INSERT ... size` yiqiladi
+    # va Worker buyurtmalari bazaga UMUMAN ko'chirilmasdi.
+    "order_items": [("size", "TEXT")],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
     "shrouds": [*MEDIA_COLUMNS],

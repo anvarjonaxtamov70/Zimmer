@@ -2227,13 +2227,16 @@ async def import_external_order(data: dict[str, Any], items: Sequence[dict]) -> 
             str(item.get("name") or "Tovar")[:200],
             int(item.get("price") or 0),
             max(1, int(item.get("qty") or 1)),
+            # Razmerli tovarda mijoz tanlagan razmer (Worker yozadi).
+            # Razmersiz tovarda None — admin panelida satr chizilmaydi.
+            (str(item.get("size"))[:40] if item.get("size") else None),
         )
         for item in items
     ]
     if rows:
         await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, price, qty)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO order_items (order_id, product_id, name, price, qty, size)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             rows,
         )
 

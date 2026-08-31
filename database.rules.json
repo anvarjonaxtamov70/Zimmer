@@ -73,6 +73,9 @@
             "categories": {
               "$i": { ".validate": "newData.isString() && newData.val().length <= 80" }
             },
+            "carNames": {
+              "$i": { ".validate": "newData.isString() && newData.val().length <= 200" }
+            },
             "sizes": {
               "$i": {
                 "size": { ".validate": "newData.isString() && newData.val().length <= 40" },
@@ -228,6 +231,14 @@
       },
 
       "stories_counter": {
+        "n": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
+        }
+      },
+
+      "banners_counter": {
         "n": {
           ".read": true,
           ".write": true,
