@@ -1,6 +1,6 @@
 {
  "car_id": null,
- "_generated_at": "2026-08-31T18:52:58Z",
+ "_generated_at": "2026-08-31T23:39:13Z",
  "banners": [
   {
    "id": 1,
@@ -65,7 +65,7 @@
    "count": 1,
    "items": [
     {
-     "id": 900002,
+     "id": 6,
      "heading": "Nexia 3. Bi led va RGB maska",
      "title": "Nexia 3. Bi led va RGB maska",
      "body": "1 yil kafolatlangan",
@@ -78,7 +78,7 @@
      "video_external": true,
      "has_media": false,
      "link": null,
-     "createdAt": 1788201345139
+     "createdAt": null
     }
    ]
   },
@@ -91,7 +91,7 @@
    "count": 1,
    "items": [
     {
-     "id": 900003,
+     "id": 7,
      "heading": "Surxandaryolik klentimzdan  izoh.",
      "title": "Surxandaryolik klentimzdan  izoh.",
      "body": "Nexia 2 fara zubori holatda. Bi led va RGB maska blan yigʻib bergandik",
@@ -104,7 +104,7 @@
      "video_external": true,
      "has_media": false,
      "link": null,
-     "createdAt": 1788201823855
+     "createdAt": null
     }
    ]
   },
@@ -117,7 +117,7 @@
    "count": 1,
    "items": [
     {
-     "id": 900004,
+     "id": 8,
      "heading": "Damasga bi led va RGB maska",
      "title": "Damasga bi led va RGB maska",
      "body": "",
@@ -130,7 +130,7 @@
      "video_external": true,
      "has_media": true,
      "link": null,
-     "createdAt": 1788201934342
+     "createdAt": null
     }
    ]
   }
