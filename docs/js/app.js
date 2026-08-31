@@ -4055,7 +4055,7 @@
          tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
        * TEZ O'TISH PLITKALARI (`#hm-quick`) — «Konfigurator», «Navbat»
          va «Shogird». Uchalasi boshqa joyda bor: birinchi ikkisi
-         «🛠 Xizmatlar» bo'limida, Shogird esa o'ng pastdagi «✨» tugmada. Ular
+         «🛠 Xizmatlar» bo'limida, Shogird esa o'ng pastdagi 🎓 tugmada. Ular
          bilan birga `bindQuickActions()` va `refreshQuickBadges()` ham
          ketdi — ikkinchisi allaqachon hech narsa qilmasdi, lekin
          `saveCart()` va `loadHome()` dan chaqirilib turardi.
