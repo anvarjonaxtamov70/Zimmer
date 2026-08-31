@@ -286,6 +286,22 @@ window.ZimmerShop = (function () {
       tile("shop-biled", "shop-hero-biled", KINDS.biled.icon, KINDS.biled.title, KINDS.biled.sub, "shop-badge-biled") +
       tile("shop-book", "shop-hero-book", KINDS.booking.icon, KINDS.booking.title, KINDS.booking.sub, "shop-badge-booking") +
       "</div>" +
+      /* --- navbatlar doskasi
+         Navbatlarni MIJOZ OLGAN KETMA-KETLIKDA (vaqt bo'yicha) ko'rsatadigan
+         alohida chiroyli doska. Ikki tizimga bo'linadi: fara sistemasi
+         (Bi-LED, polirovka, shisha, tozalash) va chexol sistemasi (rul,
+         o'rindiq, salon). */
+      '<div class="apx-sub">Navbat doskasi</div>' +
+      '<div class="shop-hero shop-hero-1">' +
+      tile(
+        "shop-board",
+        "shop-hero-board",
+        "🗓",
+        "Navbatlar doskasi",
+        "Fara va chexol — ketma-ketlik",
+        "shop-badge-board"
+      ) +
+      "</div>" +
       /* --- mijozlar va hisobot (Avto_A1 dagi kabi alohida guruh)
          Ilgari panelda mijozlar bazasi UMUMAN yo'q edi: admin kim nima
          sotib olganini faqat buyurtmalarni varaqlab topardi. Endi
@@ -345,6 +361,7 @@ window.ZimmerShop = (function () {
     bind("shop-ord", openOrders);
     bind("shop-biled", openBiled);
     bind("shop-book", openBookings);
+    bind("shop-board", openBookingsBoard);
 
     /* Mijozlar/statistika alohida modulda (admin-crm.js). Ochilganda
        ZimmerShop o'z ko'rinishini bo'shatadi — topbar «orqaga» va
@@ -531,6 +548,13 @@ window.ZimmerShop = (function () {
         total: 0,
         total_label: "",
         created_at: Number(r.createdAt) || 0,
+        // Navbatlar doskasi guruhlash/tartiblash uchun XOM maydonlarni ham
+        // ochiq qo'yamiz (ilgari ular faqat `lines` ichida ko'milgan edi).
+        service_name: r.service_name || r.service || "",
+        service_id: r.service_id != null ? r.service_id : null,
+        date: r.date || "",
+        time: r.time || "",
+        duration_min: Number(r.duration_min) || 0,
         lines: [
           // Worker navbat yozuvi `service_name` ni ishlatadi; eski yozuvlar
           // `service` — ikkalasini ham qo'llab-quvvatlaymiz (item 6).
@@ -649,6 +673,282 @@ window.ZimmerShop = (function () {
   const openOrders = () => openKind("order");
   const openBiled = () => openKind("biled");
   const openBookings = () => openKind("booking");
+
+  /* ==================================================================
+     NAVBATLAR DOSKASI — mijoz olgan navbatlar KETMA-KETLIGI
+
+     Ikki TIZIM:
+       • FARA   — Bi-LED, polirovka, fara shishasi, ichini tozalash;
+       • CHEXOL — rul/o'rindiq chexoli, salon (laminat, tanirov, broni).
+
+     Har tizim ichida navbatlar VAQT bo'yicha tartiblanadi va vertikal
+     timeline (ketma-ketlik) ko'rinishida chiziladi — admin kun davomida
+     nima ketidan nima kelishini bir qarashda ko'radi.
+     ================================================================== */
+
+  // Fara sistemasiga tegishli xizmat temalari (qolgani — chexol/salon).
+  const FARA_THEMES = ["config", "biled", "polish", "glass", "clean"];
+
+  // Xizmat nomidan tema taxmini — `database/db.py: _THEME_GUESS` bilan
+  // AYNAN bir TARTIBDA (birinchi mos kelgani olinadi). Tartib muhim:
+  // «laminat/tanirov/broni» «rul» dan OLDIN tekshiriladi.
+  const THEME_GUESS = [
+    ["konfigurator", "config"],
+    ["laminat", "laminate"],
+    ["tanirov", "tint"],
+    ["tonirov", "tint"],
+    ["broni", "armor"],
+    ["bronli", "armor"],
+    ["plyonka", "armor"],
+    ["plonka", "armor"],
+    ["rul", "wheel"],
+    ["rindiq", "seat"],
+    ["shisha", "glass"],
+    ["polirov", "polish"],
+    ["polish", "polish"],
+    ["tozala", "clean"],
+    ["germet", "clean"],
+    ["bi-led", "biled"],
+    ["biled", "biled"],
+  ];
+
+  function guessTheme(name) {
+    const low = String(name || "").toLowerCase();
+    for (let i = 0; i < THEME_GUESS.length; i++) {
+      if (low.indexOf(THEME_GUESS[i][0]) !== -1) return THEME_GUESS[i][1];
+    }
+    return null;
+  }
+
+  /* Xizmatlar katalogidan {id->tema, nom->tema} xaritasi — ENG ANIQ manba
+     (admin belgilagan tema). O'qilmasa nom bo'yicha taxminга tayanamiz. */
+  async function loadServiceThemes() {
+    const off = window.ZimmerOffline;
+    const map = { byId: {}, byName: {} };
+    try {
+      const list = off && off.services ? await off.services() : [];
+      (list || []).forEach((s) => {
+        const t = s.theme || guessTheme(s.name);
+        if (t == null) return;
+        if (s.id != null) map.byId[String(s.id)] = t;
+        const nm = String(s.name || "").trim().toLowerCase();
+        if (nm) map.byName[nm] = t;
+      });
+    } catch (_) {
+      /* katalog o'qilmadi — nom bo'yicha taxminга o'tamiz */
+    }
+    return map;
+  }
+
+  function themeOfBooking(o, map) {
+    if (map && o.service_id != null && map.byId[String(o.service_id)]) {
+      return map.byId[String(o.service_id)];
+    }
+    const nm = String(o.service_name || "").trim().toLowerCase();
+    if (map && nm && map.byName[nm]) return map.byName[nm];
+    return guessTheme(o.service_name);
+  }
+
+  function systemOf(theme) {
+    return FARA_THEMES.indexOf(theme) !== -1 ? "fara" : "chexol";
+  }
+
+  const BOARD_SYS = {
+    fara: { icon: "🔦", title: "Fara sistemasi", sub: "Bi-LED · polirovka · shisha · tozalash" },
+    chexol: { icon: "🪡", title: "Chexol sistemasi", sub: "Rul · o'rindiq · salon" },
+  };
+
+  const BOARD_FILTERS = [
+    ["upcoming", "⏳ Kelgusi"],
+    ["done", "✔️ Bajarilgan"],
+    ["cancelled", "✕ Bekor"],
+    ["all", "Hammasi"],
+  ];
+
+  async function openBookingsBoard() {
+    S.view = "board";
+    S.boardSys = S.boardSys || "fara";
+    S.boardFilter = S.boardFilter || "upcoming";
+    setHead("Navbatlar doskasi", "Fara va chexol — ketma-ketlik");
+    loading("Navbatlar o'qilmoqda...");
+    try {
+      const [rows, themes] = await Promise.all([loadKind("booking"), loadServiceThemes()]);
+      S.boardThemes = themes;
+      // Har navbatga tizimini biriktiramiz (fara / chexol).
+      S.boardRows = (rows || []).map((o) => {
+        const theme = themeOfBooking(o, themes);
+        return Object.assign({}, o, { _theme: theme, _sys: systemOf(theme) });
+      });
+      renderBoard();
+    } catch (err) {
+      fail(err, openBookingsBoard);
+    }
+  }
+
+  // "YYYY-MM-DD" / "HH:MM" -> ketma-ketlik uchun taqqoslanadigan son.
+  function dayNum(d) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d || ""));
+    return m ? Number(m[1] + m[2] + m[3]) : 0;
+  }
+  function minNum(t) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || ""));
+    return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+  }
+
+  // Sana sarlavhasi: «Bugun», «Ertaga», «Kecha» yoki «12 sen, Payshanba».
+  function dayHeading(dateIso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateIso || ""));
+    if (!m) return dateIso || "";
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (isNaN(d.getTime())) return dateIso;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((d - today) / 86400000);
+    if (diff === 0) return "Bugun";
+    if (diff === 1) return "Ertaga";
+    if (diff === -1) return "Kecha";
+    const MON = ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"];
+    const WD = ["Yakshanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
+    return d.getDate() + " " + MON[d.getMonth()] + ", " + WD[d.getDay()];
+  }
+
+  function boardCard(o, cfg) {
+    const st = cfg.statuses[o.status] || cfg.statuses.new;
+    const acts = (cfg.next[o.status] || [])
+      .map(
+        ([status, label]) =>
+          '<button class="bkb-act' + (status === "cancelled" ? " is-danger" : "") +
+          '" id="brd-o-' + esc(o.key) + "-" + status + '">' + esc(label) + "</button>"
+      )
+      .join("");
+    return (
+      '<article class="bkb-card is-' + o.status + '">' +
+      '<div class="bkb-card-top">' +
+      '<span class="bkb-svc">' + esc(o.service_name || "Xizmat") + "</span>" +
+      '<span class="ord-pill is-' + o.status + '">' + st.icon + " " + esc(st.label) + "</span>" +
+      "</div>" +
+      (o.name || o.phone
+        ? '<div class="bkb-who">' +
+          (o.name ? "<b>" + esc(o.name) + "</b>" : "") +
+          (o.phone
+            ? '<button class="ord-tel" id="brd-tel-' + esc(o.key) + '">📞 ' + esc(o.phone) + "</button>"
+            : "") +
+          "</div>"
+        : "") +
+      (acts ? '<div class="bkb-acts">' + acts + "</div>" : "") +
+      "</article>"
+    );
+  }
+
+  function renderBoard() {
+    const cfg = KINDS.booking;
+    const sys = S.boardSys;
+    const filter = S.boardFilter;
+    const rows = S.boardRows || [];
+
+    const activeCount = (s) =>
+      rows.filter((o) => o._sys === s && (o.status === "new" || o.status === "confirmed")).length;
+
+    // Tizim tanlagich (segment) — faol navbatlar soni bilan.
+    const seg = ["fara", "chexol"]
+      .map((s) => {
+        const info = BOARD_SYS[s];
+        const n = activeCount(s);
+        return (
+          '<button class="bkb-seg-btn' + (sys === s ? " is-on" : "") + '" data-sys="' + s + '">' +
+          '<span class="bkb-seg-ic">' + info.icon + "</span>" +
+          '<span class="bkb-seg-tx"><b>' + esc(info.title) + "</b><i>" + esc(info.sub) + "</i></span>" +
+          (n ? '<span class="bkb-seg-n">' + (n > 99 ? "99+" : n) + "</span>" : "") +
+          "</button>"
+        );
+      })
+      .join("");
+
+    const inSys = rows.filter((o) => o._sys === sys);
+    const tests = {
+      upcoming: (o) => o.status === "new" || o.status === "confirmed",
+      done: (o) => o.status === "done",
+      cancelled: (o) => o.status === "cancelled",
+      all: () => true,
+    };
+    // Filtr chiplari (soni bilan). «Kelgusi» va «Hammasi» doim ko'rinadi.
+    const chips = BOARD_FILTERS.map(([key, label]) => {
+      const n = inSys.filter(tests[key]).length;
+      if (key !== "upcoming" && key !== "all" && !n) return "";
+      return (
+        '<button class="ord-fchip' + (filter === key ? " selected" : "") + '" data-bf="' + key + '">' +
+        esc(label) + " <i>" + n + "</i></button>"
+      );
+    }).join("");
+
+    let list = inSys.filter(tests[filter] || tests.upcoming);
+    if (filter === "upcoming") {
+      // Ketma-ketlik: eng yaqin sana/vaqt birinchi.
+      list.sort((a, b) => dayNum(a.date) - dayNum(b.date) || minNum(a.time) - minNum(b.time));
+    } else {
+      list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0) || dayNum(b.date) - dayNum(a.date));
+    }
+
+    const info = BOARD_SYS[sys];
+    let timeline;
+    if (!list.length) {
+      timeline =
+        '<div class="bkb-empty"><div class="bkb-empty-ic">' + info.icon + "</div>" +
+        "<p>Bu tizimda navbat yo'q.</p>" +
+        "<i>Mijoz vaqt band qilganda shu yerda ketma-ket ko'rinadi.</i></div>";
+    } else {
+      let lastDay = null;
+      let idx = 0;
+      const parts = [];
+      list.forEach((o) => {
+        if (filter === "upcoming" && o.date !== lastDay) {
+          lastDay = o.date;
+          parts.push('<div class="bkb-day">' + esc(dayHeading(o.date)) + "</div>");
+        }
+        const dur = o.duration_min ? o.duration_min + " daq" : "";
+        parts.push(
+          '<div class="bkb-node" style="--d:' + idx * 55 + 'ms">' +
+          '<div class="bkb-rail"><span class="bkb-dot is-' + o.status + '"></span></div>' +
+          '<div class="bkb-when"><b>' + esc(o.time || "—") + "</b>" +
+          (dur ? "<i>" + esc(dur) + "</i>" : "") + "</div>" +
+          boardCard(o, cfg) +
+          "</div>"
+        );
+        idx++;
+      });
+      timeline = '<div class="bkb-line">' + parts.join("") + "</div>";
+    }
+
+    body().innerHTML =
+      '<div class="bkb-seg">' + seg + "</div>" +
+      '<div class="ord-filters bkb-filters">' + chips + "</div>" +
+      timeline;
+
+    document.querySelectorAll(".bkb-seg-btn").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        S.boardSys = b.dataset.sys;
+        renderBoard();
+      };
+    });
+    document.querySelectorAll(".bkb-filters .ord-fchip").forEach((b) => {
+      b.onclick = () => {
+        haptic();
+        S.boardFilter = b.dataset.bf;
+        renderBoard();
+      };
+    });
+    list.forEach((o) => {
+      (cfg.next[o.status] || []).forEach(([status]) => {
+        const btn = $("brd-o-" + o.key + "-" + status);
+        // Doska o'zini qayta chizadi (`openBookingsBoard`) — ro'yxatga
+        // sakramaydi.
+        if (btn) btn.onclick = () => setOrderStatus(o, status, openBookingsBoard);
+      });
+      const tel = $("brd-tel-" + o.key);
+      if (tel && o.phone) tel.onclick = () => callPhone(o.phone);
+    });
+  }
 
   /** Filtr chiplari: Hammasi · Yangi · Jarayonda · Yakunlangan · Bekor */
   function filterOf(kind) {
@@ -822,11 +1122,14 @@ window.ZimmerShop = (function () {
     );
   }
 
-  async function setOrderStatus(order, status) {
+  async function setOrderStatus(order, status, after) {
     if (S.busy) return;
     S.busy = true;
     const cfg = KINDS[order.kind] || KINDS.order;
     const label = (cfg.statuses[status] || {}).label || status;
+    // Muvaffaqiyatdan keyin qayerga qaytish. Standart — o'sha bo'lim
+    // ro'yxati; navbatlar doskasi esa o'zini qayta chizadi (`after`).
+    const done = typeof after === "function" ? after : () => openKind(order.kind);
 
     /* Worker — yagona yozish yo'li. Direct Firebase fallback ATAYLAB yo'q:
        qoidalar bu tugunlarni yopadi va mirror-only muvaffaqiyat xavfli. */
@@ -840,7 +1143,7 @@ window.ZimmerShop = (function () {
       haptic("ok");
       toast("✅ " + label + " — mijozga xabar ketdi");
       S.busy = false;
-      return openKind(order.kind);
+      return done();
     } catch (err) {
       console.warn("[shop] Worker holatni o'zgartirmadi:", err);
       toast((err && err.message) || "Holat o'zgarmadi");
@@ -871,12 +1174,29 @@ window.ZimmerShop = (function () {
         }
         const fresh = rows.filter((o) => o.status === "new").length;
         const badge = $("shop-badge-" + kind);
-        if (!badge) return; // menyu yopilgan
-        if (fresh) {
-          badge.textContent = fresh > 99 ? "99+" : String(fresh);
-          badge.classList.remove("hidden");
-        } else {
-          badge.classList.add("hidden");
+        if (badge) {
+          if (fresh) {
+            badge.textContent = fresh > 99 ? "99+" : String(fresh);
+            badge.classList.remove("hidden");
+          } else {
+            badge.classList.add("hidden");
+          }
+        }
+        // Navbat doskasi belgisi: FAOL navbatlar (yangi + tasdiqlangan) —
+        // admin bugun nechta navbat borligini menyudan ko'radi.
+        if (kind === "booking") {
+          const active = rows.filter(
+            (o) => o.status === "new" || o.status === "confirmed"
+          ).length;
+          const bb = $("shop-badge-board");
+          if (bb) {
+            if (active) {
+              bb.textContent = active > 99 ? "99+" : String(active);
+              bb.classList.remove("hidden");
+            } else {
+              bb.classList.add("hidden");
+            }
+          }
         }
       })
     );
@@ -3991,6 +4311,7 @@ window.ZimmerShop = (function () {
       S.view === "edit" ||
       S.view === "inventory" ||
       S.view === "orders" ||
+      S.view === "board" ||
       S.view === "music" ||
       S.view === "banners" ||
       S.view === "banner-form"
@@ -4009,6 +4330,7 @@ window.ZimmerShop = (function () {
     // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim
     // do'kon buyurtmalariga qaytarib yuborardi).
     if (S.view === "orders") return openKind(S.ordKind || "order");
+    if (S.view === "board") return openBookingsBoard();
     if (S.view === "music") return openMusic();
     if (S.view === "banners" || S.view === "banner-form") return openBanners();
     if (S.view === "add") return openAdd();
