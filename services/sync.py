@@ -14,6 +14,7 @@ Firebase sozlanmagan bo'lsa — hamma funksiya jimgina o'tib ketadi.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -27,28 +28,50 @@ from services import firebase
 logger = logging.getLogger(__name__)
 
 # Firebase hozir tayyor bo'lmasa (token olinmagan, internet uzilgan) yozuvlar
-# shu navbatda turadi va `retry_worker()` ularni keyin qaytadan yuboradi.
-# Shu sababli bitta vaqtinchalik uzilish mijoz ma'lumotini "yo'qotmaydi".
-_pending: dict[str, dict] = {}
+# DOIMIY navbatga (SQLite `firebase_outbox` jadvali) tushadi va
+# `retry_worker()` ularni keyin qaytadan yuboradi. Shu sababli bitta
+# vaqtinchalik uzilish — hatto jarayon QAYTA ISHGA TUSHSA ham — mijoz
+# ma'lumotini "yo'qotmaydi" (ilgari navbat faqat RAM'da edi va deployda
+# yo'qolardi).
 _PENDING_LIMIT = 500
 
-# Navbat to'lgani uchun TASHLAB KETILGAN yozuvlar soni.
+# `firebase_outbox` da yo'qolgan yozuvlar hisoblagichi shu kalit ostida
+# saqlanadi (`outbox_meta` jadvali) — jarayon qayta ishga tushsa ham qoladi.
+_DROPPED_META_KEY = "dropped"
+
+# RAM KO'ZGUSI (faqat diagnostika uchun).
 #
-# Ilgari navbat to'lganda yozuv JIMGINA tashlanardi — na log, na hisob.
-# Ya'ni buyurtma bulutga tushmagani hech qayerda ko'rinmasdi va Render
-# qayta deploy bo'lganda u butunlay yo'qolardi. Endi har bir tashlangan
-# yozuv log'ga yoziladi va `/firebase` diagnostikasida ko'rinadi.
-_dropped = 0
+# `pending_count()` va `dropped_count()` SINXRON bo'lib qolishi kerak —
+# ularni `handlers/admin.py` `await`siz chaqiradi. Haqiqiy manba esa SQLite
+# (async). Shuning uchun aniq qiymat DB'dan `_refresh_counts()` orqali
+# o'qib olinadi (masalan `flush_pending()` boshida) va bu yerda saqlanadi.
+_pending_cache = 0
+_dropped_cache = 0
 _drop_warned = False
 
 
 def pending_count() -> int:
-    return len(_pending)
+    """Navbatda turgan yozuvlar soni (oxirgi tekshiruv paytidagi)."""
+    return _pending_cache
 
 
 def dropped_count() -> int:
     """Navbat to'lgani uchun yo'qolgan yozuvlar soni."""
-    return _dropped
+    return _dropped_cache
+
+
+async def _refresh_counts() -> None:
+    """Diagnostika hisoblagichlarini DB bilan tekislaydi (RAM ko'zgusi).
+
+    DB/jadval mavjud bo'lmasa chaqiruvchini yiqitmaydi — eski qiymat qoladi.
+    """
+    global _pending_cache, _dropped_cache
+    try:
+        _pending_cache = await q.outbox_count()
+        raw = await q.outbox_meta_get(_DROPPED_META_KEY)
+        _dropped_cache = int(raw) if raw else 0
+    except Exception as error:  # DB hali ochilmagan / jadval yo'q
+        logger.debug("Outbox hisoblagichlari o'qilmadi: %s", error)
 
 
 async def _send(method: str, path: str, payload) -> bool:
@@ -60,43 +83,87 @@ async def _send(method: str, path: str, payload) -> bool:
 
 
 async def _write(path: str, payload, *, method: str = "patch") -> bool:
-    """Firebase'ga yozadi; imkoni bo'lmasa navbatga qo'yadi.
+    """Firebase'ga yozadi; imkoni bo'lmasa DOIMIY navbatga qo'yadi.
 
     Qaytaradi: yozuv BULUTGA YETIB BORDIMI. `False` — yozuv navbatda
     turadi (keyin yuboriladi) yoki navbat to'lgani uchun yo'qoldi.
     Chaqiruvchi buni tekshirishi kerak: buyurtma kabi muhim yozuvda
     `False` bo'lsa hech bo'lmasa log'da ko'rinishi shart.
     """
-    global _dropped, _drop_warned
+    global _dropped_cache, _drop_warned, _pending_cache
 
     if not config.has_firebase:
         return False
 
     # Bir xil order yo'lida oldin to'liq PUT navbatda turgan bo'lsa, keyingi
     # status PATCH uni almashtirib yubormasin. Statusni to'liq payload ichiga
-    # qo'shib, PUT sifatida saqlaymiz/yuboramiz.
-    queued = _pending.get(path)
-    if (
-        queued
-        and queued.get("method") == "put"
-        and method == "patch"
-        and isinstance(queued.get("payload"), dict)
-        and isinstance(payload, dict)
-    ):
-        payload = {**queued["payload"], **payload}
-        method = "put"
+    # qo'shib, PUT sifatida saqlaymiz/yuboramiz. Navbat (odatda) bo'sh bo'lsa
+    # DB'ga tegmaymiz — `_pending_cache` orqali tez tekshiramiz.
+    if _pending_cache and method == "patch" and isinstance(payload, dict):
+        try:
+            queued = await q.outbox_get(path)
+        except Exception:
+            queued = None
+        if queued is not None and queued["method"] == "put" and queued["payload"]:
+            try:
+                base = json.loads(queued["payload"])
+            except (TypeError, ValueError):
+                base = None
+            if isinstance(base, dict):
+                payload = {**base, **payload}
+                method = "put"
 
     if firebase.is_enabled() and await _send(method, path, payload):
-        _pending.pop(path, None)
+        # Yuborildi — agar shu manzil navbatda turgan bo'lsa, o'chiramiz.
+        # Navbat bo'sh bo'lsa (odatdagi holat) DB'ga umuman tegmaymiz —
+        # har muvaffaqiyatli yozuvda keraksiz DELETE/commit qilinmasin.
+        if _pending_cache:
+            try:
+                await q.outbox_delete(path)
+                _pending_cache = await q.outbox_count()
+            except Exception as error:  # navbatni tozalab bo'lmadi — muhim emas
+                logger.debug("Outbox tozalanmadi (%s): %s", path, error)
         return True
 
-    if len(_pending) < _PENDING_LIMIT or path in _pending:
-        _pending[path] = {"payload": payload, "method": method}
-        logger.info("Firebase tayyor emas — yozuv navbatga qo'yildi: %s", path)
+    # Yuborilmadi — navbatga qo'yishga urinamiz. Payload JSON matn sifatida
+    # saqlanadi (jarayon qayta ishga tushsa ham o'qilsin).
+    try:
+        encoded = json.dumps(payload)
+    except (TypeError, ValueError) as error:
+        logger.warning("Yozuv JSON'ga aylanmadi, navbatga qo'yilmadi (%s): %s", path, error)
+        return False
+
+    try:
+        count = await q.outbox_count()
+        # Navbat to'lgan bo'lsa ham, shu manzil ALLAQACHON navbatda tursa
+        # yangilash mumkin (yangi payload eskisini bosadi) — eski RAM
+        # lug'atining `path in _pending` xatti-harakati.
+        room = count < _PENDING_LIMIT or await q.outbox_has(path)
+    except Exception as error:
+        # Navbat jadvali ishlamayapti — chaqiruvchini YIQITMAYMIZ.
+        logger.warning("Outbox o'qilmadi, yozuv navbatga qo'yilmadi (%s): %s", path, error)
+        return False
+
+    if room:
+        try:
+            await q.outbox_put(path, method, encoded)
+            _pending_cache = await q.outbox_count()
+            logger.info("Firebase tayyor emas — yozuv navbatga qo'yildi: %s", path)
+        except Exception as error:
+            logger.warning("Yozuv navbatga qo'yilmadi (%s): %s", path, error)
         return False
 
     # Navbat to'ldi. Bu jimgina o'tib ketmasligi kerak — ma'lumot YO'QOLADI.
-    _dropped += 1
+    # Hisoblagichni SAQLANGAN qiymatdan oshiramiz — jarayon qayta ishga
+    # tushgan bo'lsa RAM 0 dan boshlanadi va DB'dagi haqiqiy sonni bosib
+    # ketmasin.
+    try:
+        raw = await q.outbox_meta_get(_DROPPED_META_KEY)
+        _dropped_cache = (int(raw) if raw else 0) + 1
+        await q.outbox_meta_set(_DROPPED_META_KEY, str(_dropped_cache))
+    except Exception as error:  # hisoblagichni saqlab bo'lmadi — muhim emas
+        _dropped_cache += 1
+        logger.debug("Yo'qolgan yozuv hisoblagichi saqlanmadi: %s", error)
     if not _drop_warned:
         _drop_warned = True
         logger.error(
@@ -110,20 +177,48 @@ async def _write(path: str, payload, *, method: str = "patch") -> bool:
 
 
 async def flush_pending() -> int:
-    """Navbatda turgan yozuvlarni qaytadan yuborishga urinadi."""
-    global _drop_warned
+    """Navbatda (SQLite `firebase_outbox`) turgan yozuvlarni qaytadan yuboradi."""
+    global _drop_warned, _pending_cache
 
-    if not _pending or not firebase.is_enabled():
+    # Diagnostika hisoblagichlarini har chaqiruvda tekislab olamiz — shu
+    # tufayli `/firebase` buyrug'i aniq son ko'rsatadi.
+    await _refresh_counts()
+
+    if not firebase.is_enabled():
         return 0
+
+    try:
+        rows = await q.outbox_all()
+    except Exception as error:
+        logger.warning("Outbox o'qilmadi: %s", error)
+        return 0
+    if not rows:
+        return 0
+
     sent = 0
-    for path, item in list(_pending.items()):
-        if await _send(item["method"], path, item["payload"]):
-            _pending.pop(path, None)
+    for row in rows:
+        path = row["path"]
+        method = row["method"]
+        try:
+            payload = json.loads(row["payload"]) if row["payload"] is not None else None
+        except (TypeError, ValueError):
+            payload = None
+        if await _send(method, path, payload):
+            try:
+                await q.outbox_delete(path)
+            except Exception as error:
+                logger.debug("Outbox tozalanmadi (%s): %s", path, error)
             sent += 1
+
+    try:
+        _pending_cache = await q.outbox_count()
+    except Exception:
+        pass
+
     if sent:
         logger.info("Navbatdagi %s yozuv Firebase'ga yuborildi", sent)
         # Joy bo'shadi — keyingi to'lishda yana ogohlantirsin
-        if len(_pending) < _PENDING_LIMIT:
+        if _pending_cache < _PENDING_LIMIT:
             _drop_warned = False
     return sent
 

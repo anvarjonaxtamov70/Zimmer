@@ -290,6 +290,32 @@ CREATE TABLE IF NOT EXISTS music (
     sort      INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1
 );
+
+-- ------------------------------------------------ Firebase DOIMIY navbati
+--
+-- Ilgari yuborilmagan Firebase yozuvlari faqat RAM'da (`services/sync.py`
+-- ichidagi `_pending` lug'ati) turardi. Render bepul tarifda jarayonni
+-- qayta ishga tushirsa (deploy, uyqu, ishdan chiqish) o'sha navbat
+-- BUTUNLAY yo'qolardi — buyurtma nusxasi yoki mijoz profili bulutga hech
+-- qachon yetib bormasdi.
+--
+-- Endi navbat SHU JADVALDA saqlanadi. `path` — birlamchi kalit, ya'ni bir
+-- xil manzilga yangi yozuv eskisini BOSADI (avvalgi RAM lug'ati ham
+-- shunday ishlagan). Jarayon qayta ishga tushsa `retry_worker` jadvalni
+-- o'qib qolgan yozuvlarni yuboradi.
+CREATE TABLE IF NOT EXISTS firebase_outbox (
+    path       TEXT PRIMARY KEY,
+    method     TEXT NOT NULL,
+    payload    TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Outbox hisoblagichlari (masalan navbat to'lgani uchun YO'QOLGAN yozuvlar
+-- soni) — jarayon qayta ishga tushsa ham saqlanib qolsin.
+CREATE TABLE IF NOT EXISTS outbox_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 # ------------------------------------------------------------------ demo ma'lumot
@@ -1115,6 +1141,18 @@ async def _migrate() -> None:
     # `get_orders(status=...)` shu ustun bo'yicha filtrlaydi, lekin indeks
     # yo'q edi — admin paneli har ochilganda butun jadval skanerlanardi.
     await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+
+    # Firebase DOIMIY navbati (outbox). Yangi jadvallar `SCHEMA` da ham bor
+    # (`executescript` har ishga tushishda yaratadi), lekin eski bazalar
+    # uchun bu yerda ham ochiq-oydin yaratamiz — migratsiya bir joyda ko'rinsin.
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS firebase_outbox ("
+        " path TEXT PRIMARY KEY, method TEXT NOT NULL, payload TEXT,"
+        " updated_at TEXT DEFAULT (datetime('now')))"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS outbox_meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
 
     # ------------------------------------------------------------------
     #  NAVBAT TO'QNASHUVINI BAZA DARAJASIDA TO'XTATISH

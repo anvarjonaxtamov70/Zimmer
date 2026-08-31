@@ -195,6 +195,16 @@ class Config:
     groq_vision_model: str
     # «Xo'jayin» — bosh admin. AI unga boshqacha murojaat qiladi.
     owner_id: int
+    # ---- Ishonchlilik / operatsiyalar (PR2) ----
+    # API'ga bitta IP'dan daqiqasiga necha so'rov (0 — o'chiq).
+    rate_limit_per_min: int
+    # To'liq zaxira nusxasini Firebase'ga necha soatda bir marta yozish
+    # (0 — o'chiq). Faqat Firebase ulangan bo'lsa ishlaydi.
+    backup_interval_hours: int
+    # Kunlik zaxira nusxalari (`backups/{YYYYMMDD}`) necha kun saqlanadi —
+    # eskilari o'chiriladi (Firebase cheksiz o'smasin). 0 — hech qachon
+    # o'chirilmasin.
+    backup_keep_days: int
 
     @property
     def has_mini_app(self) -> bool:
@@ -330,6 +340,16 @@ config = Config(
     groq_vision_model=os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.6-27b").strip(),
     # Bosh admin. Ko'rsatilmasa — `CORE_ADMINS` dagi birinchisi.
     owner_id=_int_env("OWNER_ID", CORE_ADMINS[0]),
+    # ---- Ishonchlilik / operatsiyalar (PR2) ----
+    # API rate-limit: bitta IP daqiqasiga qancha so'rov yubora oladi.
+    # 0 — cheklovni butunlay o'chiradi (lokal sinov / ishonchli tarmoq).
+    rate_limit_per_min=_int_env("RATE_LIMIT_PER_MIN", 120),
+    # To'liq zaxira nusxa Firebase'ga necha soatda bir marta yoziladi.
+    # 0 — zaxira vazifasi o'chiq. Standart: sutkasiga bir marta.
+    backup_interval_hours=_int_env("BACKUP_INTERVAL_HOURS", 24),
+    # Kunlik zaxira nusxalari necha kun saqlanadi (eskilari o'chiriladi).
+    # 0 — hech qachon o'chirilmaydi. Standart: 14 kun.
+    backup_keep_days=_int_env("BACKUP_KEEP_DAYS", 14),
 )
 
 

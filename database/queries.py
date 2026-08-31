@@ -2749,3 +2749,93 @@ def media_of(row: aiosqlite.Row, kind: str = "photo") -> tuple[str | None, str |
     file_id = row[f"{kind}_id"] if f"{kind}_id" in keys else None
     url = row[f"{kind}_url"] if f"{kind}_url" in keys else None
     return file_id, url
+
+
+
+# =====================================================================
+#  FIREBASE DOIMIY NAVBATI (OUTBOX)
+#
+#  `services/sync.py` yuborilmagan Firebase yozuvlarini shu jadvalda
+#  saqlaydi. Ilgari navbat faqat RAM'da edi va jarayon qayta ishga
+#  tushganda yo'qolardi. `path` — birlamchi kalit: bir manzilga yangi
+#  yozuv eskisini BOSADI (avvalgi RAM lug'ati bilan bir xil xatti-harakat).
+# =====================================================================
+
+
+async def outbox_put(path: str, method: str, payload: str | None) -> None:
+    """Yozuvni doimiy navbatga qo'yadi (path bo'yicha dedup: yangisi eskisini bosadi).
+
+    `payload` — JSON matni (`json.dumps` bilan tayyorlangan) yoki None
+    (`delete` uchun).
+    """
+    db = get_db()
+    await db.execute(
+        "INSERT INTO firebase_outbox (path, method, payload, updated_at)"
+        " VALUES (?, ?, ?, datetime('now'))"
+        " ON CONFLICT(path) DO UPDATE SET"
+        " method = excluded.method, payload = excluded.payload,"
+        " updated_at = excluded.updated_at",
+        (path, method, payload),
+    )
+    await db.commit()
+
+
+async def outbox_get(path: str) -> aiosqlite.Row | None:
+    """Shu manzil uchun navbatdagi yozuvni qaytaradi (method, payload) yoki None."""
+    db = get_db()
+    async with db.execute(
+        "SELECT method, payload FROM firebase_outbox WHERE path = ?", (path,)
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def outbox_delete(path: str) -> None:
+    """Yuborilgan (yoki keraksiz) yozuvni navbatdan o'chiradi."""
+    db = get_db()
+    await db.execute("DELETE FROM firebase_outbox WHERE path = ?", (path,))
+    await db.commit()
+
+
+async def outbox_has(path: str) -> bool:
+    """Shu manzil navbatda turibdimi?"""
+    db = get_db()
+    async with db.execute(
+        "SELECT 1 FROM firebase_outbox WHERE path = ?", (path,)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def outbox_all() -> list[aiosqlite.Row]:
+    """Navbatdagi barcha yozuvlar (eng eskisi birinchi) — flush uchun."""
+    db = get_db()
+    async with db.execute(
+        "SELECT path, method, payload FROM firebase_outbox ORDER BY updated_at, rowid"
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def outbox_count() -> int:
+    """Navbatda nechta yozuv turibdi."""
+    db = get_db()
+    async with db.execute("SELECT COUNT(*) FROM firebase_outbox") as cur:
+        row = await cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+async def outbox_meta_get(key: str) -> str | None:
+    """Outbox hisoblagichini o'qiydi (masalan yo'qolgan yozuvlar soni)."""
+    db = get_db()
+    async with db.execute("SELECT value FROM outbox_meta WHERE key = ?", (key,)) as cur:
+        row = await cur.fetchone()
+    return row["value"] if row else None
+
+
+async def outbox_meta_set(key: str, value: str) -> None:
+    """Outbox hisoblagichini doimiy saqlaydi."""
+    db = get_db()
+    await db.execute(
+        "INSERT INTO outbox_meta (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    await db.commit()
