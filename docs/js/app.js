@@ -2844,30 +2844,131 @@
     } catch (_) {}
   };
 
-  /** Treklarni bir marta yuklaydi. */
+  /* ==================================================================
+     TREKLARNI YUKLASH — IKKI MANBANI BIRLASHTIRIB
+
+     NEGA SHUNDAY MURAKKAB
+     Musiqa ikki joyda yashaydi va HAR BIRIDA boshqa narsa bor:
+
+       • RENDER (`/api/music`, SQLite) — HAVOLA bor. Bot orqali
+         qo'shilgan trek Telegram `file_id` bilan saqlanadi va uni
+         brauzer o'qiy olmaydi; Render esa `/api/media/...` proksisi
+         bilan eshittirib beradi. Ya'ni havola faqat shu manbada.
+
+       • FIREBASE (`catalog/music`) — HOLAT bor: `deleted`, `is_active`,
+         `sort`. Admin paneli aynan shu tugunga yozadi (brauzerdan
+         to'g'ridan — tovar va stories bilan bir xil model).
+
+     Ilgari onlayn holatda FAQAT Render o'qilardi. Natijada admin
+     panelda trekni o'chirsa yoki tartibini o'zgartirsa — mijozlarda
+     HECH NARSA o'zgarmasdi (SQLite bu haqda bilmaydi va uni faqat bot
+     restart bo'lganda biladi).
+
+     Endi: HAVOLA Render'dan, HOLAT Firebase'dan. Ikkisidan bittasi
+     yiqilsa ham musiqa ishlashda davom etadi.
+     ================================================================== */
   async function loadMusic() {
     if (MU.loaded) return MU.tracks;
     MU.loaded = true;
+    MU.tracks = await fetchMusicTracks();
+    if (!Array.isArray(MU.tracks)) MU.tracks = [];
+    return MU.tracks;
+  }
+
+  async function fetchMusicTracks() {
+    // Bulutdagi holat (o'chirilgan / yashirilgan / tartib) — HAR DOIM kerak
+    const cloud = window.ZimmerOffline && ZimmerOffline.musicState
+      ? await ZimmerOffline.musicState().catch(() => null)
+      : null;
+
+    /* Zaxira rejimda Render umuman yo'q — bulutdagi tashqi havolali
+       treklar bilan cheklanamiz (`ZimmerOffline.music()` shuni beradi). */
+    if (S.offline) {
+      try {
+        const res = await ZimmerOffline.music();
+        return (res && res.tracks) || [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    let server = [];
     try {
-      const res = S.offline
-        ? await ZimmerOffline.music()
-        : await api("/api/music");
-      MU.tracks = (res && res.tracks) || [];
+      const res = await api("/api/music");
+      server = (res && res.tracks) || [];
     } catch (_) {
       /* Server javob bermadi — bulutdan urinamiz. Bulut yo'lida faqat
          tashqi havolali treklar bo'ladi (`file_id` ni brauzer o'qiy
          olmaydi), shuning uchun ro'yxat bo'sh chiqishi ham normal. */
       try {
-        if (window.ZimmerOffline && ZimmerOffline.music) {
-          const res = await ZimmerOffline.music();
-          MU.tracks = (res && res.tracks) || [];
-        }
+        const res = await ZimmerOffline.music();
+        return (res && res.tracks) || [];
       } catch (_) {
-        MU.tracks = [];
+        return [];
       }
     }
-    if (!Array.isArray(MU.tracks)) MU.tracks = [];
-    return MU.tracks;
+
+    // Bulut o'qilmadi — serverdagi ro'yxatni o'zgarishsiz qaytaramiz
+    if (!cloud || !cloud.length) return server;
+
+    const state = new Map();
+    cloud.forEach((r) => state.set(String(r.id), r));
+
+    const merged = server
+      .filter((t) => {
+        const st = state.get(String(t.id));
+        // Bulutda yozuv yo'q bo'lsa TO'SMAYMIZ: bot yangi trek qo'shgan,
+        // sinxron esa hali yetib bormagan bo'lishi mumkin.
+        if (!st) return true;
+        return !st.deleted && st.is_active !== 0 && st.is_active !== false;
+      })
+      .map((t) => {
+        const st = state.get(String(t.id));
+        return Object.assign({}, t, { sort: st ? Number(st.sort) || 0 : Number(t.sort) || 0 });
+      });
+
+    /* Bulutda BOR, serverda YO'Q treklar: admin panel orqali havola bilan
+       qo'shilgan bo'lishi mumkin (SQLite hali ko'chirmagan). Faqat tashqi
+       https havolali bo'lsa qo'shamiz — aks holda ochilmaydigan manzil. */
+    const known = new Set(server.map((t) => String(t.id)));
+    cloud.forEach((r) => {
+      if (known.has(String(r.id))) return;
+      if (r.deleted || r.is_active === 0 || r.is_active === false) return;
+      const url = String(r.audio_url || "");
+      if (!/^https?:\/\//i.test(url)) return;
+      merged.push({
+        id: r.id,
+        title: r.title || "Fon musiqasi",
+        url: url,
+        external: true,
+        duration: Number(r.duration) || 0,
+        sort: Number(r.sort) || 0,
+      });
+    });
+
+    merged.sort((a, b) => (a.sort || 0) - (b.sort || 0) || (Number(a.id) || 0) - (Number(b.id) || 0));
+    return merged;
+  }
+
+  /** Admin panel musiqani o'zgartirgandan keyin chaqiriladi:
+   *  ro'yxat qaytadan o'qiladi va tugma holati moslashtiriladi. */
+  async function reloadMusic() {
+    const wasOn = MU.on;
+    MU.loaded = false;
+    MU.tracks = await loadMusic();
+    // Eshitilayotgan trek o'chirilgan bo'lishi mumkin — indeksni tiklaymiz
+    if (MU.index >= MU.tracks.length) MU.index = 0;
+    if (!MU.tracks.length) {
+      if (MU.el) {
+        try {
+          MU.el.pause();
+        } catch (_) {}
+      }
+      MU.on = false;
+    } else if (wasOn) {
+      playCurrent();
+    }
+    paintMusicBtn();
   }
 
   /** `<audio>` elementini yasaydi (faqat bir marta). */
@@ -8621,6 +8722,10 @@
     abs: abs,
     apiBase: () => API,
     state: S,
+    /* Admin fon musiqasini o'chirsa/tartibini o'zgartirsa — ro'yxat
+       DARHOL qaytadan o'qiladi va 🔇 tugmasi holatga moslashadi
+       (oxirgi trek o'chirilsa tugma butunlay yashiriladi). */
+    reloadMusic: () => reloadMusic().catch(() => {}),
   };
 
   /* --------------------------------------------------------------- hodisa */

@@ -37,6 +37,46 @@ window.ZimmerUpload = (function () {
    *  ~1080px — 1600 zaxira bilan yetadi va sifat sezilmaydi. */
   var MAX_SIDE = 1600;
   var JPEG_QUALITY = 0.82;
+
+  /* ==================================================================
+     SIFAT SOZLAMALARI (har chaqiruv uchun ALOHIDA)
+
+     NEGA KERAK
+     Ilgari `MAX_SIDE` va `JPEG_QUALITY` modul darajasidagi O'ZGARMAS
+     qiymatlar edi va ularni BARCHA yuklovchilar birga ishlatardi. Banner
+     uchun sifatni oshirish kerak bo'lsa, tovar rasmlari ham og'irlashardi
+     (ular esa katalogda O'NLAB dona birga yuklanadi — trafik va tezlik
+     muhim). Endi har chaqiruv o'z sozlamasini beradi.
+
+     NEGA BANNER SIFATI YUQORIROQ
+     Banner ekran bo'ylab TO'LIQ yoyiladi (`object-fit: cover`, kenglik
+     ~100vw) va ustiga qorayish qatlami bilan matn tushadi. Bunday
+     rasmda JPEG artefaktlari — ayniqsa silliq o'tishlarda (osmon,
+     gradient, qorong'i fon) — KO'ZGA TASHLANADI. Tovar rasmi esa
+     kartochkada ~180px bo'lib turadi va u yerda 0.82 mutlaqo yetarli.
+     ================================================================== */
+  var PRESETS = {
+    /** Tovar rasmi — kartochkada kichik, katalogda ko'p. Tez va yengil. */
+    product: { maxSide: 1600, quality: 0.82 },
+    /** Banner — to'liq kenglikda, matn ostida. Sifat ustun. */
+    banner: { maxSide: 1920, quality: 0.9 },
+    /** Story — to'liq ekranli vertikal media. */
+    story: { maxSide: 1600, quality: 0.86 },
+  };
+
+  /** Berilgan sozlamani tekshirib, chegaralar ichiga qamab qaytaradi. */
+  function settings(opts) {
+    var base = PRESETS.product;
+    if (typeof opts === "string") base = PRESETS[opts] || PRESETS.product;
+    var o = opts && typeof opts === "object" ? opts : {};
+    var side = Number(o.maxSide) || base.maxSide;
+    var q = Number(o.quality) || base.quality;
+    return {
+      // 320 dan kichik — foydasiz, 4096 dan katta — telefon xotirasi yetmaydi
+      maxSide: Math.max(320, Math.min(4096, Math.round(side))),
+      quality: Math.max(0.5, Math.min(0.95, q)),
+    };
+  }
   /** Siqilgandan keyin ham shundan katta bo'lsa — rad etamiz (ImgBB 32 MB
    *  qabul qiladi, lekin bunday fayl deyarli har doim xato belgisi). */
   var MAX_BYTES = 8 * 1024 * 1024;
@@ -128,7 +168,8 @@ window.ZimmerUpload = (function () {
    * bo'lardi. Endi asl fayl (siqilmagan) yuboriladi — sekinroq, lekin
    * ADMIN ishini bajaradi.
    */
-  async function compress(file) {
+  async function compress(file, opts) {
+    var cfg = settings(opts);
     if (!file) throw err("no_file", "Fayl tanlanmadi");
     // Ba'zi galereyalar `type` ni bo'sh beradi — kengaytmaga ham qaraymiz.
     var looksImage =
@@ -142,7 +183,7 @@ window.ZimmerUpload = (function () {
       var h = bmp.height || bmp.naturalHeight;
       if (!w || !h) throw err("decode", "Rasm o'lchami aniqlanmadi");
 
-      var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+      var scale = Math.min(1, cfg.maxSide / Math.max(w, h));
       var tw = Math.max(1, Math.round(w * scale));
       var th = Math.max(1, Math.round(h * scale));
 
@@ -160,7 +201,7 @@ window.ZimmerUpload = (function () {
       ctx.drawImage(bmp, 0, 0, tw, th);
       if (bmp.close) bmp.close();
 
-      var dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+      var dataUrl = canvas.toDataURL("image/jpeg", cfg.quality);
       var base64 = dataUrl.split(",")[1] || "";
       if (!base64) throw err("encode", "Rasm siqilmadi");
 
@@ -248,10 +289,10 @@ window.ZimmerUpload = (function () {
    * Bitta faylni siqib yuklaydi va havolani qaytaradi.
    * `onProgress(pct, faza)` — faza: "siqish" | "yuklash"
    */
-  async function uploadFile(file, onProgress) {
+  async function uploadFile(file, onProgress, opts) {
     var report = onProgress || function () {};
     report(0, "siqish");
-    var out = await compress(file);
+    var out = await compress(file, opts);
     report(0, "yuklash");
     var url = await uploadBase64(out.base64, function (pct) {
       // 100% ni faqat ImgBB javob bergandan keyin ko'rsatamiz: yuklab
@@ -276,5 +317,8 @@ window.ZimmerUpload = (function () {
     uploadFile: uploadFile,
     MAX_SIDE: MAX_SIDE,
     MAX_BYTES: MAX_BYTES,
+    /** Sifat sozlamalari: `uploadFile(f, cb, "banner")` yoki
+     *  `uploadFile(f, cb, {maxSide: 2400, quality: 0.92})`. */
+    PRESETS: PRESETS,
   };
 })();

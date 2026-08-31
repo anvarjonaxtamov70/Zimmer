@@ -99,6 +99,9 @@ window.ZimmerShop = (function () {
     invTyping: null, // qidiruv debounce taymeri
     invIO: null, // IntersectionObserver (cheksiz skroll)
     orders: [],
+    // Bosh sahifa boshqaruvi: fon musiqasi va bannerlar ro'yxati
+    music: [], // [{key, id, title, sort, is_active, ...}]
+    banners: [], // [{key, id, title, subtitle, tag, photo_url, sort, ...}]
     busy: false,
   };
 
@@ -317,6 +320,16 @@ window.ZimmerShop = (function () {
         "Xizmatlar va narxlar",
         "Narx, kafolat, video va «Tez kunda»"
       ) +
+      "</div>" +
+      /* --- bosh sahifa ko'rinishi
+         Ilgari bannerlar va fon musiqasi panelda UMUMAN yo'q edi: banner
+         faqat Telegram boti orqali, musiqa esa faqat `/musiqa_del_12`
+         degan buyruq bilan boshqarilardi. Tartibini almashtirish imkoni
+         esa hech qayerda yo'q edi. */
+      '<div class="apx-sub">Bosh sahifa</div>' +
+      '<div class="shop-hero shop-hero-2">' +
+      tile("shop-banners", "shop-hero-ban", "🖼", "Bannerlar", "Rasm, tartib, o'chirish") +
+      tile("shop-music", "shop-hero-music", "🎵", "Fon musiqasi", "Tartib va o'chirish") +
       "</div>";
 
     const bind = (id, fn) => {
@@ -365,6 +378,9 @@ window.ZimmerShop = (function () {
       S.view = null;
       m.openEmbedded("srv");
     });
+
+    bind("shop-banners", openBanners);
+    bind("shop-music", openMusic);
 
     // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
     refreshBadges();
@@ -3210,6 +3226,732 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
+     BANNERLAR — RASM, TARTIB, O'CHIRISH
+
+     NEGA PANELGA QO'SHILDI
+     Banner bosh sahifaning eng ko'zga tashlanadigan bloki (stories ostida,
+     katalog ustida), lekin uni boshqarishning YAKKA yo'li Telegram boti
+     yoki Render'ning universal CRUD paneli edi. Ikkisi ham RENDER'ga
+     bog'liq: bepul tarifda server uxlab yotsa admin bannerni umuman
+     o'zgartira olmasdi. Bundan tashqari rasm o'sha yo'lda Telegram
+     `file_id` bilan saqlanardi va uni brauzer O'ZI ko'rsata olmaydi —
+     Render uxlagan payt banner RASMSIZ, faqat gradient bo'lib turardi.
+
+     Endi tovar va stories bilan bir xil model: brauzerdan to'g'ridan
+     `catalog/banners` ga yoziladi, rasm esa ImgBB'ga (doimiy https
+     havola). Render bor yoki yo'q — farqi yo'q.
+
+     RASM SIFATI
+     Banner to'liq kenglikda yoyiladi va ustiga matn tushadi, shuning
+     uchun `ZimmerUpload` ning «banner» sozlamasi ishlatiladi (uzun tomon
+     1920px, JPEG 0.90) — tovar rasmidan yuqoriroq. Tafsilot:
+     `docs/js/upload.js: PRESETS`.
+     ================================================================== */
+
+  const BAN_P = "catalog/banners";
+
+  /** Bannerlar uchun tavsiya etilgan o'lcham — formada ham ko'rsatiladi.
+   *  Blok `calc(100vw - 48px)` kenglikda va `min-height: 128px`, ya'ni
+   *  nisbat ~8:3. Katta telefonda (DPR 3) ~1150px kerak — 1600 zaxira
+   *  bilan yetadi. */
+  const BAN_W = 1600;
+  const BAN_H = 600;
+
+  async function loadBannerRows() {
+    const node = await fb().get(BAN_P);
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((k) => {
+        const r = node[k];
+        if (!r || typeof r !== "object" || r.deleted) return;
+        out.push({
+          key: k, // RTDB kaliti — yozish yo'li shu bo'yicha quriladi
+          id: r.id == null ? k : r.id,
+          title: String(r.title || ""),
+          subtitle: String(r.subtitle || ""),
+          tag: String(r.tag || ""),
+          color_from: String(r.color_from || "#c1121f"),
+          color_to: String(r.color_to || "#101215"),
+          photo_url: String(r.photo_url || ""),
+          photo_id: String(r.photo_id || ""),
+          sort: Number(r.sort) || 0,
+          is_active: r.is_active !== 0 && r.is_active !== false,
+        });
+      });
+    }
+    out.sort((a, b) => a.sort - b.sort || Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  async function openBanners() {
+    S.view = "banners";
+    setHead("🖼 Bannerlar", "Yuklanmoqda...");
+    body().innerHTML = '<div class="inv-skel"></div><div class="inv-skel"></div>';
+    try {
+      S.banners = await loadBannerRows();
+      renderBannerList();
+    } catch (err) {
+      fail(err, openBanners);
+    }
+  }
+
+  function renderBannerList() {
+    const list = S.banners || [];
+    S.view = "banners";
+    setHead("🖼 Bannerlar", list.length ? list.length + " ta banner" : "Banner yo'q");
+
+    body().innerHTML =
+      '<div class="adm-hint-block">' +
+      "Bannerlar bosh sahifada SHU TARTIBDA aylanadi. Tavsiya etilgan " +
+      "rasm o'lchami: <b>" + BAN_W + "×" + BAN_H + " px</b> (nisbat 8:3). " +
+      "Rasm chetlari qirqilishi mumkin — muhim narsani markazga joylang." +
+      "</div>" +
+      '<button class="apx-voice" id="ban-add">＋ Yangi banner</button>' +
+      '<div class="ban-list" id="ban-list">' +
+      (list.length
+        ? list.map(banCard).join("")
+        : '<div class="adm-hint">Hali banner yo\'q — «＋ Yangi banner» ni bosing.</div>') +
+      "</div>";
+
+    $("ban-add").onclick = () => {
+      haptic();
+      openBannerForm(null);
+    };
+    bindBannerList();
+  }
+
+  function banCard(b, i) {
+    const list = S.banners || [];
+    const pic = b.photo_url || "";
+    return (
+      '<div class="ban-card' + (b.is_active ? "" : " is-off") + '">' +
+      /* Kichik ko'rinish — bosh sahifadagi bilan BIR XIL qurilgan
+         (gradient + rasm + qorayish + matn), shunda admin natijani
+         taxmin qilmaydi, KO'RADI. */
+      '<div class="ban-prev" style="background:linear-gradient(135deg,' +
+      esc(b.color_from) + "," + esc(b.color_to) + ')">' +
+      (pic ? '<img src="' + esc(pic) + '" alt="" loading="lazy">' : "") +
+      (pic ? '<span class="ban-prev-shade"></span>' : "") +
+      (b.tag ? '<span class="ban-prev-tag">' + esc(b.tag) + "</span>" : "") +
+      '<span class="ban-prev-t">' + esc(b.title || "Sarlavha yo'q") + "</span>" +
+      (b.subtitle ? '<span class="ban-prev-s">' + esc(b.subtitle) + "</span>" : "") +
+      "</div>" +
+      '<div class="ban-acts">' +
+      '<span class="ban-num">' + (i + 1) + "</span>" +
+      '<button class="mus-btn" data-bmv="up" data-key="' + esc(b.key) + '"' +
+      (i === 0 ? " disabled" : "") + ' aria-label="Yuqoriga">↑</button>' +
+      '<button class="mus-btn" data-bmv="down" data-key="' + esc(b.key) + '"' +
+      (i === list.length - 1 ? " disabled" : "") + ' aria-label="Pastga">↓</button>' +
+      '<button class="mus-btn" data-beye="' + esc(b.key) + '" aria-label="Yashirish">' +
+      (b.is_active ? "👁" : "🙈") + "</button>" +
+      '<button class="mus-btn" data-bedit="' + esc(b.key) + '" aria-label="Tahrirlash">✏️</button>' +
+      '<button class="mus-btn mus-del" data-bdel="' + esc(b.key) + '" aria-label="O\'chirish">🗑</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindBannerList() {
+    document.querySelectorAll("#ban-list [data-bmv]").forEach((btn) => {
+      btn.onclick = () => moveBanner(btn.dataset.key, btn.dataset.bmv === "up" ? -1 : 1);
+    });
+    document.querySelectorAll("#ban-list [data-beye]").forEach((btn) => {
+      btn.onclick = () => toggleBanner(btn.dataset.beye);
+    });
+    document.querySelectorAll("#ban-list [data-bedit]").forEach((btn) => {
+      btn.onclick = () => {
+        haptic();
+        openBannerForm((S.banners || []).find((x) => x.key === btn.dataset.bedit) || null);
+      };
+    });
+    document.querySelectorAll("#ban-list [data-bdel]").forEach((btn) => {
+      btn.onclick = () => deleteBanner(btn.dataset.bdel);
+    });
+  }
+
+  /* ---- tartib / yashirish / o'chirish (musiqa bilan bir xil mantiq) ---- */
+
+  async function moveBanner(key, delta) {
+    if (S.busy) return;
+    const list = S.banners || [];
+    const at = list.findIndex((b) => b.key === key);
+    const to = at + delta;
+    if (at === -1 || to < 0 || to >= list.length) return;
+
+    haptic("light");
+    const before = list.slice();
+    const next = list.slice();
+    next[at] = list[to];
+    next[to] = list[at];
+    next.forEach((b, i) => (b.sort = i * 10));
+    S.banners = next;
+    renderBannerList();
+
+    S.busy = true;
+    try {
+      const writes = next
+        .map((b, i) => ({ b: b, sort: i * 10 }))
+        .filter((w) => {
+          const old = before.find((x) => x.key === w.b.key);
+          return !old || old.sort !== w.sort;
+        });
+      for (const w of writes) {
+        await fb().patch(BAN_P + "/" + w.b.key, { sort: w.sort, updatedAt: Date.now() });
+      }
+      freshenShop(); // bosh sahifa keshi eskirdi
+    } catch (err) {
+      S.banners = before;
+      renderBannerList();
+      toast((err && err.message) || "Tartib saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function toggleBanner(key) {
+    const b = (S.banners || []).find((x) => x.key === key);
+    if (!b || S.busy) return;
+    const next = !b.is_active;
+    haptic();
+    S.busy = true;
+    try {
+      await fb().patch(BAN_P + "/" + key, { is_active: next ? 1 : 0, updatedAt: Date.now() });
+      b.is_active = next;
+      renderBannerList();
+      freshenShop();
+      toast(next ? "✅ Ko'rsatiladi" : "🙈 Yashirildi");
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function deleteBanner(key) {
+    const b = (S.banners || []).find((x) => x.key === key);
+    if (!b || S.busy) return;
+    const ok = await ask("«" + (b.title || "Banner") + "» o'chirilsinmi?");
+    if (!ok) return;
+    S.busy = true;
+    try {
+      await fb().patch(BAN_P + "/" + key, { deleted: true, updatedAt: Date.now() });
+      S.banners = (S.banners || []).filter((x) => x.key !== key);
+      haptic("success");
+      renderBannerList();
+      freshenShop();
+      toast("🗑 O'chirildi");
+    } catch (err) {
+      toast((err && err.message) || "O'chirilmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ------------------------------- banner formasi (qo'shish / tahrirlash) */
+
+  /** Bosh sahifa fonining tayyor juftliklari — qo'lda hex yozish shart emas. */
+  const BAN_THEMES = [
+    ["🔴 Qizil", "#c1121f", "#101215"],
+    ["🟠 Kehribar", "#e08a1e", "#14100a"],
+    ["🟢 Yashil", "#1f8a4c", "#0b1410"],
+    ["🔵 Ko'k", "#1e5fd0", "#0a0f1a"],
+    ["🟣 Siyoh", "#6b3fd4", "#100c1a"],
+    ["⚫️ Qora", "#3a3f4b", "#0c0d11"],
+  ];
+
+  function openBannerForm(b) {
+    S.view = "banner-form";
+    const editing = !!b;
+    S.banEdit = b || null;
+    // Yuklangan rasm havolasi shu maydonda turadi (yagona manba)
+    S.banPhoto = (b && b.photo_url) || "";
+    S.banFrom = (b && b.color_from) || BAN_THEMES[0][1];
+    S.banTo = (b && b.color_to) || BAN_THEMES[0][2];
+
+    setHead(editing ? "Bannerni tahrirlash" : "Yangi banner", BAN_W + "×" + BAN_H + " px");
+
+    body().innerHTML =
+      '<div class="adm-form">' +
+      /* ---- rasm */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-blue">🖼</div>' +
+      '<div class="apx-tx"><b>Rasm</b><span>' + BAN_W + "×" + BAN_H +
+      " px · nisbat 8:3</span></div></div>" +
+      '<div class="ban-drop" id="ban-drop"></div>' +
+      '<input type="file" id="ban-file" accept="image/*" class="hidden">' +
+      '<div class="apx-sale-note">Telefondagi katta rasm o\'zi kichraytiriladi ' +
+      "(uzun tomon " + (up() ? up().PRESETS.banner.maxSide : 1920) +
+      " px, yuqori sifat). Rasm chetlari qirqilishi mumkin — muhim " +
+      "narsani markazga joylang.</div>" +
+      "</div>" +
+      /* ---- jonli ko'rinish */
+      '<div class="admin-form-group"><div class="apx-sub" style="margin-top:0;">' +
+      "Bosh sahifada qanday ko'rinadi</div>" +
+      '<div id="ban-live"></div></div>' +
+      /* ---- matn */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic">🏷</div>' +
+      "<div class=\"apx-tx\"><b>Matn</b><span>Sarlavha · tavsif · yorliq</span></div></div>" +
+      '<input type="text" class="admin-input" id="ban-title" maxlength="80" ' +
+      'placeholder="Sarlavha (mas: Bi-LED aksiya)" value="' + esc((b && b.title) || "") + '">' +
+      '<input type="text" class="admin-input" id="ban-sub" maxlength="120" ' +
+      'placeholder="Tavsif (ixtiyoriy)" value="' + esc((b && b.subtitle) || "") + '">' +
+      '<input type="text" class="admin-input" id="ban-tag" maxlength="40" ' +
+      'placeholder="Yorliq — mas: -15% shu hafta (ixtiyoriy)" value="' +
+      esc((b && b.tag) || "") + '">' +
+      "</div>" +
+      /* ---- rang */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">🎨</div>' +
+      '<div class="apx-tx"><b>Fon rangi</b>' +
+      "<span>Rasm bo'lmasa yoki chetlarda ko'rinadi</span></div></div>" +
+      '<div class="shop-chips" id="ban-themes">' +
+      BAN_THEMES.map(
+        (t) =>
+          '<button type="button" class="cat-chip ban-theme" data-from="' + t[1] +
+          '" data-to="' + t[2] + '">' + esc(t[0]) + "</button>"
+      ).join("") +
+      "</div></div>" +
+      "</div>" +
+      '<div class="shop-footer">' +
+      '<button class="btn btn-primary" id="ban-save">💾 ' +
+      (editing ? "Yangilash" : "Saqlash") + "</button>" +
+      '<button class="btn btn-ghost" id="ban-cancel">Bekor qilish</button>' +
+      "</div>";
+
+    bindBannerForm();
+  }
+
+  function bindBannerForm() {
+    const paint = () => {
+      renderBanDrop();
+      renderBanLive();
+    };
+
+    ["ban-title", "ban-sub", "ban-tag"].forEach((id) => {
+      if ($(id)) $(id).oninput = renderBanLive;
+    });
+
+    document.querySelectorAll("#ban-themes .ban-theme").forEach((chip) => {
+      chip.onclick = () => {
+        haptic("light");
+        S.banFrom = chip.dataset.from;
+        S.banTo = chip.dataset.to;
+        document
+          .querySelectorAll("#ban-themes .ban-theme")
+          .forEach((c) => c.classList.remove("selected"));
+        chip.classList.add("selected");
+        renderBanLive();
+      };
+      if (chip.dataset.from === S.banFrom) chip.classList.add("selected");
+    });
+
+    $("ban-file").onchange = async (e) => {
+      const file = (e.target.files || [])[0];
+      e.target.value = ""; // ayni faylni qayta tanlash imkoni qolsin
+      if (!file) return;
+      await uploadBanner(file);
+    };
+
+    $("ban-save").onclick = saveBanner;
+    $("ban-cancel").onclick = () => {
+      haptic();
+      renderBannerList();
+    };
+
+    paint();
+  }
+
+  function renderBanDrop() {
+    const box = $("ban-drop");
+    if (!box) return;
+    if (S.banBusy) {
+      box.className = "ban-drop is-busy";
+      box.innerHTML =
+        '<div class="ban-prog"><b>' + (S.banPct || 0) + "%</b><span>" +
+        esc(S.banPhase || "yuklanmoqda") + "</span></div>";
+      return;
+    }
+    if (S.banPhoto) {
+      box.className = "ban-drop has-img";
+      box.innerHTML =
+        '<img src="' + esc(S.banPhoto) + '" alt="">' +
+        '<button type="button" class="ban-drop-x" id="ban-x" aria-label="Rasmni o\'chirish">✕</button>' +
+        '<button type="button" class="ban-drop-swap" id="ban-swap">🔄 Boshqa rasm</button>';
+      $("ban-x").onclick = () => {
+        haptic("light");
+        S.banPhoto = "";
+        renderBanDrop();
+        renderBanLive();
+      };
+      $("ban-swap").onclick = () => $("ban-file").click();
+      return;
+    }
+    box.className = "ban-drop";
+    box.innerHTML =
+      '<span class="ban-drop-ic">🖼</span>' +
+      "<b>Rasm tanlash</b>" +
+      "<i>" + BAN_W + "×" + BAN_H + " px tavsiya etiladi</i>";
+    box.onclick = () => $("ban-file").click();
+  }
+
+  async function uploadBanner(file) {
+    if (!up() || !up().available()) {
+      return toast("Rasm yuklash sozlanmagan (IMGBB_KEY yo'q)");
+    }
+    S.banBusy = true;
+    S.banPct = 0;
+    S.banPhase = "siqish";
+    renderBanDrop();
+    try {
+      /* «banner» sozlamasi — tovar rasmidan yuqori sifat (izohni
+         `docs/js/upload.js: PRESETS` da ko'ring). */
+      const res = await up().uploadFile(
+        file,
+        (pct, phase) => {
+          S.banPct = Math.round(pct);
+          S.banPhase = phase;
+          renderBanDrop();
+        },
+        "banner"
+      );
+      S.banPhoto = res.url;
+      haptic("success");
+      const kb = Math.round((res.bytes || 0) / 1024);
+      toast("✅ Rasm yuklandi" + (res.width ? " · " + res.width + "×" + res.height : "") +
+        (kb ? " · " + kb + " KB" : ""));
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Rasm yuklanmadi");
+    } finally {
+      S.banBusy = false;
+      renderBanDrop();
+      renderBanLive();
+    }
+  }
+
+  function renderBanLive() {
+    const box = $("ban-live");
+    if (!box) return;
+    const title = (($("ban-title") && $("ban-title").value) || "").trim();
+    const sub = (($("ban-sub") && $("ban-sub").value) || "").trim();
+    const tag = (($("ban-tag") && $("ban-tag").value) || "").trim();
+    box.innerHTML =
+      '<div class="ban-prev is-live" style="background:linear-gradient(135deg,' +
+      esc(S.banFrom) + "," + esc(S.banTo) + ')">' +
+      (S.banPhoto ? '<img src="' + esc(S.banPhoto) + '" alt="">' : "") +
+      (S.banPhoto ? '<span class="ban-prev-shade"></span>' : "") +
+      (tag ? '<span class="ban-prev-tag">' + esc(tag) + "</span>" : "") +
+      '<span class="ban-prev-t">' + esc(title || "Sarlavha") + "</span>" +
+      (sub ? '<span class="ban-prev-s">' + esc(sub) + "</span>" : "") +
+      "</div>";
+  }
+
+  async function saveBanner() {
+    if (S.busy) return;
+    if (S.banBusy) return toast("⏳ Rasm yuklanmoqda — bir lahza kuting");
+
+    const title = ($("ban-title").value || "").trim();
+    const sub = ($("ban-sub").value || "").trim();
+    const tag = ($("ban-tag").value || "").trim();
+
+    if (title.length < 2) return toast("Sarlavhani kiriting");
+    if (title.length > 80) return toast("Sarlavha juda uzun (80 belgigacha)");
+    /* Rasm MAJBURIY emas: faqat gradient + matndan iborat banner ham
+       chiroyli chiqadi va admin shoshilinch aksiyani rasm izlamasdan
+       e'lon qila oladi. Lekin havola bo'lsa u https bo'lishi SHART —
+       Firebase qoidalari boshqasini rad etadi va xato tushunarsiz
+       bo'lardi («Bazaga yozilmadi (400)»). */
+    if (S.banPhoto && !/^https:\/\/[^\s]+$/i.test(S.banPhoto)) {
+      return toast("Rasm havolasi https bo'lishi kerak");
+    }
+
+    const editing = S.banEdit;
+    const rec = {
+      _key: title,
+      title: title,
+      subtitle: sub || null,
+      tag: tag || null,
+      color_from: S.banFrom,
+      color_to: S.banTo,
+      /* Bo'sh matn EMAS, `null`: mijoz tomonida bitta tekshiruv qoladi
+         (`b.photo_url ? ...`) va tahrirlashda rasmni O'CHIRISH ishlaydi
+         (`patch` null bilan ustiga yozadi). */
+      photo_url: S.banPhoto || null,
+      photo_id: null,
+      is_active: 1,
+      deleted: false,
+      updatedAt: Date.now(),
+      source: "miniapp",
+    };
+
+    S.busy = true;
+    const btn = $("ban-save");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Saqlanmoqda...";
+    }
+    try {
+      if (editing) {
+        rec.id = Number(editing.id) || editing.id;
+        rec.sort = editing.sort;
+        rec.is_active = editing.is_active ? 1 : 0;
+        await fb().patch(BAN_P + "/" + editing.key, rec);
+      } else {
+        const id = await fb().nextBannerId();
+        rec.id = id;
+        rec.createdAt = Date.now();
+        // Yangi banner OXIRIGA tushadi — mavjud tartib buzilmaydi
+        const last = (S.banners || []).reduce((m, b) => Math.max(m, b.sort), -10);
+        rec.sort = last + 10;
+        await fb().put(BAN_P + "/" + id, rec);
+      }
+      haptic("ok");
+      freshenShop();
+      toast(editing ? "✅ Saqlandi" : "✅ Banner qo'shildi");
+      S.banners = await loadBannerRows();
+      renderBannerList();
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = editing ? "💾 Yangilash" : "💾 Saqlash";
+      }
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ==================================================================
+     FON MUSIQASI — TARTIB VA O'CHIRISH
+
+     NEGA PANELGA KO'CHIRILDI
+     Ilgari musiqani boshqarishning YAKKA yo'li Telegram boti edi:
+     `/musiqa` ro'yxatni chiqarardi, o'chirish uchun esa `/musiqa_del_12`
+     degan buyruqni QO'LDA yozish kerak edi. Tartibni o'zgartirish imkoni
+     UMUMAN yo'q edi — trek qo'shilgan ketma-ketligida qolib ketardi va
+     birinchi eshitiladigan qo'shiqni almashtirish uchun hammasini
+     o'chirib, yangi tartibda qaytadan tashlash kerak bo'lardi.
+
+     TREK QO'SHISH BOTDA QOLADI — bu ataylab. Audio faylni Telegram
+     allaqachon o'zida saqlaydi va bot uni bir bosishda qabul qiladi;
+     brauzerdan 5-10 MB audio yuklash esa sekin va ishonchsiz.
+
+     MANBA — FIREBASE (`catalog/music`), tovar va stories bilan bir xil
+     model: panel brauzerdan to'g'ridan yozadi, mijoz tomoni shu holatni
+     o'qiydi (`app.js: fetchMusicTracks`).
+     ================================================================== */
+
+  const MUSIC_P = "catalog/music";
+
+  /** Bulutdagi treklar — panel uchun XOM ro'yxat (o'chirilganlar chiqmaydi,
+   *  YASHIRILGANLAR esa chiqadi: adminga ularni qaytarish imkoni kerak). */
+  async function loadMusicRows() {
+    const node = await fb().get(MUSIC_P);
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((k) => {
+        const r = node[k];
+        if (!r || typeof r !== "object" || r.deleted) return;
+        out.push({
+          key: k, // RTDB kaliti — yozish yo'li shu bo'yicha quriladi
+          id: r.id == null ? k : r.id,
+          title: String(r.title || "Fon musiqasi"),
+          duration: Number(r.duration) || 0,
+          sort: Number(r.sort) || 0,
+          audio_url: String(r.audio_url || ""),
+          audio_id: String(r.audio_id || ""),
+          is_active: r.is_active !== 0 && r.is_active !== false,
+        });
+      });
+    }
+    // Ekrandagi tartib mijoz eshitadigan tartib bilan BIR XIL bo'lishi shart
+    out.sort((a, b) => a.sort - b.sort || Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  async function openMusic() {
+    S.view = "music";
+    setHead("🎵 Fon musiqasi", "Yuklanmoqda...");
+    body().innerHTML = '<div class="inv-skel"></div><div class="inv-skel"></div>';
+    try {
+      S.music = await loadMusicRows();
+      renderMusic();
+    } catch (err) {
+      fail(err, openMusic);
+    }
+  }
+
+  const mmss = (sec) => {
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  };
+
+  function renderMusic() {
+    const list = S.music || [];
+    setHead("🎵 Fon musiqasi", list.length ? list.length + " ta trek" : "Trek yo'q");
+
+    if (!list.length) {
+      body().innerHTML =
+        '<div class="adm-hint-block">' +
+        "<b>Hali trek qo'shilmagan.</b><br><br>" +
+        "Qo'shish uchun botga audio faylni yuboring — u o'zi ro'yxatga " +
+        "tushadi. Keyin bu yerda tartibini o'zgartirishingiz va " +
+        "o'chirishingiz mumkin.<br><br>" +
+        "Trek yo'q bo'lsa mijozda 🔇 tugmasi UMUMAN ko'rinmaydi." +
+        "</div>";
+      return;
+    }
+
+    body().innerHTML =
+      '<div class="adm-hint-block">' +
+      "Mijoz treklarni SHU TARTIBDA eshitadi. Yangi trek qo'shish — " +
+      "botga audio yuborish orqali." +
+      "</div>" +
+      '<div class="mus-list" id="mus-list">' +
+      list.map(musCard).join("") +
+      "</div>";
+
+    bindMusic();
+  }
+
+  function musCard(t, i) {
+    const list = S.music || [];
+    /* Brauzerda ochilmaydigan trek — bot orqali qo'shilgan va Firebase
+       Storage o'chiq bo'lgan holat: bunda faqat Telegram `file_id` bor.
+       Render uyg'oq bo'lsa u proksi bilan eshittiradi, uxlagan bo'lsa esa
+       trek jimgina o'tkazib yuboriladi. Admin buni BILISHI kerak. */
+    const proxied = !/^https?:\/\//i.test(t.audio_url);
+    return (
+      '<div class="mus-card' + (t.is_active ? "" : " is-off") + '" data-key="' + esc(t.key) + '">' +
+      '<span class="mus-num">' + (i + 1) + "</span>" +
+      '<div class="mus-mid">' +
+      "<b>" + esc(t.title) + "</b>" +
+      '<div class="mus-meta">' +
+      (t.duration ? "<span>⏱ " + mmss(t.duration) + "</span>" : "") +
+      (proxied ? '<span class="mus-warn">☁️ server orqali</span>' : "<span>🔗 to'g'ridan</span>") +
+      (t.is_active ? "" : '<span class="mus-warn">🙈 yashirin</span>') +
+      "</div></div>" +
+      '<div class="mus-acts">' +
+      '<button class="mus-btn" data-mv="up" data-key="' + esc(t.key) + '"' +
+      (i === 0 ? " disabled" : "") + ' aria-label="Yuqoriga">↑</button>' +
+      '<button class="mus-btn" data-mv="down" data-key="' + esc(t.key) + '"' +
+      (i === list.length - 1 ? " disabled" : "") + ' aria-label="Pastga">↓</button>' +
+      '<button class="mus-btn" data-eye="' + esc(t.key) + '" aria-label="Yashirish">' +
+      (t.is_active ? "👁" : "🙈") + "</button>" +
+      '<button class="mus-btn mus-del" data-del="' + esc(t.key) + '" aria-label="O\'chirish">🗑</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindMusic() {
+    document.querySelectorAll("#mus-list [data-mv]").forEach((btn) => {
+      btn.onclick = () => moveTrack(btn.dataset.key, btn.dataset.mv === "up" ? -1 : 1);
+    });
+    document.querySelectorAll("#mus-list [data-eye]").forEach((btn) => {
+      btn.onclick = () => toggleTrack(btn.dataset.eye);
+    });
+    document.querySelectorAll("#mus-list [data-del]").forEach((btn) => {
+      btn.onclick = () => deleteTrack(btn.dataset.del);
+    });
+  }
+
+  /** Mijoz tomonidagi ro'yxatni ham yangilaydi (tugma holati bilan). */
+  function freshenMusic() {
+    if (app().reloadMusic) app().reloadMusic();
+  }
+
+  /* Tartibni o'zgartirish: ikki trekni almashtirib, `sort` ni QAYTADAN
+     raqamlaymiz (0, 10, 20...). Nega qayta raqamlash: bulutdagi eski
+     yozuvlarda `sort` ning hammasi 0 bo'lishi mumkin — o'sha holatda
+     joyini almashtirish HECH NARSA o'zgartirmasdi. Bo'sh oraliq (10)
+     kelajakda oraga qo'shish uchun joy qoldiradi. */
+  async function moveTrack(key, delta) {
+    if (S.busy) return;
+    const list = S.music || [];
+    const at = list.findIndex((t) => t.key === key);
+    const to = at + delta;
+    if (at === -1 || to < 0 || to >= list.length) return;
+
+    haptic("light");
+    const next = list.slice();
+    next[at] = list[to];
+    next[to] = list[at];
+
+    // Ekranda DARHOL ko'rinadi — tarmoq javobini kutib turmaydi
+    const before = list.slice();
+    next.forEach((t, i) => (t.sort = i * 10));
+    S.music = next;
+    renderMusic();
+
+    S.busy = true;
+    try {
+      // Faqat `sort` haqiqatan o'zgargan yozuvlar yoziladi
+      const writes = next
+        .map((t, i) => ({ t: t, sort: i * 10 }))
+        .filter((w) => {
+          const old = before.find((b) => b.key === w.t.key);
+          return !old || old.sort !== w.sort;
+        });
+      for (const w of writes) {
+        await fb().patch(MUSIC_P + "/" + w.t.key, { sort: w.sort });
+      }
+      freshenMusic();
+    } catch (err) {
+      // Yozilmadi — ekranni ESKI holatga qaytaramiz, aks holda admin
+      // tartib saqlangan deb o'ylab qolardi.
+      S.music = before;
+      renderMusic();
+      toast((err && err.message) || "Tartib saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /** 👁 — trekni vaqtincha o'chiradi (yozuv qoladi, keyin qaytarish mumkin). */
+  async function toggleTrack(key) {
+    const t = (S.music || []).find((x) => x.key === key);
+    if (!t || S.busy) return;
+    const next = !t.is_active;
+    haptic();
+    S.busy = true;
+    try {
+      await fb().patch(MUSIC_P + "/" + key, { is_active: next ? 1 : 0 });
+      t.is_active = next;
+      renderMusic();
+      freshenMusic();
+      toast(next ? "✅ Yoqildi" : "🙈 Yashirildi");
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /** 🗑 — «o'chirilgan» belgisi qo'yiladi (yozuv qoladi, tarix buzilmaydi).
+   *  Tovarlar bilan bir xil mantiq: `deleted: true`. */
+  async function deleteTrack(key) {
+    const t = (S.music || []).find((x) => x.key === key);
+    if (!t || S.busy) return;
+    const ok = await ask("«" + t.title + "» o'chirilsinmi?");
+    if (!ok) return;
+    S.busy = true;
+    try {
+      await fb().patch(MUSIC_P + "/" + key, { deleted: true });
+      S.music = (S.music || []).filter((x) => x.key !== key);
+      haptic("success");
+      renderMusic();
+      freshenMusic();
+      toast("🗑 O'chirildi");
+    } catch (err) {
+      toast((err && err.message) || "O'chirilmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ==================================================================
      TASHQI INTERFEYS (app.js va admin.js ko'prigi)
      ================================================================== */
   const crm = () => window.ZimmerCRM;
@@ -3257,7 +3999,15 @@ window.ZimmerShop = (function () {
       renderMenu();
       return true;
     }
-    if (S.view === "add" || S.view === "edit" || S.view === "inventory" || S.view === "orders") {
+    if (
+      S.view === "add" ||
+      S.view === "edit" ||
+      S.view === "inventory" ||
+      S.view === "orders" ||
+      S.view === "music" ||
+      S.view === "banners" ||
+      S.view === "banner-form"
+    ) {
       renderMenu();
       return true;
     }
@@ -3272,6 +4022,8 @@ window.ZimmerShop = (function () {
     // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim
     // do'kon buyurtmalariga qaytarib yuborardi).
     if (S.view === "orders") return openKind(S.ordKind || "order");
+    if (S.view === "music") return openMusic();
+    if (S.view === "banners" || S.view === "banner-form") return openBanners();
     if (S.view === "add") return openAdd();
     return open();
   }

@@ -9216,3 +9216,149 @@ textarea:focus-visible,
 .toast-undo:focus-visible {
   outline-color: #fff;
 }
+
+
+/* ==========================================================================
+   BOSH SAHIFA BOSHQARUVI — BANNERLAR VA FON MUSIQASI (admin paneli)
+
+   Ikki ekran bir xil tuzilishga ega (ro'yxat + qatordagi amal tugmalari),
+   shuning uchun tugmalar uslubi UMUMIY (`.mus-btn`): ikki nusxa saqlansa
+   biri o'zgarib, ikkinchisi eskirib qolardi.
+   ========================================================================== */
+
+/* Menyu plitkalari */
+.shop-hero-ban .shop-hero-ic { color: #8ab4ff; }
+.shop-hero-music .shop-hero-ic { color: #ff9ecb; }
+
+/* -------------------------------------------------- qatordagi amal tugmalari */
+.mus-btn {
+  width: 34px; height: 34px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text); font-size: 14px; line-height: 1;
+  transition: transform 0.15s, background 0.2s, opacity 0.2s;
+}
+.mus-btn:active { transform: scale(0.9); }
+/* O'chirilgan tugma (ro'yxat boshi/oxiri) — bosilmasligi KO'RINIB turadi */
+.mus-btn:disabled { opacity: 0.28; cursor: default; }
+.mus-btn:disabled:active { transform: none; }
+.mus-del { color: var(--red); border-color: rgba(255, 45, 58, 0.34); }
+
+/* ------------------------------------------------------------ musiqa ro'yxati */
+.mus-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.mus-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--line);
+}
+/* Yashirilgan trek — xira, lekin o'qiladi (qaytarish tugmasi kerak) */
+.mus-card.is-off { opacity: 0.5; }
+.mus-num {
+  width: 24px; flex: none; text-align: center;
+  font-size: 13px; font-weight: 800; color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.mus-mid { flex: 1; min-width: 0; }
+.mus-mid b {
+  display: block; font-size: 13.5px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mus-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 3px; }
+.mus-meta span { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.mus-meta .mus-warn { color: var(--amber); }
+.mus-acts { display: flex; gap: 5px; flex: none; }
+
+/* ---------------------------------------------------------- banner ro'yxati */
+.ban-list { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+.ban-card {
+  border-radius: var(--r-lg); overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.ban-card.is-off { opacity: 0.5; }
+
+/* Kichik ko'rinish — bosh sahifadagi banner bilan BIR XIL qurilgan
+   (gradient -> rasm -> qorayish -> matn), faqat ixchamroq. Shu tufayli
+   admin natijani taxmin qilmaydi. Nisbat 8:3 — haqiqiy banner kabi. */
+.ban-prev {
+  position: relative; overflow: hidden;
+  aspect-ratio: 8 / 3; min-height: 108px;
+  padding: 14px; display: flex; flex-direction: column; justify-content: flex-end;
+}
+.ban-prev img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ban-prev-shade {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.72));
+}
+.ban-prev-tag {
+  align-self: flex-start; position: relative; z-index: 2; margin-bottom: auto;
+  background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+  padding: 3px 9px; border-radius: 999px;
+}
+.ban-prev-t {
+  position: relative; z-index: 2; color: #fff;
+  font-size: 16px; font-weight: 900; letter-spacing: -0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ban-prev-s {
+  position: relative; z-index: 2; color: rgba(255, 255, 255, 0.82);
+  font-size: 11.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Formadagi jonli ko'rinish — chegara bilan ajratilgan */
+.ban-prev.is-live { border-radius: var(--r-lg); border: 1px solid var(--line-2); }
+
+.ban-acts {
+  display: flex; align-items: center; gap: 5px;
+  padding: 10px 12px; border-top: 1px solid var(--line);
+}
+.ban-num {
+  flex: 1; font-size: 12px; font-weight: 800; color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------- banner rasm yuklagichi */
+.ban-drop {
+  position: relative; overflow: hidden;
+  aspect-ratio: 8 / 3; min-height: 108px; width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; cursor: pointer;
+  border-radius: var(--r-lg); border: 1.5px dashed var(--line-2);
+  background: var(--surface-2); color: var(--muted);
+  transition: border-color 0.2s, background 0.2s;
+}
+.ban-drop:active { border-color: var(--gold); }
+.ban-drop-ic { font-size: 28px; }
+.ban-drop b { font-size: 13.5px; font-weight: 800; color: var(--text); }
+.ban-drop i { font-size: 10.5px; font-style: normal; color: var(--dim); }
+.ban-drop.has-img { border-style: solid; cursor: default; }
+.ban-drop.has-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ban-drop.is-busy { border-style: solid; }
+.ban-prog { position: relative; z-index: 2; text-align: center; }
+.ban-prog b {
+  display: block; font-size: 22px; font-weight: 900; color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.ban-prog span { font-size: 11px; color: var(--muted); }
+
+.ban-drop-x,
+.ban-drop-swap {
+  position: absolute; z-index: 3; cursor: pointer;
+  border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.55); color: #fff; font-family: inherit;
+}
+.ban-drop-x {
+  top: 10px; right: 10px; width: 30px; height: 30px;
+  font-size: 14px; line-height: 1;
+}
+.ban-drop-swap {
+  bottom: 10px; right: 10px; padding: 7px 12px;
+  font-size: 11.5px; font-weight: 700;
+}
+.ban-drop-x:active,
+.ban-drop-swap:active { transform: scale(0.92); }
+
+@media (prefers-reduced-motion: reduce) {
+  .mus-btn:active, .ban-drop-x:active, .ban-drop-swap:active { transform: none; }
+}
