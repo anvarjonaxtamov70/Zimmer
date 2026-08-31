@@ -9522,3 +9522,162 @@ textarea:focus-visible,
   .sg-fab-ic,
   .sg-fab-glow { animation: none; }
 }
+
+
+
+/* ==========================================================================
+   NAVBATLAR DOSKASI (docs/js/admin-shop.js -> openBookingsBoard)
+
+   Mijoz olgan navbatlar KETMA-KETLIGI. Ikki tizim (fara / chexol) segment
+   bilan almashadi, navbatlar vaqt bo'yicha vertikal timeline'da chiziladi.
+   Premium qora + qizil/tilla tema; animatsiyalar bir martalik va
+   `prefers-reduced-motion` hurmat qilinadi (blok oxirida).
+   ========================================================================== */
+
+/* Menyudagi doska tugmasi — tilla urg'u (boshqa tugmalardan ajralib tursin) */
+.shop-hero-board .shop-hero-ic { color: var(--gold); }
+
+/* Navbat holati belgilari (ro'yxatda ham, doskada ham ishlatiladi) */
+.ord-pill.is-confirmed { background: rgba(47, 212, 95, 0.14); color: var(--green); }
+.ord-pill.is-done { background: rgba(212, 168, 83, 0.16); color: var(--gold); }
+
+/* ---- TIZIM TANLAGICH (segment) ---- */
+.bkb-seg {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;
+}
+.bkb-seg-btn {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  text-align: left; padding: 13px 13px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: transform 0.18s var(--spring), border-color 0.2s, background 0.2s, box-shadow 0.25s;
+}
+.bkb-seg-btn:active { transform: scale(0.97); }
+.bkb-seg-ic {
+  font-size: 22px; line-height: 1; flex-shrink: 0;
+  filter: grayscale(0.4) opacity(0.7); transition: filter 0.25s;
+}
+.bkb-seg-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bkb-seg-tx b { font-size: 13.5px; font-weight: 800; letter-spacing: 0.1px; }
+.bkb-seg-tx i {
+  font-style: normal; font-size: 10.5px; color: var(--dim); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bkb-seg-n {
+  position: absolute; top: 8px; right: 9px;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 800;
+  line-height: 19px; text-align: center; box-shadow: 0 2px 8px rgba(255, 45, 58, 0.5);
+}
+.bkb-seg-btn.is-on {
+  background: linear-gradient(160deg, rgba(255, 45, 58, 0.14), rgba(255, 45, 58, 0.03));
+  border-color: var(--red-glow);
+  box-shadow: 0 6px 22px rgba(255, 45, 58, 0.14), inset 0 0 0 1px rgba(255, 45, 58, 0.12);
+}
+.bkb-seg-btn.is-on .bkb-seg-ic { filter: none; }
+.bkb-seg-btn.is-on .bkb-seg-tx b { color: #ff6b61; }
+
+.bkb-filters { margin-bottom: 6px; }
+
+/* ---- TIMELINE (ketma-ketlik) ---- */
+.bkb-line { position: relative; padding-top: 2px; }
+.bkb-day {
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--gold); margin: 6px 0 10px; padding-left: 2px;
+  display: flex; align-items: center; gap: 8px;
+}
+.bkb-day::after {
+  content: ""; flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--gold-glow), transparent);
+}
+.bkb-node {
+  position: relative; display: grid; grid-template-columns: 18px 54px 1fr;
+  gap: 10px; align-items: start; padding-bottom: 12px;
+  animation: bkbNodeIn 0.5s var(--silk) both; animation-delay: var(--d, 0ms);
+}
+.bkb-rail { position: relative; display: flex; justify-content: center; padding-top: 3px; }
+.bkb-rail::before {
+  content: ""; position: absolute; left: 50%; top: 4px; bottom: -14px; width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(var(--line-2), rgba(255, 255, 255, 0.03));
+}
+.bkb-node:last-child .bkb-rail::before { display: none; }
+.bkb-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; z-index: 1;
+  background: var(--dim); box-shadow: 0 0 0 4px var(--bg);
+  animation: bkbDotPop 0.4s var(--bounce) both; animation-delay: var(--d, 0ms);
+}
+.bkb-dot.is-new {
+  background: var(--red); box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px rgba(255, 45, 58, 0.18);
+  animation: bkbDotPop 0.4s var(--bounce) both, bkbPulse 2.4s ease-in-out infinite 0.6s;
+}
+.bkb-dot.is-confirmed {
+  background: var(--green); box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px rgba(47, 212, 95, 0.18);
+}
+.bkb-dot.is-done { background: var(--gold); box-shadow: 0 0 0 4px var(--bg); }
+.bkb-dot.is-cancelled { background: var(--muted); box-shadow: 0 0 0 4px var(--bg); opacity: 0.6; }
+
+.bkb-when { text-align: right; padding-top: 1px; }
+.bkb-when b { display: block; font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: 0.3px; }
+.bkb-when i { font-style: normal; font-size: 10px; color: var(--dim); font-weight: 600; }
+
+/* ---- NAVBAT KARTOCHKASI ---- */
+.bkb-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--line-2); border-radius: var(--r-sm);
+  padding: 11px 13px; box-shadow: var(--shadow-card);
+}
+.bkb-card.is-new { border-left-color: var(--red); }
+.bkb-card.is-confirmed { border-left-color: var(--green); }
+.bkb-card.is-done { border-left-color: var(--gold); opacity: 0.92; }
+.bkb-card.is-cancelled { border-left-color: var(--muted); opacity: 0.6; }
+.bkb-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bkb-svc { font-size: 13.5px; font-weight: 800; color: var(--text); min-width: 0; }
+.bkb-who {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 9px;
+}
+.bkb-who b { font-size: 13px; font-weight: 700; color: var(--text); }
+.bkb-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.bkb-act {
+  flex: 1; min-width: 120px; border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text); cursor: pointer;
+  padding: 10px 12px; font-size: 12.5px; font-weight: 700; font-family: inherit;
+  transition: transform 0.15s var(--spring), background 0.2s, border-color 0.2s;
+}
+.bkb-act:active { transform: scale(0.97); }
+.bkb-act:not(.is-danger) {
+  background: var(--red-soft); border-color: var(--red-glow); color: #ff6b61;
+}
+.bkb-act.is-danger { background: var(--surface-2); color: var(--muted); }
+
+/* ---- BO'SH HOLAT ---- */
+.bkb-empty {
+  text-align: center; padding: 46px 20px; color: var(--muted);
+  animation: fadeUp 0.5s var(--silk) both;
+}
+.bkb-empty-ic {
+  font-size: 40px; opacity: 0.35; margin-bottom: 12px;
+  filter: grayscale(0.5);
+}
+.bkb-empty p { font-size: 14px; font-weight: 700; color: var(--text); margin: 0 0 5px; }
+.bkb-empty i { font-style: normal; font-size: 12px; color: var(--dim); }
+
+@keyframes bkbNodeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bkbDotPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+@keyframes bkbPulse {
+  0%, 100% { box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px rgba(255, 45, 58, 0.18); }
+  50% { box-shadow: 0 0 0 4px var(--bg), 0 0 0 9px rgba(255, 45, 58, 0.02); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bkb-node, .bkb-dot, .bkb-empty { animation: none !important; }
+  .bkb-seg-btn { transition: none; }
+}
