@@ -254,9 +254,15 @@ _STOP_WORDS = frozenset(
 # o'zgartirsa ham bog'liqlik saqlanadi.
 _THEME_HINTS: dict[str, tuple[str, ...]] = {
     "polish": ("xira", "sarg", "sarig", "polirov", "yaltir", "matlash", "xiralash", "tusi ketgan"),
-    "clean": ("bug'", "bug ", "namlik", "suv kir", "ho'l", "terlagan", "ichi kir", "chang", "tozala", "germet"),
+    "clean": (
+        "bug'", "bug ", "namlik", "suv kir", "ho'l", "terlagan",
+        "ichi kir", "chang", "tozala", "germet",
+    ),
     "glass": ("shisha", "yoril", "darz", "singan", "sinib", "chok"),
-    "biled": ("linza", "bi-led", "biled", "bi led", "yorug", "nur", "xenon", "ksenon", "ko'rmaydi", "xira yoq"),
+    "biled": (
+        "linza", "bi-led", "biled", "bi led", "yorug", "nur",
+        "xenon", "ksenon", "ko'rmaydi", "xira yoq",
+    ),
     "wheel": ("rul", "shturval"),
     "seat": ("o'rindiq", "orindiq", "sidenya", "chexol", "chehol"),
     "tint": ("tanirov", "tonirov", "plyonka oyna", "oyna qorayt"),

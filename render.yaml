@@ -14,7 +14,8 @@ services:
     plan: free                 # bepul tarif (karta talab qilinmaydi)
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
-    healthCheckPath: /health   # Render tiriklikni shu manzildan tekshiradi
+    healthCheckPath: /ready    # Tayyorlik: baza javob berayaptimi (SELECT 1).
+                               # `/health` (liveness) va `/metrics` ham bor.
     autoDeploy: true           # GitHub'ga push bo'lsa — o'zi qayta deploy qiladi
     envVars:
       # ——— MAJBURIY maxfiy qiymatlar (Render panelida kiritiladi) ———

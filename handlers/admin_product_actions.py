@@ -9,10 +9,11 @@ Avto_A1 style product card'larining callback handlerlar:
 """
 
 import logging
-from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, Message
+
+from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from config import is_admin
 from database import queries as q
@@ -118,7 +119,7 @@ async def process_stock_update(message: Message, state: FSMContext, bot: Bot):
     except ValueError:
         await message.answer("❌ Faqat raqam kiriting")
         return
-    
+
     data = await state.get_data()
     product_id = data.get("product_id")
 
@@ -208,7 +209,7 @@ async def product_toggle_callback(callback: CallbackQuery, bot: Bot):
                     admin_view=True,
                     show_purchase=False,
                 )
-        
+
         new_state = not product.get("is_active", True)
         status = "faollashtirildi ✅" if new_state else "o'chirildi ⏸"
         await callback.answer(f"Mahsulot {status}", show_alert=False)
@@ -227,8 +228,8 @@ async def product_delete_callback(callback: CallbackQuery):
         return
 
     # Tasdiq tugmalari
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
@@ -241,7 +242,7 @@ async def product_delete_callback(callback: CallbackQuery):
             ),
         ]
     ])
-    
+
     await callback.message.answer(
         f"⚠️ <b>Mahsulotni o'chirish</b>\n\n"
         f"<b>{product.get('name')}</b>\n"
@@ -315,7 +316,7 @@ async def product_approve_callback(callback: CallbackQuery, bot: Bot):
     if not product.get("is_draft"):
         await callback.answer("✅ Mahsulot allaqachon tasdiqlangan", show_alert=False)
         return
-    
+
     success = await fb_prod.set_draft_status(product_id, is_draft=False)
 
     if success:
@@ -349,7 +350,7 @@ async def product_approve_callback(callback: CallbackQuery, bot: Bot):
                     admin_view=True,
                     show_purchase=False,
                 )
-        
+
         await callback.answer("✅ Mahsulot tasdiqlandi va do'konda ko'rinadi", show_alert=False)
     else:
         await callback.answer("❌ Tasdiqlashda xatolik", show_alert=True)
@@ -359,7 +360,7 @@ async def product_approve_callback(callback: CallbackQuery, bot: Bot):
 async def product_edit_callback(callback: CallbackQuery):
     """Mahsulotni tahrirlash (hozircha oddiy xabar)."""
     product_id = int(callback.data.split(":")[1])
-    
+
     await callback.answer(
         f"📝 Mahsulot ID: {product_id}\n\n"
         f"Tahrirlash funktsiyasi keyinroq qo'shiladi.\n"

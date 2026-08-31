@@ -185,7 +185,11 @@ async def _run(message: Message, db_user, content) -> None:
     history = ai.trim_history(talk.messages)
 
     prompt = await ai_brain.system_prompt(user_id, name)
-    messages = [{"role": "system", "content": prompt}, *history, {"role": "user", "content": content}]
+    messages = [
+        {"role": "system", "content": prompt},
+        *history,
+        {"role": "user", "content": content},
+    ]
 
     # Rasmli so'rov — «ko'radigan» modelga
     is_image = isinstance(content, list)
@@ -219,7 +223,7 @@ async def _typing(message: Message, stop: asyncio.Event) -> None:
                 return
             try:
                 await asyncio.wait_for(stop.wait(), timeout=4.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
     except asyncio.CancelledError:
         return
