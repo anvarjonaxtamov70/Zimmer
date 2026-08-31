@@ -94,6 +94,13 @@ html, body {
   overscroll-behavior-y: contain;
   /* #4 — silliq skroll */
   scroll-behavior: smooth;
+  /* Zoom o'chirilgan: `manipulation` double-tap zoom'ni o'chiradi, lekin
+     oddiy bosishni (click) buzmaydi. Pinch zoom index.html dagi JS bilan
+     to'xtatiladi. Matn o'lchami tizim sozlamasidan kattalashib ilovani
+     buzmasin uchun `text-size-adjust: 100%`. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .hidden { display: none !important; }
