@@ -18,3 +18,4 @@ env/
 .vscode/
 .DS_Store
 *.log
+semantic-review/
