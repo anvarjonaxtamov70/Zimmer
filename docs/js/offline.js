@@ -373,6 +373,28 @@
     return externalUrl(urlValue) || mediaUrl(fileId);
   }
 
+  /* RTDB bo'sh kataklari bor massivni LUG'AT qilib beradi
+     (`{"0":{...},"2":{...}}`). Ikki shaklni ham tekislaymiz. */
+  function listOf(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object") return Object.keys(raw).map(function (k) { return raw[k]; });
+    return [];
+  }
+
+  /** Razmerlar: `[{size:"H4", stock:3}]`. Nomsiz qatorlar tashlanadi. */
+  function toSizes(raw) {
+    return listOf(raw)
+      .filter(function (s) {
+        return s && typeof s === "object" && String(s.size || "").trim();
+      })
+      .map(function (s) {
+        return {
+          size: String(s.size).trim(),
+          stock: Math.max(0, Number(s.stock) || 0),
+        };
+      });
+  }
+
   /** SQLite qatorini `/api/home` dagi mahsulot shakliga keltiradi. */
   function toProduct(r) {
     var images = [
@@ -381,6 +403,25 @@
       photo(r.photo3_url, r.photo3_id),
     ].filter(Boolean);
 
+    /* RAZMERLAR. `product_type` bo'lmasa ham `sizes` to'la bo'lishi mumkin
+       (eski yozuv) — shu holatda ham razmerli deb ko'rsatamiz, aks holda
+       admin kiritgan razmerlar mijozga umuman ko'rinmay qolardi. */
+    var sizes = toSizes(r.sizes);
+    var sized = r.product_type === "razmerli" || sizes.length > 0;
+
+    /* MOS MASHINALAR. Admin paneli ko'p tanlovni `carNames` massivida
+       yozadi; eski tovarlarda esa bitta `carName` bor. Ikkisi ham bitta
+       ro'yxatga keltiriladi — mijoz tomoni bitta maydonni o'qiydi. */
+    var carNames = listOf(r.carNames)
+      .map(function (v) {
+        return String(v == null ? "" : v).trim();
+      })
+      .filter(Boolean);
+    if (!carNames.length) {
+      var one = String(r.carName || r.car_name || "").trim();
+      if (one) carNames = [one];
+    }
+
     return {
       id: r.id,
       name: r.name || "",
@@ -388,14 +429,24 @@
       price: Number(r.price) || 0,
       old_price: r.old_price ? Number(r.old_price) : null,
       badge: r.badge || null,
-      stock: Number(r.stock) || 0,
+      /* Umumiy qoldiq. Razmerli tovarda bu razmer qoldiqlarining
+         YIG'INDISI — shu sababli savat, «Tugagan» belgisi va buyurtma
+         tekshiruvi hech qanday o'zgarishsiz ishlaydi. Bulutdagi `stock`
+         eskirgan bo'lishi mumkin (bot sinxroni), shuning uchun razmerlar
+         bor bo'lsa yig'indiga ISHONAMIZ. */
+      stock: sized ? sizes.reduce(function (s, x) { return s + x.stock; }, 0) : Number(r.stock) || 0,
+      /* Tovar turi va razmerlar ro'yxati — tovar oynasidagi razmer
+         tanlagichi shu ikkisiga qarab chiziladi. */
+      product_type: sized ? "razmerli" : "oddiy",
+      sizes: sizes,
       /* Kafolat muddati — admin panelda har tovarga alohida qo'yiladi
          («1 yil», «3 oy», «19 kun»). Bo'lmasa `null` va mijoz tomonida
          kafolat satri umuman chizilmaydi. */
       warranty: r.warranty || null,
-      /* Mashina NOMI (admin panel `carName` deb yozadi). Tovar oynasidagi
-         xususiyatlar jadvalida ko'rsatiladi. */
-      car_name: r.carName || r.car_name || null,
+      /* Mashina NOMI — birinchisi (eski `car_name` maydoni bilan mos).
+         To'liq ro'yxat `car_names` da. */
+      car_name: carNames[0] || null,
+      car_names: carNames,
       car_id: r.car_id == null ? null : r.car_id,
       price_label: priceLabel(r.price),
       old_price_label: r.old_price ? priceLabel(r.old_price) : null,
@@ -850,6 +901,39 @@
          ko'rinmaydi va mijoz hech qanday xato ko'rmaydi. */
       return { tracks: [] };
     }
+  }
+
+  /** Bulutdagi trek HOLATI — o'chirilgan/yashirilgan/tartib.
+   *
+   *  `music()` dan farqi: bu yerda HECH QANDAY filtr yo'q. Sabab —
+   *  chaqiruvchiga aynan «bu trek o'chirilgan» degan MA'LUMOT kerak, filtr
+   *  esa uni yashirib qo'yardi va o'chirilgan trek serverdagi ro'yxatdan
+   *  chiqarilmasdi (`app.js: fetchMusicTracks`).
+   *
+   *  `readNode()` o'chirilganlarni tashlab ketmaydi — filtr `rows()` da,
+   *  shuning uchun bu yerda XOM tugun o'qiladi. */
+  async function musicState() {
+    var node = await readNode("music");
+    if (!node) return [];
+    var out = [];
+    var keys = Array.isArray(node)
+      ? node.map(function (_, i) { return i; })
+      : Object.keys(node);
+    keys.forEach(function (k) {
+      var r = node[k];
+      if (!r || typeof r !== "object") return;
+      out.push({
+        id: r.id === undefined ? (isNaN(+k) ? k : +k) : r.id,
+        title: r.title || "",
+        audio_url: r.audio_url || "",
+        audio_id: r.audio_id || "",
+        duration: Number(r.duration) || 0,
+        sort: Number(r.sort) || 0,
+        is_active: r.is_active,
+        deleted: !!r.deleted,
+      });
+    });
+    return out;
   }
 
   /* ---- Umumiy kesh (bosh sahifa keshi alohida — u `save`/`cached`) ----
@@ -1426,6 +1510,8 @@
           name: String(i.name || ""),
           price: Number(i.price) || 0,
           qty: Number(i.qty) || 1,
+          // Razmerli tovar: Worker buyurtma qatoriga `size` yozadi (v1.6.0+)
+          size: i.size ? String(i.size) : null,
         };
       });
   }
@@ -1497,6 +1583,8 @@
     tuning: tuning,
     services: services,
     music: music,
+    /** Admin paneli va `loadMusic()` uchun: XOM holat (filtrsiz). */
+    musicState: musicState,
     // Navbat va Bi-LED — bazaga to'g'ridan
     bookingDates: bookingDates,
     bookingSlots: bookingSlots,

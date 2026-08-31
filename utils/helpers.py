@@ -161,6 +161,27 @@ def esc(value) -> str:
     return html_escape(value)
 
 
+def size_tag(item) -> str:
+    """Buyurtma qatorining razmer yorlig'i: `" [H4]"` yoki bo'sh satr.
+
+    NEGA ALOHIDA FUNKSIYA
+    Razmerli tovarlar buyurtma qatorlari BEShTA joyda chiziladi (bot admin
+    paneli, mijozning buyurtmalari, Mini App API, sinxron xabari). Har
+    birida shartni qaytadan yozsak, bittasi qolib ketadi va admin aynan
+    o'sha ekranda razmerni ko'rmay qoladi. Shu sababli yagona joyda.
+
+    `item` — `aiosqlite.Row` yoki lug'at bo'lishi mumkin: ikkisi ham
+    `item["size"]` ni qo'llaydi, lekin Row'da yo'q ustun IndexError beradi
+    (lug'atda esa KeyError), shuning uchun ikkisini ham tutamiz.
+    """
+    try:
+        value = item["size"]
+    except (KeyError, IndexError, TypeError):
+        return ""
+    text = str(value).strip() if value else ""
+    return f" <b>[{html_escape(text)}]</b>" if text else ""
+
+
 def user_link(full_name: str, username: str | None, user_id: int) -> str:
     """Mijozga havola. Ism HTML uchun tozalanadi."""
     name = html_escape(full_name) or "Mijoz"

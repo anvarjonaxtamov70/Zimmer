@@ -706,7 +706,16 @@ async def _put_order(order, items_list) -> bool:
             "total": order["total"],
             "status": order["status"],
             "items": [
-                {"name": i["name"], "price": i["price"], "qty": i["qty"]} for i in items_list
+                {
+                    "name": i["name"],
+                    "price": i["price"],
+                    "qty": i["qty"],
+                    # Razmerli tovar: bulutdagi zaxira nusxada ham razmer
+                    # qolishi kerak, aks holda Render tozalangandan keyin
+                    # tiklangan buyurtmada razmer yo'qolardi.
+                    "size": (i["size"] if "size" in i.keys() and i["size"] else None),
+                }
+                for i in items_list
             ],
             "createdAt": int(time.time() * 1000),
         },
@@ -1306,6 +1315,12 @@ async def import_pending_orders(bot=None) -> int:
                             "name": str(line.get("name") or "Mahsulot")[:200],
                             "price": int(line.get("price") or 0),
                             "qty": max(1, int(line.get("qty") or 1)),
+                            # Razmerli tovar: Worker `size` yozadi (v1.6.0+).
+                            # Bu yerda tashlab ketilsa admin Telegram'da
+                            # qaysi razmer buyurtma qilinganini KO'RMAY qoladi.
+                            "size": (
+                                str(line.get("size"))[:40] if line.get("size") else None
+                            ),
                         }
                     )
                 except (TypeError, ValueError):
@@ -1356,8 +1371,12 @@ async def import_pending_orders(bot=None) -> int:
                     # ichidagi `<` butun xabarni Telegram'ga rad ettiradi va
                     # admin buyurtmani KO'RMAY qolardi.
                     goods = "\n".join(
-                        f"• {html_escape(ln['name'])} × {ln['qty']}"
-                        f" = {fmt_price(ln['price'] * ln['qty'])}"
+                        f"• {html_escape(ln['name'])}"
+                        # Razmer nom yonida — admin javondan to'g'ri
+                        # razmerni darhol topadi
+                        + (f" <b>[{html_escape(ln['size'])}]</b>" if ln.get("size") else "")
+                        + f" × {ln['qty']}"
+                        + f" = {fmt_price(ln['price'] * ln['qty'])}"
                         for ln in lines
                     )
                     await notify_admins(

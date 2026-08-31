@@ -169,6 +169,26 @@ window.ZimmerFB = (function () {
     return nextId("stories_counter");
   }
 
+  /** Banner uchun id (`banners_counter`).
+   *
+   *  ZAXIRA YO'L: `banners_counter` — QOIDALARGA yangi qo'shilgan tugun.
+   *  Firebase Console'dagi qoidalar hali yangilanmagan bo'lsa sanoqchiga
+   *  yozish 401/403 bilan rad etiladi. O'sha holatda banner qo'shish
+   *  UMUMAN ishlamay qolishi kerak emas — vaqt asosida id beramiz
+   *  (takrorlanish ehtimoli amalda nolga teng, chunki bitta admin bir
+   *  millisekundda ikki banner qo'sha olmaydi). */
+  async function nextBannerId() {
+    try {
+      return await nextId("banners_counter");
+    } catch (err) {
+      if (err && err.code === "rules") {
+        console.warn("[fb] banners_counter yopiq — vaqt asosidagi id ishlatiladi");
+        return ID_BASE + (Date.now() % 1000000);
+      }
+      throw err;
+    }
+  }
+
   return {
     available: available,
     get: get,
@@ -180,6 +200,7 @@ window.ZimmerFB = (function () {
     increment: increment,
     nextProductId: nextProductId,
     nextStoryId: nextStoryId,
+    nextBannerId: nextBannerId,
     ID_BASE: ID_BASE,
     _url: url,
   };

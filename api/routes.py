@@ -27,6 +27,7 @@ from utils.helpers import (
     html_escape,
     normalize_phone,
     short_date_label,
+    size_tag,
     today_iso,
     user_link,
 )
@@ -36,6 +37,21 @@ from utils.ui import notify_admins
 logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
+
+
+def _row_size(row) -> str | None:
+    """Buyurtma qatoridagi razmer (bo'lmasa None).
+
+    `order_items.size` MIGRATSIYA bilan qo'shilgan ustun. Eski baza hali
+    yangilanmagan bo'lsa `aiosqlite.Row` da bunday kalit yo'q va u
+    IndexError beradi — javobni butunlay yiqitmaslik uchun tutamiz.
+    """
+    try:
+        value = row["size"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    text = str(value).strip() if value else ""
+    return text or None
 
 # Kirish ma'lumoti chegaralari. Ilgari `items` va `address` uchun YUQORI
 # chegara yo'q edi — mijoz minglab qator yoki juda uzun matn yuborib
@@ -1061,7 +1077,7 @@ async def api_create_order(request: web.Request) -> web.Response:
     order_items = await q.get_order_items(order_id)
     await sync.push_order(order, order_items)
     lines = [
-        f"• {html_escape(item['name'])} × {item['qty']}"
+        f"• {html_escape(item['name'])}{size_tag(item)} × {item['qty']}"
         f" = {fmt_price(int(item['price']) * int(item['qty']))}"
         for item in order_items
     ]
@@ -1146,6 +1162,9 @@ async def api_my_orders(request: web.Request) -> web.Response:
                         "qty": int(item["qty"]),
                         "price": int(item["price"]),
                         "price_label": fmt_price(item["price"]),
+                        # Razmerli tovar: Mini App «Buyurtmalarim» da
+                        # razmer ko'rinishi kerak (razmersizda `None`).
+                        "size": _row_size(item),
                     }
                     for item in items
                 ],

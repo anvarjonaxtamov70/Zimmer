@@ -1899,6 +1899,9 @@
       // to'siq ekraniga TUSHMAYDI.
       if (window.ZimmerOffline && !S.offline) ZimmerOffline.save(S.home);
 
+      // Tepadagi ❤️ tugmasi ustidagi son — saqlanganlar o'qilgandan KEYIN
+      paintSavedDot(S.favorites ? S.favorites.size : 0);
+
       // Yuklangan vaqt — `isHomeStale()` shundan hisoblaydi
       S.homeAt = Date.now();
 
@@ -2844,30 +2847,131 @@
     } catch (_) {}
   };
 
-  /** Treklarni bir marta yuklaydi. */
+  /* ==================================================================
+     TREKLARNI YUKLASH — IKKI MANBANI BIRLASHTIRIB
+
+     NEGA SHUNDAY MURAKKAB
+     Musiqa ikki joyda yashaydi va HAR BIRIDA boshqa narsa bor:
+
+       • RENDER (`/api/music`, SQLite) — HAVOLA bor. Bot orqali
+         qo'shilgan trek Telegram `file_id` bilan saqlanadi va uni
+         brauzer o'qiy olmaydi; Render esa `/api/media/...` proksisi
+         bilan eshittirib beradi. Ya'ni havola faqat shu manbada.
+
+       • FIREBASE (`catalog/music`) — HOLAT bor: `deleted`, `is_active`,
+         `sort`. Admin paneli aynan shu tugunga yozadi (brauzerdan
+         to'g'ridan — tovar va stories bilan bir xil model).
+
+     Ilgari onlayn holatda FAQAT Render o'qilardi. Natijada admin
+     panelda trekni o'chirsa yoki tartibini o'zgartirsa — mijozlarda
+     HECH NARSA o'zgarmasdi (SQLite bu haqda bilmaydi va uni faqat bot
+     restart bo'lganda biladi).
+
+     Endi: HAVOLA Render'dan, HOLAT Firebase'dan. Ikkisidan bittasi
+     yiqilsa ham musiqa ishlashda davom etadi.
+     ================================================================== */
   async function loadMusic() {
     if (MU.loaded) return MU.tracks;
     MU.loaded = true;
+    MU.tracks = await fetchMusicTracks();
+    if (!Array.isArray(MU.tracks)) MU.tracks = [];
+    return MU.tracks;
+  }
+
+  async function fetchMusicTracks() {
+    // Bulutdagi holat (o'chirilgan / yashirilgan / tartib) — HAR DOIM kerak
+    const cloud = window.ZimmerOffline && ZimmerOffline.musicState
+      ? await ZimmerOffline.musicState().catch(() => null)
+      : null;
+
+    /* Zaxira rejimda Render umuman yo'q — bulutdagi tashqi havolali
+       treklar bilan cheklanamiz (`ZimmerOffline.music()` shuni beradi). */
+    if (S.offline) {
+      try {
+        const res = await ZimmerOffline.music();
+        return (res && res.tracks) || [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    let server = [];
     try {
-      const res = S.offline
-        ? await ZimmerOffline.music()
-        : await api("/api/music");
-      MU.tracks = (res && res.tracks) || [];
+      const res = await api("/api/music");
+      server = (res && res.tracks) || [];
     } catch (_) {
       /* Server javob bermadi — bulutdan urinamiz. Bulut yo'lida faqat
          tashqi havolali treklar bo'ladi (`file_id` ni brauzer o'qiy
          olmaydi), shuning uchun ro'yxat bo'sh chiqishi ham normal. */
       try {
-        if (window.ZimmerOffline && ZimmerOffline.music) {
-          const res = await ZimmerOffline.music();
-          MU.tracks = (res && res.tracks) || [];
-        }
+        const res = await ZimmerOffline.music();
+        return (res && res.tracks) || [];
       } catch (_) {
-        MU.tracks = [];
+        return [];
       }
     }
-    if (!Array.isArray(MU.tracks)) MU.tracks = [];
-    return MU.tracks;
+
+    // Bulut o'qilmadi — serverdagi ro'yxatni o'zgarishsiz qaytaramiz
+    if (!cloud || !cloud.length) return server;
+
+    const state = new Map();
+    cloud.forEach((r) => state.set(String(r.id), r));
+
+    const merged = server
+      .filter((t) => {
+        const st = state.get(String(t.id));
+        // Bulutda yozuv yo'q bo'lsa TO'SMAYMIZ: bot yangi trek qo'shgan,
+        // sinxron esa hali yetib bormagan bo'lishi mumkin.
+        if (!st) return true;
+        return !st.deleted && st.is_active !== 0 && st.is_active !== false;
+      })
+      .map((t) => {
+        const st = state.get(String(t.id));
+        return Object.assign({}, t, { sort: st ? Number(st.sort) || 0 : Number(t.sort) || 0 });
+      });
+
+    /* Bulutda BOR, serverda YO'Q treklar: admin panel orqali havola bilan
+       qo'shilgan bo'lishi mumkin (SQLite hali ko'chirmagan). Faqat tashqi
+       https havolali bo'lsa qo'shamiz — aks holda ochilmaydigan manzil. */
+    const known = new Set(server.map((t) => String(t.id)));
+    cloud.forEach((r) => {
+      if (known.has(String(r.id))) return;
+      if (r.deleted || r.is_active === 0 || r.is_active === false) return;
+      const url = String(r.audio_url || "");
+      if (!/^https?:\/\//i.test(url)) return;
+      merged.push({
+        id: r.id,
+        title: r.title || "Fon musiqasi",
+        url: url,
+        external: true,
+        duration: Number(r.duration) || 0,
+        sort: Number(r.sort) || 0,
+      });
+    });
+
+    merged.sort((a, b) => (a.sort || 0) - (b.sort || 0) || (Number(a.id) || 0) - (Number(b.id) || 0));
+    return merged;
+  }
+
+  /** Admin panel musiqani o'zgartirgandan keyin chaqiriladi:
+   *  ro'yxat qaytadan o'qiladi va tugma holati moslashtiriladi. */
+  async function reloadMusic() {
+    const wasOn = MU.on;
+    MU.loaded = false;
+    MU.tracks = await loadMusic();
+    // Eshitilayotgan trek o'chirilgan bo'lishi mumkin — indeksni tiklaymiz
+    if (MU.index >= MU.tracks.length) MU.index = 0;
+    if (!MU.tracks.length) {
+      if (MU.el) {
+        try {
+          MU.el.pause();
+        } catch (_) {}
+      }
+      MU.on = false;
+    } else if (wasOn) {
+      playCurrent();
+    }
+    paintMusicBtn();
   }
 
   /** `<audio>` elementini yasaydi (faqat bir marta). */
@@ -3049,6 +3153,8 @@
       setTimeout(() => button.classList.remove("pop", "burst"), 520);
     }
     haptic(wasSaved ? "light" : "medium");
+    // Tepadagi ❤️ tugmasi ustidagi son darhol o'zgaradi
+    paintSavedDot(S.favorites.size);
 
     // Zaxira rejim: server yo'q — faqat mahalliy xotiraga yozamiz.
     // Server tiklanganda mijoz yuraklarni qaytadan bosishi kerak bo'lmasin
@@ -3068,12 +3174,14 @@
       if (res.saved) S.favorites.add(product.id);
       else S.favorites.delete(product.id);
       if (button) button.classList.toggle("on", !!res.saved);
+      paintSavedDot(S.favorites.size);
       toast(res.saved ? "Saqlanganlarga qo'shildi ❤️" : "Saqlanganlardan olindi");
     } catch (err) {
       // Xato bo'lsa — orqaga qaytaramiz, yolg'on ko'rsatmaymiz
       if (wasSaved) S.favorites.add(product.id);
       else S.favorites.delete(product.id);
       if (button) button.classList.toggle("on", wasSaved);
+      paintSavedDot(S.favorites.size);
       onError(err);
     }
   }
@@ -3103,6 +3211,7 @@
     box.innerHTML = "";
     empty.classList.toggle("hidden", items.length > 0);
     animateStat("pf-stat-saved", items.length);
+    paintSavedDot(items.length);
 
     items.forEach((p) => {
       const row = el("div", "saved-row");
@@ -3118,7 +3227,8 @@
       add.disabled = p.stock < 1;
       add.title = "Savatchaga";
       add.onclick = () => {
-        addToCart(p, 1, add);
+        // Razmerli tovar: `quickAdd` oynani ochadi (razmer tanlanishi shart)
+        quickAdd(p, add);
         add.textContent = "✓";
         setTimeout(() => (add.textContent = "➕"), 1100);
       };
@@ -3293,8 +3403,17 @@
     const name = normText(p.name);
     const code = normText(p.code);
     const cat = normText(catName);
+    /* MASHINA NOMLARI va RAZMERLAR ham indeksga kiradi.
+       Sabab: mijoz «damas linza» yoki «h4» deb yozadi — bu so'zlar tovar
+       NOMIDA bo'lmasligi mumkin, lekin aynan shu tovar kerak. Ilgari
+       qidiruv hech narsa topmasdi. */
+    const cars = Array.isArray(p.car_names) ? p.car_names : [];
+    const sizes = sizesOf(p).map((s) => s.size);
     const rest = normText(
-      [p.brand, p.model, p.badge, p.description, p.desc].filter(Boolean).join(" ")
+      [p.brand, p.model, p.badge, p.description, p.desc]
+        .concat(cars, sizes, [p.car_name])
+        .filter(Boolean)
+        .join(" ")
     );
     const all = [name, code, cat, rest].filter(Boolean).join(" ");
 
@@ -3411,6 +3530,42 @@
     return score;
   }
 
+  /* ==================================================================
+     «MASHINAMGA MOS» — IKKI MANBANI BIRLASHTIRIB TEKSHIRISH
+
+     Tovarning mashinasi ikki xil ko'rinishda kelishi mumkin:
+
+       • `car_id`     — SQLite/Render yo'li (bitta mashina, raqamli id);
+       • `car_names`  — Mini App admin paneli yo'li (KO'P mashina, NOMLAR).
+
+     Nomlar ishlatilishining sababi: Firebase'da bog'lanish nom bilan
+     saqlanadi, chunki deploy orasida id'lar o'zgaradi (izohni
+     `offline.js: home()` da ko'ring).
+
+     Tovarda mashina UMUMAN ko'rsatilmagan bo'lsa — u UNIVERSAL va har
+     doim mos. Bu ataylab: aks holda filtr katalogning yarmini yashirib
+     qo'yardi va mijoz «hech narsa yo'q» deb chiqib ketardi.
+     ================================================================== */
+  /** Tovarga biron mashina bog'langanmi? (yo'q bo'lsa — universal) */
+  function hasCarLink(product) {
+    const names = Array.isArray(product.car_names) ? product.car_names.filter(Boolean) : [];
+    return names.length > 0 || product.car_id != null;
+  }
+
+  function fitsMyCar(product, myCarId, myCarName) {
+    const names = Array.isArray(product.car_names) ? product.car_names.filter(Boolean) : [];
+    if (!hasCarLink(product)) return true; // universal
+
+    if (names.length && myCarName) {
+      const mine = String(myCarName).trim().toLowerCase();
+      if (names.some((n) => String(n).trim().toLowerCase() === mine)) return true;
+    }
+    if (product.car_id != null && myCarId != null) {
+      if (Number(product.car_id) === Number(myCarId)) return true;
+    }
+    return false;
+  }
+
   /** Filtrlangan va saralangan tovarlar ro'yxati.
    *
    *  `S.shopFuzzy` — natija faqat TAXMINIY moslik bilan topilganini
@@ -3421,6 +3576,7 @@
     const query = normText(S.shopQ);
     const terms = query.split(" ").filter(Boolean);
     const myCarId = S.me && S.me.car ? S.me.car.id : null;
+    const myCarName = S.me && S.me.car ? S.me.car.name : null;
 
     /* Qidiruvdan BOSHQA filtrlar. Ular ikki bosqichda ham bir xil
        qo'llanadi, shuning uchun alohida ajratilgan. */
@@ -3429,8 +3585,13 @@
       if (S.shopInStock && stockOf(p) <= 0) return false;
       /* «Mashinamga mos»: tovarda mashina ko'rsatilmagan bo'lsa u
          UNIVERSAL hisoblanadi va ro'yxatda qoladi — aks holda filtr
-         katalogning yarmini behuda yashirib qo'yardi. */
-      if (S.shopMyCar && myCarId && p.car_id && Number(p.car_id) !== Number(myCarId)) {
+         katalogning yarmini behuda yashirib qo'yardi.
+
+         KO'P MASHINA: admin bitta tovarga bir necha mashina belgilashi
+         mumkin (`car_names`). Ilgari faqat SQLite'dagi bitta `car_id`
+         solishtirilardi va Mini App orqali kiritilgan tovarlarda u
+         umuman bo'lmasdi — ya'ni filtr ular uchun ISHLAMASDI. */
+      if (S.shopMyCar && (myCarId || myCarName) && !fitsMyCar(p, myCarId, myCarName)) {
         return false;
       }
       return true;
@@ -3752,7 +3913,25 @@
       esc(mainName) +
       "</div>" +
       carHint +
-      (p.car_id ? '<div class="prod-fit">✓ Mashinangizga mos</div>' : "") +
+      /* «✓ Mashinangizga mos» — faqat HAQIQATAN mos bo'lsa.
+         Ilgari shart `p.car_id ? ...` edi, ya'ni tovarda BIRON mashina
+         belgilangan bo'lsa yozuv chiqardi — mijozning mashinasi butunlay
+         boshqa bo'lsa ham. Endi tovar universal bo'lmasa VA mijozning
+         mashinasi ro'yxatda bo'lsa chiqadi. */
+      (S.me && S.me.car && hasCarLink(p) && fitsMyCar(p, S.me.car.id, S.me.car.name)
+        ? '<div class="prod-fit">✓ Mashinangizga mos</div>'
+        : "") +
+      /* Razmerli tovar — kartochkada BILINIB turishi kerak: mijoz «Savatga»
+         ni bosib «razmerni tanlang» degan xabarga duch kelmasin. */
+      (isSized(p)
+        ? '<div class="prod-sizes">📐 ' +
+          sizesOf(p)
+            .filter((s) => s.stock > 0)
+            .slice(0, 5)
+            .map((s) => esc(s.size))
+            .join(" · ") +
+          "</div>"
+        : "") +
       '<div class="prod-cost"><b>' +
       esc(p.price_label || fmt(p.price)) +
       "</b>" +
@@ -3815,6 +3994,10 @@
     btn.onclick = (ev) => {
       ev.stopPropagation();
       if (out) return;
+      /* RAZMERLI TOVAR: to'g'ridan savatga tushmaydi — `quickAdd` oynani
+         ochib «razmerni tanlang» deydi. Aks holda mijoz razmerini
+         ko'rsatmagan buyurtma yuborardi. */
+      if (isSized(p)) return quickAdd(p, btn);
       addToCart(p, 1, btn);
       btn.classList.add("added");
       btn.innerHTML = '<span class="prod-add-ico">✓</span><span class="prod-add-tx">Qo\'shildi</span>';
@@ -3839,7 +4022,7 @@
          tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
        * TEZ O'TISH PLITKALARI (`#hm-quick`) — «Konfigurator», «Navbat»
          va «Shogird». Uchalasi boshqa joyda bor: birinchi ikkisi
-         «🛠 Xizmatlar» bo'limida, Shogird esa pastdagi menyuda. Ular
+         «🛠 Xizmatlar» bo'limida, Shogird esa tepadagi «🎓» tugmasida. Ular
          bilan birga `bindQuickActions()` va `refreshQuickBadges()` ham
          ketdi — ikkinchisi allaqachon hech narsa qilmasdi, lekin
          `saveCart()` va `loadHome()` dan chaqirilib turardi.
@@ -3871,7 +4054,7 @@
     add.style.marginTop = "12px";
     add.disabled = p.stock < 1;
     add.onclick = () => {
-      addToCart(p, 1, add);
+      quickAdd(p, add);
       closeSheet();
     };
 
@@ -4001,19 +4184,91 @@
     setTimeout(cleanup, 700);
   }
 
-  function addToCart(product, qty, sourceEl) {
+  /* ==================================================================
+     RAZMERLI TOVARLAR (Avto_A1 modeli)
+
+     Bitta tovar ichida bir necha razmer bo'lishi mumkin (H4/H7/H11,
+     2.5"/3", S/M/L) va HAR BIRINING O'Z QOLDIG'I bor. Admin ularni
+     panelda kiritadi (`admin-shop.js`), mijoz esa tovar oynasida
+     tanlaydi.
+
+     ASOSIY QOIDA: tovarning umumiy `stock` maydoni razmer qoldiqlarining
+     YIG'INDISIGA teng. Shu sababli katalog, «Tugagan» belgisi, saralash
+     va Worker'ning buyurtma tekshiruvi HECH QANDAY o'zgarishsiz ishlaydi
+     — razmer faqat QO'SHIMCHA o'lcham.
+     ================================================================== */
+
+  /** Tovarning razmerlar ro'yxati (har doim massiv qaytaradi). */
+  function sizesOf(product) {
+    const raw = product && product.sizes;
+    const list = Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === "object"
+        ? Object.values(raw)
+        : [];
+    return list
+      .filter((s) => s && typeof s === "object" && String(s.size || "").trim())
+      .map((s) => ({
+        size: String(s.size).trim(),
+        stock: Math.max(0, Number(s.stock) || 0),
+      }));
+  }
+
+  /** Tovar razmerlimi? (`product_type` bo'lmasa razmerlar borligiga qaraydi) */
+  function isSized(product) {
+    if (!product) return false;
+    if (product.product_type === "razmerli") return sizesOf(product).length > 0;
+    return sizesOf(product).length > 0;
+  }
+
+  /** Aynan shu razmerning qoldig'i. Razmer berilmasa — umumiy qoldiq. */
+  function sizeStock(product, size) {
+    if (!size) return stockOf(product);
+    const row = sizesOf(product).find((s) => s.size === size);
+    return row ? row.stock : 0;
+  }
+
+  /* Savat qatorining KALITI. Ilgari savat faqat `id` bo'yicha yig'ilardi —
+     razmerli tovarda bu «H4 dan 2 ta» va «H7 dan 1 ta» ni bitta qatorga
+     qo'shib yuborardi va mijoz qaysi razmerni buyurtma qilganini
+     ko'rsatib ham, o'zgartirib ham bo'lmasdi. */
+  const cartKey = (item) => String(item.id) + "\u0001" + (item.size || "");
+
+  /** Kartochkadagi tez «+» tugmasi. Razmerli tovarda razmer tanlanishi
+   *  SHART, shuning uchun to'g'ridan savatga qo'shmaymiz — oynani ochamiz. */
+  function quickAdd(product, sourceEl) {
+    if (isSized(product)) {
+      openProductModal(product);
+      return toast("📐 Razmerni tanlang");
+    }
+    addToCart(product, 1, sourceEl);
+  }
+
+  function addToCart(product, qty, sourceEl, size) {
     const want = Math.max(1, parseInt(qty, 10) || 1);
-    const found = S.cart.find((i) => i.id === product.id);
+    const pick = size ? String(size) : null;
+
+    // Razmerli tovar razmersiz savatga tushmasligi kerak: aks holda admin
+    // buyurtmani ko'rib «qaysi razmer?» deb mijozga qayta qo'ng'iroq qiladi.
+    if (isSized(product) && !pick) {
+      haptic("warn");
+      return toast("📐 Avval razmerni tanlang");
+    }
+
+    const found = S.cart.find(
+      (i) => String(i.id) === String(product.id) && (i.size || null) === pick
+    );
     const have = found ? found.qty : 0;
-    const stock = stockOf(product);
+    // Razmerli tovarda chegara — AYNAN shu razmerning qoldig'i
+    const stock = pick ? sizeStock(product, pick) : stockOf(product);
 
     if (stock <= 0) {
       haptic("warn");
-      return toast("Bu tovar hozir tugagan");
+      return toast(pick ? `«${pick}» razmeri tugagan` : "Bu tovar hozir tugagan");
     }
     if (have + want > stock) {
       haptic("warn");
-      return toast(`Omborda ${stock} dona bor`);
+      return toast(pick ? `«${pick}» dan ${stock} dona bor` : `Omborda ${stock} dona bor`);
     }
 
     if (found) found.qty += want;
@@ -4024,6 +4279,7 @@
         price: product.price,
         qty: want,
         stock: stock,
+        size: pick, // razmersiz tovarda `null`
         photo_url: product.photo_url || null, // savat qatorida rasm ko'rsatish uchun
       });
     saveCart();
@@ -4089,6 +4345,11 @@
           <div class="cart-thumb">${photo ? img(photo) : "💡"}</div>
           <div class="cart-info">
             <h4>${esc(item.name)}</h4>
+            ${
+              /* Razmer — savatda KO'RINISHI shart. Mijoz o'zi tekshiradi,
+                 admin esa buyurtmada aynan shu razmerni oladi. */
+              item.size ? `<span class="cart-size">📐 ${esc(item.size)}</span>` : ""
+            }
             <span class="cart-price">${esc(fmt(item.price * item.qty))}</span>
             ${
               /* Bittadan ko'p bo'lsa DONA NARXI ham yoziladi. Ilgari faqat
@@ -4113,9 +4374,11 @@
           </div>
         </div>
         <div class="swipe-delete" title="O'chirish">🗑</div>`;
-      row.querySelector('[data-act="minus"]').onclick = () => changeQty(item.id, -1);
-      row.querySelector('[data-act="plus"]').onclick = () => changeQty(item.id, 1);
-      row.querySelector(".swipe-delete").onclick = () => removeCartItem(item.id);
+      // Kalit `id` + razmer: bir tovarning ikki razmeri ikki ALOHIDA qator
+      const key = cartKey(item);
+      row.querySelector('[data-act="minus"]').onclick = () => changeQty(key, -1);
+      row.querySelector('[data-act="plus"]').onclick = () => changeQty(key, 1);
+      row.querySelector(".swipe-delete").onclick = () => removeCartItem(key);
       box.append(row);
     });
 
@@ -4159,22 +4422,24 @@
     renderCartProgress(total);
   }
 
-  /** Savat qatorini butunlay o'chiradi (swipe → 🗑). */
-  function removeCartItem(id) {
-    const index = S.cart.findIndex((i) => i.id === id);
+  /** Savat qatorini butunlay o'chiradi (swipe → 🗑).
+   *  `key` — `cartKey()` dan (id + razmer), sof `id` EMAS. */
+  function removeCartItem(key) {
+    const index = S.cart.findIndex((i) => cartKey(i) === key);
     if (index < 0) return;
     const removed = S.cart[index];
 
-    S.cart = S.cart.filter((i) => i.id !== id);
+    S.cart = S.cart.filter((i) => cartKey(i) !== key);
     haptic("light");
     saveCart();
     renderCart();
 
     /* «Qaytarish» — noto'g'ri surib o'chirish oson bo'lgani uchun.
        Tovar AYNAN o'z joyiga qaytariladi (oxiriga emas). */
-    toast(`${removed.name || "Tovar"} o'chirildi`, {
+    const label = removed.name + (removed.size ? " (" + removed.size + ")" : "");
+    toast(`${label || "Tovar"} o'chirildi`, {
       undo: () => {
-        if (S.cart.some((i) => i.id === removed.id)) return; // qayta qo'shilgan
+        if (S.cart.some((i) => cartKey(i) === key)) return; // qayta qo'shilgan
         S.cart.splice(Math.min(index, S.cart.length), 0, removed);
         saveCart();
         renderCart();
@@ -4234,19 +4499,27 @@
     requestAnimationFrame(step);
   }
 
-  function changeQty(id, delta) {
-    const item = S.cart.find((i) => i.id === id);
+  /** `key` — `cartKey()` dan (id + razmer), sof `id` EMAS. */
+  function changeQty(key, delta) {
+    const item = S.cart.find((i) => cartKey(i) === key);
     if (!item) return;
     // `stockOf()` — `item.stock` noma'lum bo'lsa 0 deb hisoblanadi va
     // ko'paytirish to'xtatiladi (ilgari `NaN` solishtirish sababli o'tardi).
+    // Razmerli qatorda `item.stock` AYNAN o'sha razmerning qoldig'i.
     const stock = stockOf(item);
     if (delta > 0 && item.qty + 1 > stock) {
       haptic("warn");
-      return toast(stock > 0 ? `Omborda ${stock} dona bor` : "Bu tovar tugagan");
+      return toast(
+        stock > 0
+          ? item.size
+            ? `«${item.size}» dan ${stock} dona bor`
+            : `Omborda ${stock} dona bor`
+          : "Bu tovar tugagan"
+      );
     }
     item.qty += delta;
     haptic(delta > 0 ? "light" : "light");
-    if (item.qty < 1) S.cart = S.cart.filter((i) => i.id !== id);
+    if (item.qty < 1) S.cart = S.cart.filter((i) => cartKey(i) !== key);
     saveCart();
     renderCart();
   }
@@ -5046,7 +5319,14 @@
         const res = await api("/api/orders", {
           method: "POST",
           body: {
-            items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
+            /* `size` — razmerli tovarda buyurtmaga qo'shiladi, aks holda
+               admin «qaysi razmer?» deb mijozga qayta qo'ng'iroq qilardi.
+               Razmersiz tovarda `undefined` — JSON'ga umuman tushmaydi. */
+            items: S.cart.map((i) => ({
+              product_id: i.id,
+              qty: i.qty,
+              size: i.size || undefined,
+            })),
             address: S.delivery.address,
             phone: (S.me && S.me.phone) || "",
             delivery_method: S.delivery.method,
@@ -5127,9 +5407,15 @@
         removed.push(item.name || "Tovar");
         return;
       }
-      const stock = Number(p.stock) || 0;
+      /* RAZMERLI TOVAR: qoldiq AYNAN o'sha razmerdan olinadi. Admin
+         «H4» ni tugatib, «H7» ni to'ldirgan bo'lsa — umumiy qoldiq
+         musbat bo'lib turadi, lekin mijozning savatidagi H4 endi yo'q.
+         Ilgari bunday qator savatda qolib, buyurtma bergandagina
+         «yetarli emas» xatosi chiqardi (sababi tushunarsiz). */
+      const label = (p.name || item.name) + (item.size ? " (" + item.size + ")" : "");
+      const stock = item.size ? sizeStock(p, item.size) : Number(p.stock) || 0;
       if (stock <= 0) {
-        removed.push(p.name || item.name);
+        removed.push(label);
         return;
       }
       const price = Number(p.price) || 0;
@@ -5139,13 +5425,14 @@
         price: price,
         qty: item.qty,
         stock: stock,
+        size: item.size || null,
         photo_url: p.photo_url || null,
       };
       if (next.qty > stock) {
         next.qty = stock;
-        changed.push(next.name);
+        changed.push(label);
       } else if (Number(item.price) !== price) {
-        changed.push(next.name);
+        changed.push(label);
       }
       kept.push(next);
     });
@@ -5362,6 +5649,7 @@
     }
     // "Saqlangan" endi alohida bo'lim — bu yerda faqat sonini ko'rsatamiz
     animateNum("pf-stat-saved", S.favorites ? S.favorites.size : 0);
+    paintSavedDot(S.favorites ? S.favorites.size : 0);
     renderAddrHint();
 
     // Ilgari bu yerda «Server uyg'onmoqda» izohi bor edi va to'liq rejimga
@@ -5487,7 +5775,7 @@
       total: o.total || 0,
       total_label: o.total_label || fmt(o.total),
       status: o.status || "new",
-      items: (o.items || []).map((i) => ({ name: i.name, qty: i.qty })),
+      items: (o.items || []).map((i) => ({ name: i.name, qty: i.qty, size: i.size || null })),
       delivery_info: o.delivery_info || "",
       payment_method: o.payment_method || "",
     }));
@@ -5887,7 +6175,9 @@
         const qty = Number(i.qty) || 1;
         const price = Number(i.price) || 0;
         return (
-          `<div class="ord-good"><span>${esc(i.name || "Tovar")}</span>` +
+          `<div class="ord-good"><span>${esc(i.name || "Tovar")}` +
+          // Razmerli tovar: mijoz qaysi razmerni olganini KO'RISHI kerak
+          `${i.size ? ` <em class="ord-size">${esc(i.size)}</em>` : ""}</span>` +
           `<i>×${qty}</i>${price ? `<b>${esc(fmt(price * qty))}</b>` : ""}</div>`
         );
       })
@@ -6106,13 +6396,25 @@
         return;
       }
       const want = Math.max(1, Number(it.qty) || 1);
-      const found = S.cart.find((c) => c.id === p.id);
-      const have = found ? found.qty : 0;
-      const room = Math.max(0, (Number(p.stock) || 0) - have);
+      /* RAZMER. Eski buyurtmada razmer bo'lsa uni SAQLAB qaytaramiz —
+         mijoz «Qayta buyurtma» ni bosganda o'sha razmerni kutadi. Razmer
+         o'sha paytdan beri tugagan bo'lishi mumkin, shuning uchun qoldiq
+         AYNAN o'sha razmerdan tekshiriladi. */
+      const size = String((it.size == null ? "" : it.size)).trim() || null;
+      const valid = size && sizesOf(p).some((s) => s.size === size) ? size : null;
+      const room = Math.max(
+        0,
+        (valid ? sizeStock(p, valid) : Number(p.stock) || 0) -
+          (S.cart.find((c) => String(c.id) === String(p.id) && (c.size || null) === valid)?.qty || 0)
+      );
       if (room <= 0) {
         limited++;
         return;
       }
+      const found = S.cart.find(
+        (c) => String(c.id) === String(p.id) && (c.size || null) === valid
+      );
+      const have = found ? found.qty : 0;
       const take = Math.min(want, room);
       if (take < want) limited++;
       if (found) found.qty = have + take;
@@ -6122,7 +6424,8 @@
           name: p.name,
           price: p.price,
           qty: take,
-          stock: p.stock,
+          stock: valid ? sizeStock(p, valid) : p.stock,
+          size: valid,
           photo_url: p.photo_url || null,
         });
       added += take;
@@ -8353,11 +8656,11 @@
       if (me.is_admin) {
         const adminBtn = $("nav-admin");
         if (adminBtn) adminBtn.classList.remove("hidden");
-        /* Adminda tugma YETTITA bo'ladi («🎓 Shogird» qo'shilgandan
-           keyin). Yozuvlar sig'ishi uchun panel ixchamlashadi — aks
-           holda «Xizmatlar» va «Saqlangan» uch nuqtaga aylanardi. */
-        const nav = $("nav");
-        if (nav) nav.classList.add("is-wide");
+        /* Adminda tugma BESHTA bo'ladi (Asosiy · Xizmatlar · Savatcha ·
+           Kabinet · Admin). «🎓 Shogird» va «❤️ Saqlangan» tepa qatorga
+           ko'chgandan keyin `is-wide` ixchamlashtirishi KERAK EMAS: beshta
+           yozuv normal o'lchamda ham to'liq sig'adi. Ilgari yettita tugma
+           bor edi va yozuvlar uch nuqtaga aylanardi. */
       }
 
     // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
@@ -8428,6 +8731,10 @@
     abs: abs,
     apiBase: () => API,
     state: S,
+    /* Admin fon musiqasini o'chirsa/tartibini o'zgartirsa — ro'yxat
+       DARHOL qaytadan o'qiladi va 🔇 tugmasi holatga moslashadi
+       (oxirgi trek o'chirilsa tugma butunlay yashiriladi). */
+    reloadMusic: () => reloadMusic().catch(() => {}),
   };
 
   /* --------------------------------------------------------------- hodisa */
@@ -8498,6 +8805,28 @@
   };
   $("sg-reset").onclick = sgReset;
 
+  /* Shogird va Saqlanganlar endi pastdagi navigatsiyada EMAS — bosh
+     sahifaning tepa qatorida (`.home-acts`). Ular `.nav-btn` sinfiga ega
+     bo'lmagani uchun yuqoridagi umumiy bog'lovchi ularni tutmaydi. */
+  if ($("sg-open")) {
+    $("sg-open").onclick = () => {
+      haptic();
+      show("shogird");
+    };
+  }
+  if ($("saved-open")) {
+    $("saved-open").onclick = () => {
+      haptic();
+      show("saved");
+    };
+  }
+  if ($("saved-back")) {
+    $("saved-back").onclick = () => {
+      haptic();
+      show("home");
+    };
+  }
+
   $("sg-topics").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-sg-topic]");
     if (!btn) return;
@@ -8534,7 +8863,7 @@
     if (add) {
       const product = sgFindProduct(add.dataset.sgAdd);
       if (!product) return toast("Tovar topilmadi — katalogni yangilang");
-      addToCart(product, 1, add);
+      quickAdd(product, add);
       return toast("Savatga qo'shildi");
     }
   });
@@ -9408,6 +9737,8 @@
   let currentProduct = null;
   let currentImageIndex = 0;
   let modalQuantity = 1;
+  /** Tovar oynasida tanlangan razmer (razmersiz tovarda `null`). */
+  let modalSize = null;
 
 
   /** Mahsulotning barcha rasmlari — mutlaq manzillar ro'yxati (bo'sh bo'lishi mumkin).
@@ -9426,10 +9757,116 @@
     return out;
   }
 
+  /* ==================================================================
+     TOVAR OYNASIDAGI RAZMER TANLAGICHI
+
+     Chiplar tartibi admin kiritgan tartibda qoladi (alifbo bo'yicha
+     ARALASHTIRILMAYDI): «H1 H3 H4 H7» yoki «S M L XL» mantiqiy ketma-ket
+     turishi kerak, alifbo esa ularni buzadi.
+
+     Tugagan razmer YASHIRILMAYDI, xira ko'rsatiladi va bosilmaydi — mijoz
+     «bu razmer bor, lekin hozir yo'q» degan MA'LUMOTNI oladi, «bunday
+     razmer umuman ishlab chiqarilmaydi» degan xato taassurotni emas.
+     ================================================================== */
+  function renderModalSizes(product) {
+    const box = $("pm-sizes");
+    if (!box) return;
+    const sizes = sizesOf(product);
+
+    if (!sizes.length) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+
+    box.classList.remove("hidden");
+    box.innerHTML =
+      '<div class="pm-sizes-head">📐 Razmerni tanlang' +
+      '<i id="pm-size-hint">tanlanmadi</i></div>' +
+      '<div class="pm-size-chips" id="pm-size-chips">' +
+      sizes
+        .map(
+          (s) =>
+            '<button type="button" class="pm-size' +
+            (s.stock > 0 ? "" : " is-out") +
+            '" data-size="' + esc(s.size) + '"' +
+            (s.stock > 0 ? "" : " disabled") +
+            ">" + esc(s.size) +
+            (s.stock > 0 && s.stock <= 3 ? "<b>" + s.stock + "</b>" : "") +
+            "</button>"
+        )
+        .join("") +
+      "</div>";
+
+    box.querySelectorAll(".pm-size").forEach((btn) => {
+      btn.onclick = () => {
+        haptic("light");
+        modalSize = btn.dataset.size;
+        // Razmer almashtirilganda son 1 ga qaytadi: yangi razmerning
+        // qoldig'i kamroq bo'lishi mumkin va eski son yaroqsiz bo'lardi.
+        modalQuantity = 1;
+        $("pm-qty-val").textContent = modalQuantity;
+        box.querySelectorAll(".pm-size").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        paintModalStock();
+      };
+    });
+  }
+
+  /** Qoldiq satri + «Savatga qo'shish» tugmasi — tanlangan razmerga qarab. */
+  function paintModalStock() {
+    const product = currentProduct;
+    if (!product) return;
+    const stockEl = $("pm-stock");
+    const addBtn = $("pm-add-cart");
+    const sized = isSized(product);
+    // Razmer tanlangan bo'lsa AYNAN uning qoldig'i, aks holda umumiy
+    const stock = sized && modalSize ? sizeStock(product, modalSize) : stockOf(product);
+
+    if (stockEl) {
+      if (sized && !modalSize) {
+        // Razmer tanlanmaguncha aniq raqam ko'rsatish CHALKASHTIRADI
+        // («12 ta bor» deydi, tanlagan razmerida esa 1 ta bo'lib chiqadi).
+        const live = sizesOf(product).filter((s) => s.stock > 0).length;
+        stockEl.textContent = live ? `${live} razmer mavjud` : "Tugagan";
+        stockEl.className = live ? "pm-stock in-stock" : "pm-stock out-of-stock";
+      } else if (stock > 10) {
+        stockEl.textContent = "Omborda bor";
+        stockEl.className = "pm-stock in-stock";
+      } else if (stock > 0) {
+        stockEl.textContent = `${stock} ta qoldi`;
+        stockEl.className = "pm-stock low-stock";
+      } else {
+        stockEl.textContent = "Tugagan";
+        stockEl.className = "pm-stock out-of-stock";
+      }
+    }
+
+    const hint = $("pm-size-hint");
+    if (hint) {
+      hint.textContent = modalSize ? modalSize + " · " + stock + " ta bor" : "tanlanmadi";
+      hint.classList.toggle("on", !!modalSize);
+    }
+
+    if (addBtn) {
+      if (sized && !modalSize) {
+        addBtn.textContent = "Razmerni tanlang";
+        addBtn.disabled = true;
+      } else if (stock > 0) {
+        addBtn.textContent = "Savatga qo'shish";
+        addBtn.disabled = false;
+      } else {
+        addBtn.textContent = "Tugagan";
+        addBtn.disabled = true;
+      }
+    }
+  }
+
   function openProductModal(product) {
     currentProduct = product;
     currentImageIndex = 0;
     modalQuantity = 1;
+    modalSize = null; // razmer har ochilishda qaytadan tanlanadi
     
     const modal = $("productModal");
     const slider = $("pm-slider");
@@ -9488,20 +9925,12 @@
     $("pm-title").textContent = product.name;
     $("pm-price").textContent = product.price_label || fmt(product.price);
     
-    // Stock holati
-    const stockEl = $("pm-stock");
-    if (product.stock > 10) {
-      stockEl.textContent = "Omborda bor";
-      stockEl.className = "pm-stock in-stock";
-    } else if (product.stock > 0) {
-      stockEl.textContent = `${product.stock} ta qoldi`;
-      stockEl.className = "pm-stock low-stock";
-    } else {
-      stockEl.textContent = "Tugagan";
-      stockEl.className = "pm-stock out-of-stock";
-    }
-    
     $("pm-desc").textContent = product.description || "";
+
+    /* RAZMERLAR va QOLDIQ. Ikkisi bir-biriga bog'liq (tanlangan razmer
+       qoldiqni ham, tugmani ham o'zgartiradi), shuning uchun bitta joyda
+       chiziladi — `paintModalStock()`. */
+    renderModalSizes(product);
     
     /* XUSUSIYATLAR JADVALI
        Ilgari bu blok FAQAT `product.specs` ni o'qirdi, lekin bunday maydonni
@@ -9514,7 +9943,13 @@
     if (product.warranty) rows.push(["🛡 Kafolat", product.warranty]);
     if (product.code) rows.push(["🔖 Artikul", product.code]);
     if (product._cat) rows.push(["🗂 Turkum", product._cat]);
-    if (product.car_name) rows.push(["🚗 Mashina", product.car_name]);
+    /* MOS MASHINALAR — bittadan ko'p bo'lishi mumkin (admin panelda ko'p
+       tanlov bor). Ilgari faqat birinchisi ko'rinardi va mijoz «mening
+       Labomga to'g'ri kelmaydi shekilli» deb chiqib ketardi. */
+    const carList = Array.isArray(product.car_names) ? product.car_names.filter(Boolean) : [];
+    if (carList.length > 1) rows.push(["🚗 Mos mashinalar", carList.join(", ")]);
+    else if (carList.length === 1) rows.push(["🚗 Mashina", carList[0]]);
+    else if (product.car_name) rows.push(["🚗 Mashina", product.car_name]);
     if (product.specs && typeof product.specs === "object") {
       Object.entries(product.specs).forEach(([key, val]) => {
         if (val) rows.push([key, val]);
@@ -9535,16 +9970,9 @@
 
     // Quantity
     $("pm-qty-val").textContent = modalQuantity;
-    
-    // Savatga qo'shish tugmasi
-    const addBtn = $("pm-add-cart");
-    if (product.stock > 0) {
-      addBtn.textContent = "Savatga qo'shish";
-      addBtn.disabled = false;
-    } else {
-      addBtn.textContent = "Tugagan";
-      addBtn.disabled = true;
-    }
+
+    // Qoldiq belgisi va «Savatga qo'shish» tugmasi
+    paintModalStock();
     
     modal.classList.remove("hidden");
     
@@ -9929,10 +10357,24 @@
 
   function updateModalQuantity(delta) {
     if (!currentProduct) return;
+    const sized = isSized(currentProduct);
+    if (sized && !modalSize) {
+      haptic("warn");
+      return toast("📐 Avval razmerni tanlang");
+    }
     const newQty = modalQuantity + delta;
     if (newQty < 1) return;
-    if (newQty > currentProduct.stock) {
-      toast(`Omborda faqat ${currentProduct.stock} ta bor`);
+    /* Chegara — AYNAN tanlangan razmerning qoldig'i. Ilgari bu yerda
+       umumiy `currentProduct.stock` turardi: razmerli tovarda mijoz
+       yig'indi chegarasigacha ko'paytira olardi va buyurtma «yetarli
+       emas» xatosi bilan yiqilardi. */
+    const limit = sized ? sizeStock(currentProduct, modalSize) : stockOf(currentProduct);
+    if (newQty > limit) {
+      toast(
+        modalSize
+          ? `«${modalSize}» dan faqat ${limit} ta bor`
+          : `Omborda faqat ${limit} ta bor`
+      );
       return;
     }
     modalQuantity = newQty;
@@ -9941,9 +10383,18 @@
   }
 
   function addFromModal() {
-    if (!currentProduct || currentProduct.stock < 1) return;
-    
-    addToCart(currentProduct, modalQuantity, $("pm-add-cart"));
+    if (!currentProduct) return;
+    if (isSized(currentProduct)) {
+      if (!modalSize) {
+        haptic("warn");
+        return toast("📐 Avval razmerni tanlang");
+      }
+      if (sizeStock(currentProduct, modalSize) < 1) return;
+    } else if (stockOf(currentProduct) < 1) {
+      return;
+    }
+
+    addToCart(currentProduct, modalQuantity, $("pm-add-cart"), modalSize);
     
     // Success animatsiya
     const btn = $("pm-add-cart");
@@ -9951,7 +10402,7 @@
     btn.textContent = "✓ Qo'shildi!";
     btn.style.background = "linear-gradient(135deg, #2fd45f 0%, #1ea84a 100%)";
     
-    toast(`✅ ${modalQuantity} ta savatga qo'shildi`);
+    toast(`✅ ${modalSize ? modalSize + " · " : ""}${modalQuantity} ta savatga qo'shildi`);
     haptic("success");
     
     // Modalni yopish
@@ -9987,7 +10438,12 @@
 
       try {
         const res = await ZimmerOffline.createOrder({
-          items: S.cart.map((i) => ({ product_id: i.id, qty: i.qty })),
+          // Razmer — Worker uni buyurtma qatoriga yozadi (v1.6.0+)
+          items: S.cart.map((i) => ({
+            product_id: i.id,
+            qty: i.qty,
+            size: i.size || undefined,
+          })),
           address: S.delivery.address,
           phone: (S.me && S.me.phone) || "",
           full_name: (S.me && S.me.full_name) || "",
@@ -10075,7 +10531,9 @@
   /** Savat tarkibidan idempotent kalit — bir xil savat = bir xil kalit. */
   function orderKey() {
     const parts = S.cart
-      .map((i) => `${i.id}x${i.qty}`)
+      // Razmer ham kalitga kiradi: mijoz H4 ni H7 ga o'zgartirsa bu
+      // BOSHQA buyurtma — aks holda Worker uni «takror» deb rad etardi.
+      .map((i) => `${i.id}:${i.size || ""}x${i.qty}`)
       .sort()
       .join("|");
     let hash = 5381;
@@ -10231,6 +10689,21 @@
     const count = S.favorites ? S.favorites.size : 0;
     const obj = $("pf-stat-saved");
     if (obj) animateStat("pf-stat-saved", count);
+    paintSavedDot(count);
+  }
+
+  /** Tepadagi ❤️ tugmasi ustidagi son.
+   *
+   *  Saqlanganlar endi pastdagi navigatsiyada emas, shuning uchun «nechta
+   *  saqlangan» degan ma'lumot boshqa hech qayerda ko'rinmaydi (kabinetdagi
+   *  sanoqchi faqat kabinetga kirganda). Nol bo'lsa YASHIRILADI: bo'sh
+   *  doira e'tiborni behuda tortadi. */
+  function paintSavedDot(count) {
+    const dot = $("saved-dot");
+    if (!dot) return;
+    const n = Number(count) || 0;
+    dot.textContent = n > 99 ? "99+" : String(n);
+    dot.classList.toggle("hidden", n <= 0);
   }
 
   boot();

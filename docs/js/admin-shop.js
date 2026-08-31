@@ -76,7 +76,17 @@ window.ZimmerShop = (function () {
     ordKindPrev: null, // filtr almashinuvini kuzatish uchun
     ordFilter: "all", // all | new | run | done | cancelled
     catSel: null, // tanlangan kategoriya nomi
-    carSel: null, // tanlangan mashina id si (ixtiyoriy)
+    /* Tanlangan mashinalar — KO'P TANLOV (id lar massivi).
+       Ilgari bu `carSel` degan BITTA qiymat edi va shu sababli «Damas»
+       bilan «Labo» ga bir vaqtda mos tovarni kiritish MUMKIN EMASDI:
+       admin ikkinchisini bosganda birinchisi o'chib ketardi. Amalda esa
+       ko'p ehtiyot qism o'nlab mashinaga birdek to'g'ri keladi. */
+    carSels: [], // ["12","7"] — bo'sh bo'lsa UNIVERSAL
+    /* Tovar turi — Avto_A1 dagi mantiq.
+         oddiy     -> bitta umumiy qoldiq (`stock`)
+         razmerli  -> har razmerning O'Z qoldig'i (`sizes`) */
+    typeSel: "oddiy", // oddiy | razmerli
+    sizes: [], // [{size:"H4", stock:3}] — faqat `razmerli` uchun
     query: "", // ombor qidiruvi (nom / kod / kategoriya / mashina)
     selected: {}, // ombor ommaviy tanlovi {id:true}
     // ---- ombor (zaxira nazorati)
@@ -89,6 +99,9 @@ window.ZimmerShop = (function () {
     invTyping: null, // qidiruv debounce taymeri
     invIO: null, // IntersectionObserver (cheksiz skroll)
     orders: [],
+    // Bosh sahifa boshqaruvi: fon musiqasi va bannerlar ro'yxati
+    music: [], // [{key, id, title, sort, is_active, ...}]
+    banners: [], // [{key, id, title, subtitle, tag, photo_url, sort, ...}]
     busy: false,
   };
 
@@ -307,6 +320,16 @@ window.ZimmerShop = (function () {
         "Xizmatlar va narxlar",
         "Narx, kafolat, video va «Tez kunda»"
       ) +
+      "</div>" +
+      /* --- bosh sahifa ko'rinishi
+         Ilgari bannerlar va fon musiqasi panelda UMUMAN yo'q edi: banner
+         faqat Telegram boti orqali, musiqa esa faqat `/musiqa_del_12`
+         degan buyruq bilan boshqarilardi. Tartibini almashtirish imkoni
+         esa hech qayerda yo'q edi. */
+      '<div class="apx-sub">Bosh sahifa</div>' +
+      '<div class="shop-hero shop-hero-2">' +
+      tile("shop-banners", "shop-hero-ban", "🖼", "Bannerlar", "Rasm, tartib, o'chirish") +
+      tile("shop-music", "shop-hero-music", "🎵", "Fon musiqasi", "Tartib va o'chirish") +
       "</div>";
 
     const bind = (id, fn) => {
@@ -355,6 +378,9 @@ window.ZimmerShop = (function () {
       S.view = null;
       m.openEmbedded("srv");
     });
+
+    bind("shop-banners", openBanners);
+    bind("shop-music", openMusic);
 
     // Sanoqchilar FONDA yuklanadi — menyu darhol ochiladi.
     refreshBadges();
@@ -734,6 +760,9 @@ window.ZimmerShop = (function () {
         return (
           '<div class="ord-good"><span>' +
           esc(it.name || "Tovar") +
+          /* Razmerli tovar: admin javondan to'g'ri razmerni topishi uchun
+             nom yonida turadi. Razmersizda satr o'zgarmaydi. */
+          (it.size ? ' <em class="ord-size">' + esc(it.size) + "</em>" : "") +
           "</span><i>×" +
           qty +
           "</i>" +
@@ -1537,6 +1566,24 @@ window.ZimmerShop = (function () {
       (off ? ' <span class="lp-off">-' + off + "%</span>" : "") +
       "</div>" +
       (warranty ? '<div class="lp-war">🛡 ' + esc(warranty) + " kafolat</div>" : "") +
+      /* Razmerlar — mijoz kartochkani ochganda AYNAN shu chiplarni ko'radi.
+         Nomi yozilmagan qatorlar chizilmaydi (hali to'ldirilmoqda). */
+      (S.typeSel === "razmerli" && S.sizes.some((s) => s.size)
+        ? '<div class="lp-sizes">' +
+          S.sizes
+            .filter((s) => s.size)
+            .map(
+              (s) =>
+                '<span class="lp-size' + (Number(s.stock) > 0 ? "" : " is-out") + '">' +
+                esc(s.size) + "</span>"
+            )
+            .join("") +
+          "</div>"
+        : "") +
+      /* Mos mashinalar — ko'p tanlangan bo'lsa mijoz shu satrni ko'radi */
+      (selectedCarNames().length
+        ? '<div class="lp-cars">🚗 ' + esc(selectedCarNames().join(", ")) + "</div>"
+        : "") +
       "</div>" +
       (badge ? '<span class="lp-badge">' + esc(badge) + "</span>" : "") +
       "</div>";
@@ -1568,10 +1615,32 @@ window.ZimmerShop = (function () {
     }
     html += "</div>";
 
+    /* ---- TOVAR TURI (kategoriyadan KEYIN so'raladi)
+       Tartib ataylab shunday: admin avval «qaysi bo'limga» deb o'ylaydi,
+       keyin «bu razmerli tovarmi?» degan savolga javob beradi. Ikki savol
+       aralashib ketmasin. */
+    html +=
+      '<div class="apx-sub">Tovar turi</div>' +
+      '<div class="shop-chips" id="shop-types">' +
+      '<button type="button" class="cat-chip shop-type" data-type="oddiy">📦 Razmersiz</button>' +
+      '<button type="button" class="cat-chip shop-type" data-type="razmerli">📐 Razmerli</button>' +
+      "</div>" +
+      '<div class="apx-sale-note" id="shop-type-note"></div>';
+
+    html += "</div>"; // kategoriya + tur guruhi yopiladi
+
+    /* ---- RAZMERLAR — alohida guruh, faqat «razmerli» da ko'rinadi */
+    html += sizesBlock();
+
+    /* ---- MASHINALAR — KO'P TANLOV */
     if (S.cars.length) {
       html +=
-        '<div class="apx-sub">Mashina (ixtiyoriy)</div><div class="shop-chips" id="shop-cars">' +
-        '<button type="button" class="cat-chip shop-car" data-car="">🌐 Universal</button>' +
+        '<div class="admin-form-group"><div class="apx-head">' +
+        '<div class="apx-ic apx-ic-blue">🚗</div>' +
+        '<div class="apx-tx"><b>Mos mashinalar</b>' +
+        "<span>Nechtasini xohlasangiz belgilang</span></div></div>" +
+        '<div class="shop-chips" id="shop-cars">' +
+        '<button type="button" class="cat-chip shop-car is-all" data-car="">🌐 Universal (hammasi)</button>' +
         S.cars
           .map(
             (c) =>
@@ -1581,11 +1650,237 @@ window.ZimmerShop = (function () {
               esc(c.name) +
               "</button>"
           )
-          .join("");
-      html += "</div>";
+          .join("") +
+        "</div>" +
+        '<div class="apx-sale-note" id="shop-car-note"></div>' +
+        "</div>";
     }
-    html += "</div>";
     return html;
+  }
+
+  /* ==================================================================
+     RAZMERLI TOVAR (Avto_A1 modeli)
+
+     NEGA KERAK
+     Bitta «Bi-LED linza» nomi ostida 2.5" va 3" turadi; lampa H4, H7,
+     H11 bo'ladi. Ilgari admin ularni ALOHIDA tovar qilib kiritishga
+     majbur edi: bir xil rasm, bir xil tavsif, bir xil narx — faqat
+     nomining oxiri boshqa. Natijada do'konda bir xil kartochka besh
+     marta turardi va qoldiqni beshta joyda alohida yuritish kerak edi.
+
+     ENDI: bitta tovar, ichida razmerlar ro'yxati va HAR RAZMERNING O'Z
+     QOLDIG'I. Umumiy `stock` — razmer qoldiqlarining YIG'INDISI, shuning
+     uchun savat, buyurtma va «tugagan» belgisi hech qanday o'zgarishsiz
+     ishlashda davom etadi.
+     ================================================================== */
+
+  /* ------------------------------------------------------------------
+     RTDB MASSIVLARINI O'QISH
+
+     Realtime Database bo'sh kataklari bor massivni LUG'AT qilib qaytaradi
+     (`{"0": {...}, "2": {...}}`). Shuning uchun `Array.isArray()` bilan
+     tekshirish yetarli emas — ikki shaklni ham tekislaymiz. Bir joyda,
+     bir marta: bu xato turdagi ma'lumot butun panelni yiqitishi mumkin.
+     ------------------------------------------------------------------ */
+  function rowsOfAny(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === "object") return Object.values(raw);
+    return [];
+  }
+
+  /** `[{size:"H4", stock:3}]` — nomsiz qatorlar tashlab ketiladi. */
+  function normSizes(raw) {
+    return rowsOfAny(raw)
+      .filter((s) => s && typeof s === "object" && String(s.size || "").trim())
+      .map((s) => ({
+        size: String(s.size).trim().slice(0, 40),
+        stock: Math.max(0, Number(s.stock) || 0),
+      }));
+  }
+
+  /** `["Damas","Labo"]` — eski yozuvdagi bitta `carName` ham qabul qilinadi. */
+  function normCars(raw, single) {
+    const list = rowsOfAny(raw)
+      .map((v) => String(v == null ? "" : v).trim())
+      .filter(Boolean);
+    if (list.length) return list;
+    const one = String(single == null ? "" : single).trim();
+    return one ? [one] : [];
+  }
+
+  /** Tez tanlash uchun tipik razmerlar (ro'yxat CHEKLOV emas — qo'lda
+   *  xohlagan matnni yozish mumkin: «2.5 dyuym», «46-48» va h.k.). */
+  const SIZE_TPL = [
+    "H1", "H3", "H4", "H7", "H11", "HB3", "HB4",
+    "D2S", "D4S", '2.5"', '3"',
+    "S", "M", "L", "XL", "XXL",
+  ];
+
+  function sizesBlock() {
+    return (
+      '<div class="admin-form-group' +
+      (S.typeSel === "razmerli" ? "" : " hidden") +
+      '" id="shop-sizes-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">📐</div>' +
+      '<div class="apx-tx"><b>Razmerlar va qoldiq</b>' +
+      "<span>Har razmerning soni alohida</span></div></div>" +
+      '<div class="apx-tpl" id="shop-size-tpl">' +
+      SIZE_TPL.map(
+        (s) =>
+          '<button type="button" class="apx-tpl-chip shop-size-tpl" data-size="' +
+          esc(s) + '">' + esc(s) + "</button>"
+      ).join("") +
+      "</div>" +
+      '<div class="shop-sizes" id="shop-sizes-list"></div>' +
+      '<button type="button" class="apx-voice" id="shop-size-add">＋ Razmer qo\'shish</button>' +
+      '<div class="apx-sale-note" id="shop-size-note"></div>' +
+      "</div>"
+    );
+  }
+
+  /** Ekrandagi qatorlardan `S.sizes` ni yangilaydi (qayta chizishdan OLDIN
+   *  chaqiriladi — aks holda admin yozgan qiymat yo'qoladi). */
+  function readSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    S.sizes = [...box.querySelectorAll(".shop-size-row")].map((row) => ({
+      size: (row.querySelector(".shop-size-name").value || "").trim(),
+      stock: Math.max(0, parseNum(row.querySelector(".shop-size-stock").value) || 0),
+    }));
+  }
+
+  /** Razmer qatorlarini chizadi va izohni yangilaydi. */
+  function renderSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    box.innerHTML = S.sizes.length
+      ? S.sizes
+          .map(
+            (s, i) =>
+              '<div class="shop-size-row" data-i="' + i + '">' +
+              '<input type="text" class="admin-input shop-size-name" maxlength="40" ' +
+              'placeholder="Razmer (mas: H4)" value="' + esc(s.size || "") + '">' +
+              '<input type="text" inputmode="numeric" class="admin-input shop-size-stock" ' +
+              'placeholder="Soni" value="' + (Number(s.stock) || 0) + '">' +
+              '<button type="button" class="shop-size-del" data-i="' + i + '" ' +
+              'aria-label="O\'chirish">✕</button>' +
+              "</div>"
+          )
+          .join("")
+      : '<div class="adm-hint">Hali razmer qo\'shilmadi — tepadagi chiplardan tanlang yoki «＋ Razmer qo\'shish».</div>';
+
+    bindSizeRows();
+    sizeNote();
+  }
+
+  function bindSizeRows() {
+    const box = $("shop-sizes-list");
+    if (!box) return;
+    box.querySelectorAll(".shop-size-del").forEach((btn) => {
+      btn.onclick = () => {
+        haptic("light");
+        readSizeRows();
+        S.sizes.splice(Number(btn.dataset.i), 1);
+        renderSizeRows();
+      };
+    });
+    // Yozilganda faqat IZOH yangilanadi — qatorlar qayta chizilmaydi,
+    // aks holda har harfda kursor maydondan uchib ketardi.
+    box.querySelectorAll(".shop-size-name, .shop-size-stock").forEach((inp) => {
+      inp.oninput = () => {
+        readSizeRows();
+        sizeNote();
+        livePreview();
+      };
+    });
+  }
+
+  /** «Jami: 7 dona · 3 razmer» — admin yig'indini ko'rib turadi. */
+  function sizeNote() {
+    const note = $("shop-size-note");
+    if (!note) return;
+    const filled = S.sizes.filter((s) => s.size);
+    const total = filled.reduce((sum, s) => sum + (Number(s.stock) || 0), 0);
+    note.textContent = filled.length
+      ? "Jami: " + total + " dona · " + filled.length + " razmer"
+      : "Kamida bitta razmer nomi kerak.";
+  }
+
+  function addSizeRow(name) {
+    readSizeRows();
+    // Ayni razmer allaqachon bor bo'lsa takrorlamaymiz — faqat belgilaymiz
+    const exists = S.sizes.findIndex(
+      (s) => s.size.toLowerCase() === String(name || "").toLowerCase() && s.size
+    );
+    if (name && exists !== -1) {
+      toast("«" + name + "» allaqachon ro'yxatda");
+      return;
+    }
+    if (S.sizes.length >= 40) return toast("40 tadan ko'p razmer bo'lmasin");
+    S.sizes.push({ size: name || "", stock: 0 });
+    renderSizeRows();
+    // Bo'sh qator qo'shilgan bo'lsa darhol yozishga tayyor turadi
+    if (!name) {
+      const rows = $("shop-sizes-list").querySelectorAll(".shop-size-name");
+      const last = rows[rows.length - 1];
+      if (last) last.focus();
+    }
+  }
+
+  /** Tur o'zgarganda: razmer bloki va umumiy «Qoldiq» maydoni
+   *  bir-birini ALMASHTIRADI (ikkisi birga turmaydi — chalkashtiradi). */
+  function paintType() {
+    document.querySelectorAll("#shop-types .shop-type").forEach((b) => {
+      b.classList.toggle("selected", b.dataset.type === S.typeSel);
+    });
+    const sized = S.typeSel === "razmerli";
+    const group = $("shop-sizes-group");
+    if (group) group.classList.toggle("hidden", !sized);
+    const stockWrap = $("shop-stock-wrap");
+    if (stockWrap) stockWrap.classList.toggle("hidden", sized);
+    const note = $("shop-type-note");
+    if (note) {
+      note.textContent = sized
+        ? "Razmerli: har razmerning soni alohida yoziladi, umumiy qoldiq o'zi hisoblanadi."
+        : "Razmersiz: bitta umumiy qoldiq (yuqoridagi «Qoldiq» maydoni).";
+    }
+    if (sized) renderSizeRows();
+    livePreview();
+  }
+
+  /** «🌐 Universal» yoki «Damas, Labo va yana 3 ta» izohi. */
+  function carNote() {
+    const note = $("shop-car-note");
+    if (!note) return;
+    const names = selectedCarNames();
+    if (!names.length) {
+      note.textContent = "Universal — do'konda hamma mashina egasiga ko'rinadi.";
+      return;
+    }
+    const head = names.slice(0, 4).join(", ");
+    note.textContent =
+      "Tanlandi (" + names.length + "): " +
+      head +
+      (names.length > 4 ? " va yana " + (names.length - 4) + " ta" : "");
+  }
+
+  function selectedCarNames() {
+    return S.carSels
+      .map((id) => (S.cars.find((c) => String(c.id) === String(id)) || {}).name)
+      .filter(Boolean);
+  }
+
+  function paintCars() {
+    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+      const id = btn.dataset.car || "";
+      if (!id) {
+        // «Universal» — hech biri tanlanmaganda yonadi
+        btn.classList.toggle("selected", S.carSels.length === 0);
+        return;
+      }
+      btn.classList.toggle("selected", S.carSels.some((x) => String(x) === id));
+    });
+    carNote();
   }
 
   function bindChips() {
@@ -1598,16 +1893,54 @@ window.ZimmerShop = (function () {
       };
       if (btn.dataset.cat === S.catSel) btn.classList.add("selected");
     });
-    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+
+    // ---- tovar turi
+    document.querySelectorAll("#shop-types .shop-type").forEach((btn) => {
       btn.onclick = () => {
         haptic();
-        S.carSel = btn.dataset.car || null;
-        document.querySelectorAll("#shop-cars .shop-car").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
+        S.typeSel = btn.dataset.type === "razmerli" ? "razmerli" : "oddiy";
+        // Razmerliga o'tildi, lekin ro'yxat bo'sh — bitta bo'sh qator
+        // beramiz, aks holda admin nima qilishini bilmay turadi.
+        if (S.typeSel === "razmerli" && !S.sizes.length) S.sizes = [{ size: "", stock: 0 }];
+        paintType();
       };
-      const cur = S.carSel == null ? "" : String(S.carSel);
-      if ((btn.dataset.car || "") === cur) btn.classList.add("selected");
     });
+
+    // ---- razmer chiplari va «＋ qo'shish»
+    document.querySelectorAll("#shop-size-tpl .shop-size-tpl").forEach((chip) => {
+      chip.onclick = () => {
+        haptic("light");
+        addSizeRow(chip.dataset.size);
+      };
+    });
+    if ($("shop-size-add")) {
+      $("shop-size-add").onclick = () => {
+        haptic("light");
+        addSizeRow("");
+      };
+    }
+
+    /* ---- MASHINALAR: KO'P TANLOV
+       «Universal» — alohida mantiq: u tanlovni TOZALAYDI. Qolganlari
+       oddiy kalit (bosildi — yondi, yana bosildi — o'chdi). */
+    document.querySelectorAll("#shop-cars .shop-car").forEach((btn) => {
+      btn.onclick = () => {
+        haptic("light");
+        const id = btn.dataset.car || "";
+        if (!id) {
+          S.carSels = [];
+        } else {
+          const at = S.carSels.findIndex((x) => String(x) === id);
+          if (at === -1) S.carSels.push(id);
+          else S.carSels.splice(at, 1);
+        }
+        paintCars();
+        livePreview();
+      };
+    });
+
+    paintType();
+    paintCars();
   }
 
   /* ==================================================================
@@ -1623,7 +1956,13 @@ window.ZimmerShop = (function () {
       '<input type="text" inputmode="numeric" class="admin-input" id="shop-price" placeholder="Narxi — hozirgi sotuv narxi (so\'m)">' +
       '<input type="text" class="admin-input" id="shop-code" placeholder="Artikul / OEM kod (ixtiyoriy)">' +
       '<input type="text" class="admin-input" id="shop-badge" placeholder="Belgi — mas: Yangi, TOP (ixtiyoriy)">' +
+      /* Umumiy qoldiq — FAQAT «razmersiz» tovar uchun. Razmerliga
+         o'tilganda bu maydon yashiriladi (`paintType`) va qoldiq razmerlar
+         yig'indisidan hisoblanadi: ikkita qarama-qarshi raqam bir ekranda
+         turmasin. */
+      '<div id="shop-stock-wrap">' +
       '<input type="number" inputmode="numeric" class="admin-input" id="shop-stock" placeholder="Qoldiq (dona)" value="10">' +
+      "</div>" +
       "</div>" +
       /* ---- aksiya ---- */
       '<div class="admin-form-group apx-sale"><div class="apx-head">' +
@@ -1743,7 +2082,9 @@ window.ZimmerShop = (function () {
     S.editing = null;
     clearPhotos();
     S.catSel = null;
-    S.carSel = null;
+    S.carSels = [];
+    S.typeSel = "oddiy";
+    S.sizes = [];
     setHead("Yangi tovar", "Rasm · nom · narx · kategoriya");
     body().innerHTML =
       '<div class="adm-form">' +
@@ -1777,8 +2118,35 @@ window.ZimmerShop = (function () {
     if (name.length < 2) return { err: "Tovar nomini kiriting" };
     if (name.length > 160) return { err: "Nom juda uzun (160 belgigacha)" };
     if (!price) return { err: "Narxni kiriting" };
-    if (stock === null) return { err: "Qoldiqni kiriting (0 bo'lishi mumkin)" };
     if (!S.catSel) return { err: "Kategoriyani tanlang" };
+
+    /* ---- TUR VA QOLDIQ
+       Razmerli tovarda umumiy «Qoldiq» maydoni yashirin, shuning uchun
+       uni TEKSHIRMAYMIZ — qoldiq razmerlar yig'indisidan chiqadi. */
+    const sized = S.typeSel === "razmerli";
+    let sizes = [];
+    let total = stock;
+
+    if (sized) {
+      readSizeRows();
+      sizes = S.sizes
+        .map((s) => ({ size: String(s.size || "").trim().slice(0, 40), stock: Math.max(0, Number(s.stock) || 0) }))
+        .filter((s) => s.size);
+      if (!sizes.length) return { err: "Kamida bitta razmer nomini yozing" };
+      if (sizes.length > 40) return { err: "40 tadan ko'p razmer bo'lmasin" };
+      // Bir razmer ikki marta yozilib qolsa, do'konda ikkita bir xil chip
+      // chiqadi va mijoz qaysi biri to'g'ri ekanini bilmaydi.
+      const seen = {};
+      for (const s of sizes) {
+        const key = s.size.toLowerCase();
+        if (seen[key]) return { err: "«" + s.size + "» razmeri ikki marta yozilgan" };
+        seen[key] = true;
+      }
+      total = sizes.reduce((sum, s) => sum + s.stock, 0);
+    } else if (stock === null) {
+      return { err: "Qoldiqni kiriting (0 bo'lishi mumkin)" };
+    }
+
     // Avto_A1 da kamida 1 rasm MAJBURIY — rasmsiz tovar do'konda bo'sh
     // kvadrat bo'lib turadi va hech kim bosmaydi.
     if (!photos.length) return { err: "Kamida 1 ta rasm kerak" };
@@ -1795,9 +2163,12 @@ window.ZimmerShop = (function () {
     // qolib ketadi (havola hali kelmagan).
     if (busyPhotos()) return { err: "⏳ Rasm yuklanmoqda — bir lahza kuting" };
 
-    const carName = S.carSel
-      ? (S.cars.find((c) => String(c.id) === String(S.carSel)) || {}).name || null
-      : null;
+    /* ---- MASHINALAR
+       `carNames` — HAQIQIY ro'yxat (ko'p tanlov). `carName` esa BIRINCHISI:
+       u `services/sync.py: _catalog_payload` orqali SQLite'ning bitta
+       `car_id` ustuniga tushadi. Ya'ni eski server tomoni hech narsani
+       sezmaydi, do'kon esa to'liq ro'yxatni ko'radi. */
+    const carNames = selectedCarNames();
 
     // Maydonlar `services/sync.py: _catalog_payload` bilan MOS.
     const rec = {
@@ -1806,7 +2177,7 @@ window.ZimmerShop = (function () {
       description: desc || null,
       price: price,
       old_price: null,
-      stock: stock,
+      stock: total,
       code: code || null,
       badge: badge || null,
       photo_url: photos[0] || null,
@@ -1818,7 +2189,16 @@ window.ZimmerShop = (function () {
       is_active: 1,
       deleted: false,
       categoryName: S.catSel,
-      carName: carName,
+      carName: carNames[0] || null,
+      /* Ko'p mashina. Bo'sh massiv ATAYLAB `null`: RTDB bo'sh massivni
+         saqlamaydi (kalitni o'chiradi) va `patch` bilan tahrirlashda eski
+         ro'yxat qolib ketardi — «Universal» ga qaytarish ishlamasdi. */
+      carNames: carNames.length ? carNames : null,
+      /* Tovar turi va razmerlar. Razmersiz tovarda `sizes` ATAYLAB `null` —
+         tur «razmerli» dan «razmersiz» ga o'zgartirilganda eski razmerlar
+         bulutda qolib ketmasin (`patch` faqat berilgan kalitni yozadi). */
+      product_type: sized ? "razmerli" : "oddiy",
+      sizes: sized ? sizes : null,
       /* Kafolat muddati — erkin matn («1 yil», «3 oy», «19 kun»).
          Bo'sh bo'lsa ATAYLAB `null` yoziladi (bo'sh matn emas): mijoz
          tomonida `p.warranty` tekshiruvi bitta bo'lib qoladi va tahrirlashda
@@ -1992,6 +2372,15 @@ window.ZimmerShop = (function () {
             photo_id: r.photo_id || null,
             categoryName: r.categoryName || "",
             carName: r.carName || "",
+            /* Qidiruv ko'p mashina bo'yicha ham ishlashi kerak: admin
+               «labo» deb yozganda Damas+Labo tovari ham chiqsin. */
+            carNames: normCars(r.carNames).join(", "),
+            /* Razmerli tovarda umumiy qoldiqni QO'LDA o'zgartirish
+               yig'indi qoidasini buzadi (`stock` = razmerlar yig'indisi).
+               Shu sababli omborda stepper o'chiriladi va admin ✏️ orqali
+               razmer qoldig'ini o'zgartiradi. */
+            sized: r.product_type === "razmerli" || normSizes(r.sizes).length > 0,
+            sizes: normSizes(r.sizes),
             _raw: r,
           });
         });
@@ -2322,7 +2711,10 @@ window.ZimmerShop = (function () {
     const meta = [];
     if (p.code) meta.push("🔖 " + esc(p.code));
     if (p.categoryName) meta.push(esc(p.categoryName));
-    if (p.carName) meta.push("🚗 " + esc(p.carName));
+    // Ko'p mashina bo'lsa hammasini yozamiz (ilgari faqat bittasi ko'rinardi)
+    if (p.carNames) meta.push("🚗 " + esc(p.carNames));
+    else if (p.carName) meta.push("🚗 " + esc(p.carName));
+    if (p.sized) meta.push("📐 " + p.sizes.length + " razmer");
     const sale = p.old_price && p.old_price > p.price;
 
     return (
@@ -2347,11 +2739,27 @@ window.ZimmerShop = (function () {
       "</div>" +
       "</div>" +
       '<div class="inv-card-bot">' +
-      '<div class="inv-step">' +
-      '<button data-id="' + id + '" data-d="-1" aria-label="Kamaytirish">−</button>' +
-      '<input type="text" inputmode="numeric" id="inv-st-' + id + '" value="' + p.stock + '">' +
-      '<button data-id="' + id + '" data-d="1" aria-label="Ko\'paytirish">+</button>' +
-      "</div>" +
+      /* RAZMERLI TOVAR — stepper YO'Q.
+         Sabab: `stock` bu yerda mustaqil raqam emas, razmer qoldiqlarining
+         YIG'INDISI. Uni qo'lda 10 qilib qo'yish qoidani buzadi: do'kon
+         «10 dona bor» deydi, razmerlar yig'indisi esa 3 bo'lib qoladi va
+         mijoz buyurtma bergach «yetarli emas» xatosiga tushadi.
+         Shuning uchun taqsimot KO'RSATILADI, o'zgartirish esa ✏️ orqali. */
+      (p.sized
+        ? '<div class="inv-sizes">' +
+          p.sizes
+            .map(
+              (s) =>
+                '<span class="inv-size' + (s.stock > 0 ? "" : " is-out") + '">' +
+                esc(s.size) + "<b>" + s.stock + "</b></span>"
+            )
+            .join("") +
+          "</div>"
+        : '<div class="inv-step">' +
+          '<button data-id="' + id + '" data-d="-1" aria-label="Kamaytirish">−</button>' +
+          '<input type="text" inputmode="numeric" id="inv-st-' + id + '" value="' + p.stock + '">' +
+          '<button data-id="' + id + '" data-d="1" aria-label="Ko\'paytirish">+</button>' +
+          "</div>") +
       '<div class="inv-acts">' +
       '<button class="inv-mini inv-eye" data-id="' + id + '" aria-label="Yashirish">' +
       (p.is_active ? "👁" : "🙈") +
@@ -2725,11 +3133,21 @@ window.ZimmerShop = (function () {
     S.editing = p.id;
     clearPhotos();
     S.catSel = r.categoryName || null;
-    S.carSel = null;
-    if (r.carName) {
-      const car = S.cars.find((c) => c.name === r.carName);
-      if (car) S.carSel = String(car.id);
-    }
+
+    /* MASHINALAR — `carNames` (ko'p) bo'lsa u, bo'lmasa eski `carName`
+       (bitta). Eski tovarlar bulutda `carNames` siz turadi va ular ham
+       to'g'ri ochilishi shart. */
+    S.carSels = normCars(r.carNames, r.carName)
+      .map((nm) => (S.cars.find((c) => c.name === nm) || {}).id)
+      .filter((v) => v != null)
+      .map(String);
+
+    /* TUR VA RAZMERLAR. `product_type` bo'lmasa ham `sizes` to'la bo'lishi
+       mumkin (eski yozuv) — shu holatda ham razmerli deb ochamiz, aks holda
+       admin tahrirlab saqlashi bilan razmerlar jimgina yo'qolardi. */
+    S.sizes = normSizes(r.sizes);
+    S.typeSel = r.product_type === "razmerli" || S.sizes.length ? "razmerli" : "oddiy";
+
     setHead("Tahrirlash", p.name);
 
     body().innerHTML =
@@ -2808,6 +3226,732 @@ window.ZimmerShop = (function () {
   }
 
   /* ==================================================================
+     BANNERLAR — RASM, TARTIB, O'CHIRISH
+
+     NEGA PANELGA QO'SHILDI
+     Banner bosh sahifaning eng ko'zga tashlanadigan bloki (stories ostida,
+     katalog ustida), lekin uni boshqarishning YAKKA yo'li Telegram boti
+     yoki Render'ning universal CRUD paneli edi. Ikkisi ham RENDER'ga
+     bog'liq: bepul tarifda server uxlab yotsa admin bannerni umuman
+     o'zgartira olmasdi. Bundan tashqari rasm o'sha yo'lda Telegram
+     `file_id` bilan saqlanardi va uni brauzer O'ZI ko'rsata olmaydi —
+     Render uxlagan payt banner RASMSIZ, faqat gradient bo'lib turardi.
+
+     Endi tovar va stories bilan bir xil model: brauzerdan to'g'ridan
+     `catalog/banners` ga yoziladi, rasm esa ImgBB'ga (doimiy https
+     havola). Render bor yoki yo'q — farqi yo'q.
+
+     RASM SIFATI
+     Banner to'liq kenglikda yoyiladi va ustiga matn tushadi, shuning
+     uchun `ZimmerUpload` ning «banner» sozlamasi ishlatiladi (uzun tomon
+     1920px, JPEG 0.90) — tovar rasmidan yuqoriroq. Tafsilot:
+     `docs/js/upload.js: PRESETS`.
+     ================================================================== */
+
+  const BAN_P = "catalog/banners";
+
+  /** Bannerlar uchun tavsiya etilgan o'lcham — formada ham ko'rsatiladi.
+   *  Blok `calc(100vw - 48px)` kenglikda va `min-height: 128px`, ya'ni
+   *  nisbat ~8:3. Katta telefonda (DPR 3) ~1150px kerak — 1600 zaxira
+   *  bilan yetadi. */
+  const BAN_W = 1600;
+  const BAN_H = 600;
+
+  async function loadBannerRows() {
+    const node = await fb().get(BAN_P);
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((k) => {
+        const r = node[k];
+        if (!r || typeof r !== "object" || r.deleted) return;
+        out.push({
+          key: k, // RTDB kaliti — yozish yo'li shu bo'yicha quriladi
+          id: r.id == null ? k : r.id,
+          title: String(r.title || ""),
+          subtitle: String(r.subtitle || ""),
+          tag: String(r.tag || ""),
+          color_from: String(r.color_from || "#c1121f"),
+          color_to: String(r.color_to || "#101215"),
+          photo_url: String(r.photo_url || ""),
+          photo_id: String(r.photo_id || ""),
+          sort: Number(r.sort) || 0,
+          is_active: r.is_active !== 0 && r.is_active !== false,
+        });
+      });
+    }
+    out.sort((a, b) => a.sort - b.sort || Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  async function openBanners() {
+    S.view = "banners";
+    setHead("🖼 Bannerlar", "Yuklanmoqda...");
+    body().innerHTML = '<div class="inv-skel"></div><div class="inv-skel"></div>';
+    try {
+      S.banners = await loadBannerRows();
+      renderBannerList();
+    } catch (err) {
+      fail(err, openBanners);
+    }
+  }
+
+  function renderBannerList() {
+    const list = S.banners || [];
+    S.view = "banners";
+    setHead("🖼 Bannerlar", list.length ? list.length + " ta banner" : "Banner yo'q");
+
+    body().innerHTML =
+      '<div class="adm-hint-block">' +
+      "Bannerlar bosh sahifada SHU TARTIBDA aylanadi. Tavsiya etilgan " +
+      "rasm o'lchami: <b>" + BAN_W + "×" + BAN_H + " px</b> (nisbat 8:3). " +
+      "Rasm chetlari qirqilishi mumkin — muhim narsani markazga joylang." +
+      "</div>" +
+      '<button class="apx-voice" id="ban-add">＋ Yangi banner</button>' +
+      '<div class="ban-list" id="ban-list">' +
+      (list.length
+        ? list.map(banCard).join("")
+        : '<div class="adm-hint">Hali banner yo\'q — «＋ Yangi banner» ni bosing.</div>') +
+      "</div>";
+
+    $("ban-add").onclick = () => {
+      haptic();
+      openBannerForm(null);
+    };
+    bindBannerList();
+  }
+
+  function banCard(b, i) {
+    const list = S.banners || [];
+    const pic = b.photo_url || "";
+    return (
+      '<div class="ban-card' + (b.is_active ? "" : " is-off") + '">' +
+      /* Kichik ko'rinish — bosh sahifadagi bilan BIR XIL qurilgan
+         (gradient + rasm + qorayish + matn), shunda admin natijani
+         taxmin qilmaydi, KO'RADI. */
+      '<div class="ban-prev" style="background:linear-gradient(135deg,' +
+      esc(b.color_from) + "," + esc(b.color_to) + ')">' +
+      (pic ? '<img src="' + esc(pic) + '" alt="" loading="lazy">' : "") +
+      (pic ? '<span class="ban-prev-shade"></span>' : "") +
+      (b.tag ? '<span class="ban-prev-tag">' + esc(b.tag) + "</span>" : "") +
+      '<span class="ban-prev-t">' + esc(b.title || "Sarlavha yo'q") + "</span>" +
+      (b.subtitle ? '<span class="ban-prev-s">' + esc(b.subtitle) + "</span>" : "") +
+      "</div>" +
+      '<div class="ban-acts">' +
+      '<span class="ban-num">' + (i + 1) + "</span>" +
+      '<button class="mus-btn" data-bmv="up" data-key="' + esc(b.key) + '"' +
+      (i === 0 ? " disabled" : "") + ' aria-label="Yuqoriga">↑</button>' +
+      '<button class="mus-btn" data-bmv="down" data-key="' + esc(b.key) + '"' +
+      (i === list.length - 1 ? " disabled" : "") + ' aria-label="Pastga">↓</button>' +
+      '<button class="mus-btn" data-beye="' + esc(b.key) + '" aria-label="Yashirish">' +
+      (b.is_active ? "👁" : "🙈") + "</button>" +
+      '<button class="mus-btn" data-bedit="' + esc(b.key) + '" aria-label="Tahrirlash">✏️</button>' +
+      '<button class="mus-btn mus-del" data-bdel="' + esc(b.key) + '" aria-label="O\'chirish">🗑</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindBannerList() {
+    document.querySelectorAll("#ban-list [data-bmv]").forEach((btn) => {
+      btn.onclick = () => moveBanner(btn.dataset.key, btn.dataset.bmv === "up" ? -1 : 1);
+    });
+    document.querySelectorAll("#ban-list [data-beye]").forEach((btn) => {
+      btn.onclick = () => toggleBanner(btn.dataset.beye);
+    });
+    document.querySelectorAll("#ban-list [data-bedit]").forEach((btn) => {
+      btn.onclick = () => {
+        haptic();
+        openBannerForm((S.banners || []).find((x) => x.key === btn.dataset.bedit) || null);
+      };
+    });
+    document.querySelectorAll("#ban-list [data-bdel]").forEach((btn) => {
+      btn.onclick = () => deleteBanner(btn.dataset.bdel);
+    });
+  }
+
+  /* ---- tartib / yashirish / o'chirish (musiqa bilan bir xil mantiq) ---- */
+
+  async function moveBanner(key, delta) {
+    if (S.busy) return;
+    const list = S.banners || [];
+    const at = list.findIndex((b) => b.key === key);
+    const to = at + delta;
+    if (at === -1 || to < 0 || to >= list.length) return;
+
+    haptic("light");
+    const before = list.slice();
+    const next = list.slice();
+    next[at] = list[to];
+    next[to] = list[at];
+    next.forEach((b, i) => (b.sort = i * 10));
+    S.banners = next;
+    renderBannerList();
+
+    S.busy = true;
+    try {
+      const writes = next
+        .map((b, i) => ({ b: b, sort: i * 10 }))
+        .filter((w) => {
+          const old = before.find((x) => x.key === w.b.key);
+          return !old || old.sort !== w.sort;
+        });
+      for (const w of writes) {
+        await fb().patch(BAN_P + "/" + w.b.key, { sort: w.sort, updatedAt: Date.now() });
+      }
+      freshenShop(); // bosh sahifa keshi eskirdi
+    } catch (err) {
+      S.banners = before;
+      renderBannerList();
+      toast((err && err.message) || "Tartib saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function toggleBanner(key) {
+    const b = (S.banners || []).find((x) => x.key === key);
+    if (!b || S.busy) return;
+    const next = !b.is_active;
+    haptic();
+    S.busy = true;
+    try {
+      await fb().patch(BAN_P + "/" + key, { is_active: next ? 1 : 0, updatedAt: Date.now() });
+      b.is_active = next;
+      renderBannerList();
+      freshenShop();
+      toast(next ? "✅ Ko'rsatiladi" : "🙈 Yashirildi");
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function deleteBanner(key) {
+    const b = (S.banners || []).find((x) => x.key === key);
+    if (!b || S.busy) return;
+    const ok = await ask("«" + (b.title || "Banner") + "» o'chirilsinmi?");
+    if (!ok) return;
+    S.busy = true;
+    try {
+      await fb().patch(BAN_P + "/" + key, { deleted: true, updatedAt: Date.now() });
+      S.banners = (S.banners || []).filter((x) => x.key !== key);
+      haptic("success");
+      renderBannerList();
+      freshenShop();
+      toast("🗑 O'chirildi");
+    } catch (err) {
+      toast((err && err.message) || "O'chirilmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ------------------------------- banner formasi (qo'shish / tahrirlash) */
+
+  /** Bosh sahifa fonining tayyor juftliklari — qo'lda hex yozish shart emas. */
+  const BAN_THEMES = [
+    ["🔴 Qizil", "#c1121f", "#101215"],
+    ["🟠 Kehribar", "#e08a1e", "#14100a"],
+    ["🟢 Yashil", "#1f8a4c", "#0b1410"],
+    ["🔵 Ko'k", "#1e5fd0", "#0a0f1a"],
+    ["🟣 Siyoh", "#6b3fd4", "#100c1a"],
+    ["⚫️ Qora", "#3a3f4b", "#0c0d11"],
+  ];
+
+  function openBannerForm(b) {
+    S.view = "banner-form";
+    const editing = !!b;
+    S.banEdit = b || null;
+    // Yuklangan rasm havolasi shu maydonda turadi (yagona manba)
+    S.banPhoto = (b && b.photo_url) || "";
+    S.banFrom = (b && b.color_from) || BAN_THEMES[0][1];
+    S.banTo = (b && b.color_to) || BAN_THEMES[0][2];
+
+    setHead(editing ? "Bannerni tahrirlash" : "Yangi banner", BAN_W + "×" + BAN_H + " px");
+
+    body().innerHTML =
+      '<div class="adm-form">' +
+      /* ---- rasm */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-blue">🖼</div>' +
+      '<div class="apx-tx"><b>Rasm</b><span>' + BAN_W + "×" + BAN_H +
+      " px · nisbat 8:3</span></div></div>" +
+      '<div class="ban-drop" id="ban-drop"></div>' +
+      '<input type="file" id="ban-file" accept="image/*" class="hidden">' +
+      '<div class="apx-sale-note">Telefondagi katta rasm o\'zi kichraytiriladi ' +
+      "(uzun tomon " + (up() ? up().PRESETS.banner.maxSide : 1920) +
+      " px, yuqori sifat). Rasm chetlari qirqilishi mumkin — muhim " +
+      "narsani markazga joylang.</div>" +
+      "</div>" +
+      /* ---- jonli ko'rinish */
+      '<div class="admin-form-group"><div class="apx-sub" style="margin-top:0;">' +
+      "Bosh sahifada qanday ko'rinadi</div>" +
+      '<div id="ban-live"></div></div>' +
+      /* ---- matn */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic">🏷</div>' +
+      "<div class=\"apx-tx\"><b>Matn</b><span>Sarlavha · tavsif · yorliq</span></div></div>" +
+      '<input type="text" class="admin-input" id="ban-title" maxlength="80" ' +
+      'placeholder="Sarlavha (mas: Bi-LED aksiya)" value="' + esc((b && b.title) || "") + '">' +
+      '<input type="text" class="admin-input" id="ban-sub" maxlength="120" ' +
+      'placeholder="Tavsif (ixtiyoriy)" value="' + esc((b && b.subtitle) || "") + '">' +
+      '<input type="text" class="admin-input" id="ban-tag" maxlength="40" ' +
+      'placeholder="Yorliq — mas: -15% shu hafta (ixtiyoriy)" value="' +
+      esc((b && b.tag) || "") + '">' +
+      "</div>" +
+      /* ---- rang */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">🎨</div>' +
+      '<div class="apx-tx"><b>Fon rangi</b>' +
+      "<span>Rasm bo'lmasa yoki chetlarda ko'rinadi</span></div></div>" +
+      '<div class="shop-chips" id="ban-themes">' +
+      BAN_THEMES.map(
+        (t) =>
+          '<button type="button" class="cat-chip ban-theme" data-from="' + t[1] +
+          '" data-to="' + t[2] + '">' + esc(t[0]) + "</button>"
+      ).join("") +
+      "</div></div>" +
+      "</div>" +
+      '<div class="shop-footer">' +
+      '<button class="btn btn-primary" id="ban-save">💾 ' +
+      (editing ? "Yangilash" : "Saqlash") + "</button>" +
+      '<button class="btn btn-ghost" id="ban-cancel">Bekor qilish</button>' +
+      "</div>";
+
+    bindBannerForm();
+  }
+
+  function bindBannerForm() {
+    const paint = () => {
+      renderBanDrop();
+      renderBanLive();
+    };
+
+    ["ban-title", "ban-sub", "ban-tag"].forEach((id) => {
+      if ($(id)) $(id).oninput = renderBanLive;
+    });
+
+    document.querySelectorAll("#ban-themes .ban-theme").forEach((chip) => {
+      chip.onclick = () => {
+        haptic("light");
+        S.banFrom = chip.dataset.from;
+        S.banTo = chip.dataset.to;
+        document
+          .querySelectorAll("#ban-themes .ban-theme")
+          .forEach((c) => c.classList.remove("selected"));
+        chip.classList.add("selected");
+        renderBanLive();
+      };
+      if (chip.dataset.from === S.banFrom) chip.classList.add("selected");
+    });
+
+    $("ban-file").onchange = async (e) => {
+      const file = (e.target.files || [])[0];
+      e.target.value = ""; // ayni faylni qayta tanlash imkoni qolsin
+      if (!file) return;
+      await uploadBanner(file);
+    };
+
+    $("ban-save").onclick = saveBanner;
+    $("ban-cancel").onclick = () => {
+      haptic();
+      renderBannerList();
+    };
+
+    paint();
+  }
+
+  function renderBanDrop() {
+    const box = $("ban-drop");
+    if (!box) return;
+    if (S.banBusy) {
+      box.className = "ban-drop is-busy";
+      box.innerHTML =
+        '<div class="ban-prog"><b>' + (S.banPct || 0) + "%</b><span>" +
+        esc(S.banPhase || "yuklanmoqda") + "</span></div>";
+      return;
+    }
+    if (S.banPhoto) {
+      box.className = "ban-drop has-img";
+      box.innerHTML =
+        '<img src="' + esc(S.banPhoto) + '" alt="">' +
+        '<button type="button" class="ban-drop-x" id="ban-x" aria-label="Rasmni o\'chirish">✕</button>' +
+        '<button type="button" class="ban-drop-swap" id="ban-swap">🔄 Boshqa rasm</button>';
+      $("ban-x").onclick = () => {
+        haptic("light");
+        S.banPhoto = "";
+        renderBanDrop();
+        renderBanLive();
+      };
+      $("ban-swap").onclick = () => $("ban-file").click();
+      return;
+    }
+    box.className = "ban-drop";
+    box.innerHTML =
+      '<span class="ban-drop-ic">🖼</span>' +
+      "<b>Rasm tanlash</b>" +
+      "<i>" + BAN_W + "×" + BAN_H + " px tavsiya etiladi</i>";
+    box.onclick = () => $("ban-file").click();
+  }
+
+  async function uploadBanner(file) {
+    if (!up() || !up().available()) {
+      return toast("Rasm yuklash sozlanmagan (IMGBB_KEY yo'q)");
+    }
+    S.banBusy = true;
+    S.banPct = 0;
+    S.banPhase = "siqish";
+    renderBanDrop();
+    try {
+      /* «banner» sozlamasi — tovar rasmidan yuqori sifat (izohni
+         `docs/js/upload.js: PRESETS` da ko'ring). */
+      const res = await up().uploadFile(
+        file,
+        (pct, phase) => {
+          S.banPct = Math.round(pct);
+          S.banPhase = phase;
+          renderBanDrop();
+        },
+        "banner"
+      );
+      S.banPhoto = res.url;
+      haptic("success");
+      const kb = Math.round((res.bytes || 0) / 1024);
+      toast("✅ Rasm yuklandi" + (res.width ? " · " + res.width + "×" + res.height : "") +
+        (kb ? " · " + kb + " KB" : ""));
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Rasm yuklanmadi");
+    } finally {
+      S.banBusy = false;
+      renderBanDrop();
+      renderBanLive();
+    }
+  }
+
+  function renderBanLive() {
+    const box = $("ban-live");
+    if (!box) return;
+    const title = (($("ban-title") && $("ban-title").value) || "").trim();
+    const sub = (($("ban-sub") && $("ban-sub").value) || "").trim();
+    const tag = (($("ban-tag") && $("ban-tag").value) || "").trim();
+    box.innerHTML =
+      '<div class="ban-prev is-live" style="background:linear-gradient(135deg,' +
+      esc(S.banFrom) + "," + esc(S.banTo) + ')">' +
+      (S.banPhoto ? '<img src="' + esc(S.banPhoto) + '" alt="">' : "") +
+      (S.banPhoto ? '<span class="ban-prev-shade"></span>' : "") +
+      (tag ? '<span class="ban-prev-tag">' + esc(tag) + "</span>" : "") +
+      '<span class="ban-prev-t">' + esc(title || "Sarlavha") + "</span>" +
+      (sub ? '<span class="ban-prev-s">' + esc(sub) + "</span>" : "") +
+      "</div>";
+  }
+
+  async function saveBanner() {
+    if (S.busy) return;
+    if (S.banBusy) return toast("⏳ Rasm yuklanmoqda — bir lahza kuting");
+
+    const title = ($("ban-title").value || "").trim();
+    const sub = ($("ban-sub").value || "").trim();
+    const tag = ($("ban-tag").value || "").trim();
+
+    if (title.length < 2) return toast("Sarlavhani kiriting");
+    if (title.length > 80) return toast("Sarlavha juda uzun (80 belgigacha)");
+    /* Rasm MAJBURIY emas: faqat gradient + matndan iborat banner ham
+       chiroyli chiqadi va admin shoshilinch aksiyani rasm izlamasdan
+       e'lon qila oladi. Lekin havola bo'lsa u https bo'lishi SHART —
+       Firebase qoidalari boshqasini rad etadi va xato tushunarsiz
+       bo'lardi («Bazaga yozilmadi (400)»). */
+    if (S.banPhoto && !/^https:\/\/[^\s]+$/i.test(S.banPhoto)) {
+      return toast("Rasm havolasi https bo'lishi kerak");
+    }
+
+    const editing = S.banEdit;
+    const rec = {
+      _key: title,
+      title: title,
+      subtitle: sub || null,
+      tag: tag || null,
+      color_from: S.banFrom,
+      color_to: S.banTo,
+      /* Bo'sh matn EMAS, `null`: mijoz tomonida bitta tekshiruv qoladi
+         (`b.photo_url ? ...`) va tahrirlashda rasmni O'CHIRISH ishlaydi
+         (`patch` null bilan ustiga yozadi). */
+      photo_url: S.banPhoto || null,
+      photo_id: null,
+      is_active: 1,
+      deleted: false,
+      updatedAt: Date.now(),
+      source: "miniapp",
+    };
+
+    S.busy = true;
+    const btn = $("ban-save");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Saqlanmoqda...";
+    }
+    try {
+      if (editing) {
+        rec.id = Number(editing.id) || editing.id;
+        rec.sort = editing.sort;
+        rec.is_active = editing.is_active ? 1 : 0;
+        await fb().patch(BAN_P + "/" + editing.key, rec);
+      } else {
+        const id = await fb().nextBannerId();
+        rec.id = id;
+        rec.createdAt = Date.now();
+        // Yangi banner OXIRIGA tushadi — mavjud tartib buzilmaydi
+        const last = (S.banners || []).reduce((m, b) => Math.max(m, b.sort), -10);
+        rec.sort = last + 10;
+        await fb().put(BAN_P + "/" + id, rec);
+      }
+      haptic("ok");
+      freshenShop();
+      toast(editing ? "✅ Saqlandi" : "✅ Banner qo'shildi");
+      S.banners = await loadBannerRows();
+      renderBannerList();
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = editing ? "💾 Yangilash" : "💾 Saqlash";
+      }
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ==================================================================
+     FON MUSIQASI — TARTIB VA O'CHIRISH
+
+     NEGA PANELGA KO'CHIRILDI
+     Ilgari musiqani boshqarishning YAKKA yo'li Telegram boti edi:
+     `/musiqa` ro'yxatni chiqarardi, o'chirish uchun esa `/musiqa_del_12`
+     degan buyruqni QO'LDA yozish kerak edi. Tartibni o'zgartirish imkoni
+     UMUMAN yo'q edi — trek qo'shilgan ketma-ketligida qolib ketardi va
+     birinchi eshitiladigan qo'shiqni almashtirish uchun hammasini
+     o'chirib, yangi tartibda qaytadan tashlash kerak bo'lardi.
+
+     TREK QO'SHISH BOTDA QOLADI — bu ataylab. Audio faylni Telegram
+     allaqachon o'zida saqlaydi va bot uni bir bosishda qabul qiladi;
+     brauzerdan 5-10 MB audio yuklash esa sekin va ishonchsiz.
+
+     MANBA — FIREBASE (`catalog/music`), tovar va stories bilan bir xil
+     model: panel brauzerdan to'g'ridan yozadi, mijoz tomoni shu holatni
+     o'qiydi (`app.js: fetchMusicTracks`).
+     ================================================================== */
+
+  const MUSIC_P = "catalog/music";
+
+  /** Bulutdagi treklar — panel uchun XOM ro'yxat (o'chirilganlar chiqmaydi,
+   *  YASHIRILGANLAR esa chiqadi: adminga ularni qaytarish imkoni kerak). */
+  async function loadMusicRows() {
+    const node = await fb().get(MUSIC_P);
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((k) => {
+        const r = node[k];
+        if (!r || typeof r !== "object" || r.deleted) return;
+        out.push({
+          key: k, // RTDB kaliti — yozish yo'li shu bo'yicha quriladi
+          id: r.id == null ? k : r.id,
+          title: String(r.title || "Fon musiqasi"),
+          duration: Number(r.duration) || 0,
+          sort: Number(r.sort) || 0,
+          audio_url: String(r.audio_url || ""),
+          audio_id: String(r.audio_id || ""),
+          is_active: r.is_active !== 0 && r.is_active !== false,
+        });
+      });
+    }
+    // Ekrandagi tartib mijoz eshitadigan tartib bilan BIR XIL bo'lishi shart
+    out.sort((a, b) => a.sort - b.sort || Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  async function openMusic() {
+    S.view = "music";
+    setHead("🎵 Fon musiqasi", "Yuklanmoqda...");
+    body().innerHTML = '<div class="inv-skel"></div><div class="inv-skel"></div>';
+    try {
+      S.music = await loadMusicRows();
+      renderMusic();
+    } catch (err) {
+      fail(err, openMusic);
+    }
+  }
+
+  const mmss = (sec) => {
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  };
+
+  function renderMusic() {
+    const list = S.music || [];
+    setHead("🎵 Fon musiqasi", list.length ? list.length + " ta trek" : "Trek yo'q");
+
+    if (!list.length) {
+      body().innerHTML =
+        '<div class="adm-hint-block">' +
+        "<b>Hali trek qo'shilmagan.</b><br><br>" +
+        "Qo'shish uchun botga audio faylni yuboring — u o'zi ro'yxatga " +
+        "tushadi. Keyin bu yerda tartibini o'zgartirishingiz va " +
+        "o'chirishingiz mumkin.<br><br>" +
+        "Trek yo'q bo'lsa mijozda 🔇 tugmasi UMUMAN ko'rinmaydi." +
+        "</div>";
+      return;
+    }
+
+    body().innerHTML =
+      '<div class="adm-hint-block">' +
+      "Mijoz treklarni SHU TARTIBDA eshitadi. Yangi trek qo'shish — " +
+      "botga audio yuborish orqali." +
+      "</div>" +
+      '<div class="mus-list" id="mus-list">' +
+      list.map(musCard).join("") +
+      "</div>";
+
+    bindMusic();
+  }
+
+  function musCard(t, i) {
+    const list = S.music || [];
+    /* Brauzerda ochilmaydigan trek — bot orqali qo'shilgan va Firebase
+       Storage o'chiq bo'lgan holat: bunda faqat Telegram `file_id` bor.
+       Render uyg'oq bo'lsa u proksi bilan eshittiradi, uxlagan bo'lsa esa
+       trek jimgina o'tkazib yuboriladi. Admin buni BILISHI kerak. */
+    const proxied = !/^https?:\/\//i.test(t.audio_url);
+    return (
+      '<div class="mus-card' + (t.is_active ? "" : " is-off") + '" data-key="' + esc(t.key) + '">' +
+      '<span class="mus-num">' + (i + 1) + "</span>" +
+      '<div class="mus-mid">' +
+      "<b>" + esc(t.title) + "</b>" +
+      '<div class="mus-meta">' +
+      (t.duration ? "<span>⏱ " + mmss(t.duration) + "</span>" : "") +
+      (proxied ? '<span class="mus-warn">☁️ server orqali</span>' : "<span>🔗 to'g'ridan</span>") +
+      (t.is_active ? "" : '<span class="mus-warn">🙈 yashirin</span>') +
+      "</div></div>" +
+      '<div class="mus-acts">' +
+      '<button class="mus-btn" data-mv="up" data-key="' + esc(t.key) + '"' +
+      (i === 0 ? " disabled" : "") + ' aria-label="Yuqoriga">↑</button>' +
+      '<button class="mus-btn" data-mv="down" data-key="' + esc(t.key) + '"' +
+      (i === list.length - 1 ? " disabled" : "") + ' aria-label="Pastga">↓</button>' +
+      '<button class="mus-btn" data-eye="' + esc(t.key) + '" aria-label="Yashirish">' +
+      (t.is_active ? "👁" : "🙈") + "</button>" +
+      '<button class="mus-btn mus-del" data-del="' + esc(t.key) + '" aria-label="O\'chirish">🗑</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindMusic() {
+    document.querySelectorAll("#mus-list [data-mv]").forEach((btn) => {
+      btn.onclick = () => moveTrack(btn.dataset.key, btn.dataset.mv === "up" ? -1 : 1);
+    });
+    document.querySelectorAll("#mus-list [data-eye]").forEach((btn) => {
+      btn.onclick = () => toggleTrack(btn.dataset.eye);
+    });
+    document.querySelectorAll("#mus-list [data-del]").forEach((btn) => {
+      btn.onclick = () => deleteTrack(btn.dataset.del);
+    });
+  }
+
+  /** Mijoz tomonidagi ro'yxatni ham yangilaydi (tugma holati bilan). */
+  function freshenMusic() {
+    if (app().reloadMusic) app().reloadMusic();
+  }
+
+  /* Tartibni o'zgartirish: ikki trekni almashtirib, `sort` ni QAYTADAN
+     raqamlaymiz (0, 10, 20...). Nega qayta raqamlash: bulutdagi eski
+     yozuvlarda `sort` ning hammasi 0 bo'lishi mumkin — o'sha holatda
+     joyini almashtirish HECH NARSA o'zgartirmasdi. Bo'sh oraliq (10)
+     kelajakda oraga qo'shish uchun joy qoldiradi. */
+  async function moveTrack(key, delta) {
+    if (S.busy) return;
+    const list = S.music || [];
+    const at = list.findIndex((t) => t.key === key);
+    const to = at + delta;
+    if (at === -1 || to < 0 || to >= list.length) return;
+
+    haptic("light");
+    const next = list.slice();
+    next[at] = list[to];
+    next[to] = list[at];
+
+    // Ekranda DARHOL ko'rinadi — tarmoq javobini kutib turmaydi
+    const before = list.slice();
+    next.forEach((t, i) => (t.sort = i * 10));
+    S.music = next;
+    renderMusic();
+
+    S.busy = true;
+    try {
+      // Faqat `sort` haqiqatan o'zgargan yozuvlar yoziladi
+      const writes = next
+        .map((t, i) => ({ t: t, sort: i * 10 }))
+        .filter((w) => {
+          const old = before.find((b) => b.key === w.t.key);
+          return !old || old.sort !== w.sort;
+        });
+      for (const w of writes) {
+        await fb().patch(MUSIC_P + "/" + w.t.key, { sort: w.sort });
+      }
+      freshenMusic();
+    } catch (err) {
+      // Yozilmadi — ekranni ESKI holatga qaytaramiz, aks holda admin
+      // tartib saqlangan deb o'ylab qolardi.
+      S.music = before;
+      renderMusic();
+      toast((err && err.message) || "Tartib saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /** 👁 — trekni vaqtincha o'chiradi (yozuv qoladi, keyin qaytarish mumkin). */
+  async function toggleTrack(key) {
+    const t = (S.music || []).find((x) => x.key === key);
+    if (!t || S.busy) return;
+    const next = !t.is_active;
+    haptic();
+    S.busy = true;
+    try {
+      await fb().patch(MUSIC_P + "/" + key, { is_active: next ? 1 : 0 });
+      t.is_active = next;
+      renderMusic();
+      freshenMusic();
+      toast(next ? "✅ Yoqildi" : "🙈 Yashirildi");
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /** 🗑 — «o'chirilgan» belgisi qo'yiladi (yozuv qoladi, tarix buzilmaydi).
+   *  Tovarlar bilan bir xil mantiq: `deleted: true`. */
+  async function deleteTrack(key) {
+    const t = (S.music || []).find((x) => x.key === key);
+    if (!t || S.busy) return;
+    const ok = await ask("«" + t.title + "» o'chirilsinmi?");
+    if (!ok) return;
+    S.busy = true;
+    try {
+      await fb().patch(MUSIC_P + "/" + key, { deleted: true });
+      S.music = (S.music || []).filter((x) => x.key !== key);
+      haptic("success");
+      renderMusic();
+      freshenMusic();
+      toast("🗑 O'chirildi");
+    } catch (err) {
+      toast((err && err.message) || "O'chirilmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ==================================================================
      TASHQI INTERFEYS (app.js va admin.js ko'prigi)
      ================================================================== */
   const crm = () => window.ZimmerCRM;
@@ -2855,7 +3999,15 @@ window.ZimmerShop = (function () {
       renderMenu();
       return true;
     }
-    if (S.view === "add" || S.view === "edit" || S.view === "inventory" || S.view === "orders") {
+    if (
+      S.view === "add" ||
+      S.view === "edit" ||
+      S.view === "inventory" ||
+      S.view === "orders" ||
+      S.view === "music" ||
+      S.view === "banners" ||
+      S.view === "banner-form"
+    ) {
       renderMenu();
       return true;
     }
@@ -2870,6 +4022,8 @@ window.ZimmerShop = (function () {
     // Buyurtma oynasi: AYNI bo'limni qayta o'qiydi (ilgari har doim
     // do'kon buyurtmalariga qaytarib yuborardi).
     if (S.view === "orders") return openKind(S.ordKind || "order");
+    if (S.view === "music") return openMusic();
+    if (S.view === "banners" || S.view === "banner-form") return openBanners();
     if (S.view === "add") return openAdd();
     return open();
   }

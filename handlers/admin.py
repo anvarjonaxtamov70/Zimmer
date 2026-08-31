@@ -31,6 +31,7 @@ from utils.helpers import (
     date_label,
     fmt_price,
     html_escape,
+    size_tag,
     today_iso,
     user_link,
 )
@@ -364,7 +365,7 @@ async def admin_order_detail(callback: CallbackQuery) -> None:
     ]
     for item in items:
         lines.append(
-            f"• {html_escape(item['name'])} × {item['qty']}"
+            f"• {html_escape(item['name'])}{size_tag(item)} × {item['qty']}"
             f" = {fmt_price(item['price'] * item['qty'])}"
         )
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
@@ -428,7 +429,7 @@ async def admin_order_detail_refresh(callback: CallbackQuery, order_id: int) -> 
     ]
     for item in items:
         lines.append(
-            f"• {html_escape(item['name'])} × {item['qty']}"
+            f"• {html_escape(item['name'])}{size_tag(item)} × {item['qty']}"
             f" = {fmt_price(item['price'] * item['qty'])}"
         )
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
