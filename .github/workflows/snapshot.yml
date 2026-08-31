@@ -15,9 +15,11 @@ name: Katalog nusxasini yangilash (docs/catalog.json)
 # =====================================================================
 on:
   schedule:
-    # Kuniga bir marta, 02:30 UTC (07:30 Toshkent) — Render kvotasiga
-    # ta'sir qilmaydi, chunki Firebase'ni to'g'ridan o'qiydi.
-    - cron: '30 2 * * *'
+    # Har 2 soatda — zaxira nusxa jonli ma'lumotga yaqinroq turadi.
+    # Render kvotasiga ta'sir qilmaydi, chunki Firebase'ni to'g'ridan
+    # o'qiydi (Render API'siga tegmaydi). O'zgarish bo'lmasa commit
+    # qilinmaydi, shuning uchun bo'sh commitlar yig'ilmaydi.
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       seed_only:

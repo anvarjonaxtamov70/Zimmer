@@ -37,6 +37,7 @@ import os
 import sys
 import tempfile
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -66,6 +67,98 @@ def external(url) -> str | None:
     """Faqat tashqi (http) manzil zaxira rejimda ochiladi."""
     text = str(url or "").strip()
     return text if text.startswith("http") else None
+
+
+def _to_int(value, default: int = 0) -> int:
+    """Har qanday qiymatni butun songa keltiradi (buzuq ma'lumotdan himoya)."""
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_list(raw) -> list:
+    """JSON matn / massiv / RTDB lug'atini oddiy ro'yxatga keltiradi.
+
+    Zaxira nusxa har xil manbadan kelishi mumkin (Firebase yoki SQLite),
+    shuning uchun defensiv: matn bo'lsa JSON deb o'qiladi, lug'at bo'lsa
+    qiymatlari olinadi, massiv o'zi qaytadi. Buzuq bo'lsa — bo'sh ro'yxat.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        return list(raw.values())
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return list(data.values())
+        return [data]
+    return []
+
+
+def parse_sizes(raw) -> list[dict]:
+    """`sizes` maydonini `[{size, stock}]` ro'yxatiga keltiradi (defensiv).
+
+    Razmerli tovar razmerlarini SQLite JSON matn sifatida saqlaydi. Mini App
+    (`offset.js: toProduct`) shu ko'rinishni kutadi. Buzuq/bo'sh bo'lsa — [].
+    """
+    out: list[dict] = []
+    for item in _json_list(raw):
+        if isinstance(item, dict):
+            size = item.get("size")
+            if size is None:
+                size = item.get("name")
+            out.append(
+                {
+                    "size": str(size) if size is not None else None,
+                    "stock": _to_int(item.get("stock"), 0),
+                }
+            )
+        elif item is not None and not isinstance(item, (list, dict)):
+            # Faqat razmer nomi berilgan bo'lsa (masalan "H4", "XL")
+            out.append({"size": str(item), "stock": 0})
+    return out
+
+
+def parse_car_names(row: dict, car_name_by_id: dict) -> list[str]:
+    """Tovarga bog'langan mashina NOMLARINI (takrorsiz) yig'adi.
+
+    Manba uch xil bo'lishi mumkin va uchalasi ham qo'shiladi:
+      • `car_names` / `carNames` — ko'p mashinali JSON ro'yxat;
+      • `car_name` / `carName` — bitta mashina nomi;
+      • `car_id` — id'dan aniqlangan nom (`cars` jadvalidan).
+    """
+    names: list[str] = []
+
+    def add(value) -> None:
+        text = str(value or "").strip()
+        if text and text not in names:
+            names.append(text)
+
+    for value in _json_list(row.get("car_names") or row.get("carNames")):
+        # Ro'yxat elementlari nom (matn) yoki {id/name} bo'lishi mumkin
+        if isinstance(value, dict):
+            add(value.get("name") or car_name_by_id.get(value.get("id")))
+        else:
+            add(value)
+
+    add(row.get("car_name") or row.get("carName"))
+
+    car_id = row.get("car_id")
+    if car_id is not None:
+        add(car_name_by_id.get(car_id))
+
+    return names
 
 
 # =====================================================================
@@ -157,6 +250,16 @@ def build(tables: dict, currency: str = "so'm") -> dict:
     banners = rows_of(tables.get("banners"))
     stories = rows_of(tables.get("stories"))
 
+    # `car_id` -> nom (ko'p mashinali tovar nomlarini to'ldirish uchun).
+    # `cars` tuguni o'chirilganlarni ham hisobga olmasin — `rows_of` faol
+    # bo'lganlarini beradi, lekin nomni topish uchun HAMMASI kerak.
+    car_name_by_id: dict = {}
+    for car in rows_of(tables.get("cars")):
+        cid = car.get("id")
+        name = str(car.get("name") or "").strip()
+        if cid is not None and name:
+            car_name_by_id[cid] = name
+
     by_name = {}
     for category in categories:
         name = str(category.get("name") or category.get("_key") or "")
@@ -186,6 +289,8 @@ def build(tables: dict, currency: str = "so'm") -> dict:
         ]
         images = [url for url in images if url]
 
+        _car_names = parse_car_names(row, car_name_by_id)
+
         name = str(row.get("categoryName") or "").lower()
         category = by_name.get(name) or (categories[0] if categories else {"name": "Mahsulotlar"})
         bucket(category)["products"].append(
@@ -198,6 +303,17 @@ def build(tables: dict, currency: str = "so'm") -> dict:
                 "badge": row.get("badge"),
                 "stock": int(row.get("stock") or 0),
                 "car_id": row.get("car_id"),
+                # Razmerli tovar va kafolat — Mini App'ning boyroq maydonlari
+                # (`offline.js: toProduct` ularni himoyalangan holda o'qiydi).
+                "product_type": row.get("product_type") or "oddiy",
+                "sizes": parse_sizes(row.get("sizes")),
+                "warranty": row.get("warranty"),
+                # Ko'p mashinali moslik: id emas, NOMLAR ro'yxati (zaxira
+                # nusxada id'lar baza tozalangach o'zgaradi, nom qoladi).
+                # `car_name` — birinchisi (eski/bitta mashinali ko'rinish bilan
+                # mos, `app.js` uni zaxira sifatida o'qiydi).
+                "car_names": _car_names,
+                "car_name": (_car_names[0] if _car_names else None),
                 "price_label": price_label(row.get("price"), currency),
                 "old_price_label": (
                     price_label(row["old_price"], currency) if row.get("old_price") else None
@@ -223,6 +339,7 @@ def build(tables: dict, currency: str = "so'm") -> dict:
             {
                 "id": row.get("id"),
                 "heading": row.get("heading") or row.get("title") or "",
+                "title": row.get("title"),
                 "body": row.get("body") or "",
                 "emoji": row.get("emoji") or emoji,
                 "color_from": row.get("color_from") or c1,
@@ -232,11 +349,18 @@ def build(tables: dict, currency: str = "so'm") -> dict:
                 "video_url": external(row.get("video_url")),
                 "video_external": True,
                 "has_media": bool(photo),
+                # «Batafsil» havolasi va yaratilgan vaqti (`offline.js:
+                # toStoryRings` ularni himoyalangan holda o'qiydi).
+                "link": row.get("link"),
+                "createdAt": row.get("createdAt") or row.get("created_at"),
             }
         )
 
     return {
         "car_id": None,
+        # Nusxa QACHON yasalgani — mijoz/diagnostika zaxira ma'lumot
+        # qanchalik yangi ekanini bilsin (UTC, ISO8601).
+        "_generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "banners": [
             {
                 "id": row.get("id"),

@@ -1,0 +1,86 @@
+name: CI
+
+# =====================================================================
+#  Yengil va TEZ tekshiruv: Python kompilyatsiyasi + lint, JS sintaksisi,
+#  JSON to'g'riligi. Testlar yo'q (loyihada test to'plami yo'q), maqsad —
+#  aniq buzilishlarni (import xatosi, sintaksis, buzuq JSON) PR'gacha
+#  ushlab qolish.
+#
+#  LINT NEGA NON-BLOCKING (continue-on-error).
+#  `ruff check .` butun repoda KO'P ESKI (legacy) xatolik beradi — ular bu
+#  PR bilan bog'liq emas. Agar lint job'ni bloklovchi qilsak, CI hamma
+#  PR'da qizil bo'lib qolardi va foydasi yo'qolardi. Shuning uchun lint
+#  faqat ASOSIY papkalarda ishlaydi va MASLAHAT sifatida ko'rsatiladi
+#  (`continue-on-error: true`), auto-fix QILINMAYDI. Kompilyatsiya, Node
+#  va JSON job'lari esa BLOKLOVCHI — ular haqiqiy buzilishni tutadi.
+# =====================================================================
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Ruff lint (maslahat — bloklamaydi)
+    runs-on: ubuntu-latest
+    # Eski kodda ko'p legacy xatolik bor — lint natijasi maslahat, CI'ni
+    # qizartirmaydi.
+    continue-on-error: true
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ruff o'rnatish
+        run: pip install --quiet ruff==0.16.1
+      - name: Ruff check (asosiy papkalar, auto-fix YO'Q)
+        run: ruff check --output-format=github api database handlers services middlewares keyboards config.py bot.py scripts
+
+  compile:
+    name: Python kompilyatsiya
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: compileall
+        run: python -m compileall -q api database handlers services middlewares keyboards config.py bot.py scripts
+
+  js:
+    name: JS sintaksisi (node --check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: node --check
+        run: |
+          set -euo pipefail
+          node --check cloudflare-worker.js
+          for f in docs/js/*.js; do
+            echo "check: $f"
+            node --check "$f"
+          done
+
+  json:
+    name: JSON to'g'riligi
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: JSON parse
+        run: |
+          set -euo pipefail
+          python -c "import json; json.load(open('database.rules.json')); print('database.rules.json OK')"
+          python -c "import json; json.load(open('docs/catalog.json')); print('docs/catalog.json OK')"
