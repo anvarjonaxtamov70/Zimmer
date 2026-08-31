@@ -47,6 +47,7 @@ window.ZimmerCRM = (function () {
   const app = () => window.ZIMMER_APP || {};
   const fb = () => window.ZimmerFB;
   const shop = () => window.ZimmerShop || {};
+  const off = () => window.ZimmerOffline;
   const $ = (id) => document.getElementById(id);
 
   const esc = (v) => (app().esc ? app().esc(v) : String(v == null ? "" : v));
@@ -241,13 +242,25 @@ window.ZimmerCRM = (function () {
        telefon bor, ya'ni ro'yxat XARIDORLAR bo'yicha ishlaydi. Faqat hech
        buyurtma bermagan ro'yxatdan o'tganlar ko'rinmaydi — buni pastda
        ogohlantirish bilan aytamiz. */
+    /* `users` tuguni YOPIQ (database.rules.json: .read=false) — ism/telefon
+       PII. Uni to'g'ridan Firebase'dan EMAS, imzolangan Worker orqali
+       o'qiymiz (`/admin/users`, faqat tasdiqlangan admin). Worker yo'q yoki
+       eski bo'lsa profillar o'qilmaydi, lekin ro'yxat baribir buyurtmalardan
+       tuziladi (pastda ogohlantiriladi). */
     let usersFailed = null;
-    const usersP = fb()
-      .get("users")
-      .catch((err) => {
-        usersFailed = err;
-        return null;
-      });
+    const usersP =
+      off() && off().adminUsers
+        ? off()
+            .adminUsers()
+            .then((res) => (res && res.users) || null)
+            .catch((err) => {
+              usersFailed = err;
+              return null;
+            })
+        : Promise.resolve().then(() => {
+            usersFailed = { code: "no_worker", message: "Worker sozlanmagan" };
+            return null;
+          });
 
     const [usersNode, ord, biled, book] = await Promise.all([
       usersP,
@@ -523,11 +536,19 @@ window.ZimmerCRM = (function () {
   function profileWarning() {
     const err = S.data && S.data.usersFailed;
     if (!err) return "";
-    const why =
-      err.code === "rules"
-        ? "Firebase qoidalari `users` tugunini o'qishga ruxsat bermadi — " +
-          "database.rules.json ni Console'da qayta «Publish» qiling."
-        : (err.message || "Sabab noma'lum") + "";
+    let why;
+    if (err.code === "no_worker") {
+      why =
+        "Worker sozlanmagan yoki eski nusxa — mijoz profillari (`users`) " +
+        "faqat Worker orqali o'qiladi. Cloudflare'da Worker'ni 1.8.0+ ga " +
+        "yangilang va docs/config.js dagi WORKER_URL to'g'riligini tekshiring.";
+    } else if (err.code === "old_worker" || /feature|admin_users/i.test(err.message || "")) {
+      why =
+        "Cloudflare'da Worker'ning ESKI nusxasi turibdi (`admin_users` yo'q). " +
+        "cloudflare-worker.js ni qayta deploy qiling.";
+    } else {
+      why = (err.message || "Sabab noma'lum") + "";
+    }
     return (
       '<div class="crm-warn">⚠️ <b>Mijoz profillari o\'qilmadi.</b> Ro\'yxat va ' +
       "raqamlar faqat buyurtma bergan mijozlarni qamraydi. " + esc(why) + "</div>"
