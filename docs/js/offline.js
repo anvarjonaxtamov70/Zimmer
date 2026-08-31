@@ -41,6 +41,59 @@
   var CURRENCY = CFG.CURRENCY || "so'm";
   // Cloudflare Worker — Render o'chganda buyurtma, profil va rasm proksisi
   var WORKER = (CFG.WORKER_URL || "").replace(/\/$/, "");
+  var BOOKING_ATTEMPT_STORE = "zimmer_booking_attempt";
+  var BILED_ATTEMPT_STORE = "zimmer_biled_attempt";
+
+  function randomAttemptKey(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return prefix + window.crypto.randomUUID().replace(/-/g, "");
+    }
+    var bytes = new Uint8Array(18);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return prefix + Array.prototype.map.call(bytes, function (b) {
+      return b.toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  /* Navbat/BiLED urinish kaliti sessionStorage'da saqlanadi (checkout
+     `orderAttemptKey` bilan bir xil naqsh). {key, hash} — `hash` bu
+     normalizatsiyalangan payload'ning imzosi. Bir xil payload qayta yuborilsa
+     AYNI kalit ishlatiladi; payload o'zgarsa yangisiga aylanadi; kalit faqat
+     tasdiqlangan tarmoq javobidan keyin tozalanadi. Shu sababli WebView
+     noaniq muvaffaqiyatdan keyin qayta yuklansa ham dublikat yaralmaydi —
+     Worker o'sha kalit + payload uchun idempotent replay qaytaradi. */
+  function loadAttempt(store) {
+    try {
+      var raw = sessionStorage.getItem(store);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (obj && typeof obj.key === "string" && typeof obj.hash === "string") return obj;
+    } catch (_) {}
+    return null;
+  }
+
+  function persistAttempt(store, attempt) {
+    try {
+      sessionStorage.setItem(store, JSON.stringify(attempt));
+    } catch (_) {}
+  }
+
+  function clearAttempt(store) {
+    try {
+      sessionStorage.removeItem(store);
+    } catch (_) {}
+  }
+
+  function attemptFor(store, prefix, payload) {
+    var hash = JSON.stringify(payload || {});
+    var current = loadAttempt(store);
+    if (!current || current.hash !== hash) {
+      current = { hash: hash, key: randomAttemptKey(prefix) };
+      persistAttempt(store, current);
+    }
+    return current;
+  }
 
   /* Stories halqalari KODDA belgilanadi — `utils/stories.py` dagi
      STORY_CATEGORIES bilan bir xil bo'lishi SHART. Aks holda offline'da
@@ -1129,113 +1182,26 @@
     };
   }
 
-  /** Navbatni band qilish. Vaqt bandligini YOZISHDAN OLDIN qayta
-   *  tekshiramiz — oradа boshqa mijoz olib qo'ygan bo'lishi mumkin. */
+  /** Navbatni band qilish — faqat imzolangan Worker endpointi orqali.
+   *  Slot overlap tekshiruvi va rezervatsiya serverdagi ETag CAS ichida. */
   async function createBooking(payload) {
-    var fb = window.ZimmerFB;
-    if (!fb) throw { code: "no_db", message: "Baza sozlanmagan" };
-
-    var iso = payload.date;
-    var free = freeSlots(iso, payload.duration_min, await takenSlots(iso));
-    if (free.indexOf(payload.time) === -1) {
-      throw { code: "slot_taken", message: "Bu vaqt band qilingan — boshqasini tanlang" };
-    }
-
-    var key = "b_" + payload.uid + "_" + iso.replace(/-/g, "") + "_" + payload.time.replace(":", "");
-    var duration = Number(payload.duration_min) || SLOT_MIN;
-
-    /* BANDLIK BELGISINI BIRINCHI YOZAMIZ.
-       Sabab: `slots` tugunidagi kalit navbat kaliti bilan bir xil, ya'ni
-       ikki mijoz bir vaqtni tanlasa ikkisi ham AYNAN bir kalitga yozadi va
-       ikkinchisi birinchisining ustiga tushadi — bu to'qnashuvni bekitib
-       qo'yardi. Shu sababli yozgandan keyin QAYTA o'qib tekshiramiz: kalit
-       bizniki bo'lmasa (boshqa navbat egallagan) — orqaga qaytamiz.
-
-       To'liq kafolat baza tomonida: bot ko'chirganda `idx_bookings_slot`
-       yagona indeksi dublikatni to'xtatadi (`database/db.py`). */
-    await fb.put("slots/" + iso + "/" + key, {
-      time: payload.time,
-      duration_min: duration,
-    });
-
-    var check = await takenSlots(iso);
-    var clash = check.filter(function (s) {
-      return s[0] === payload.time;
-    });
-    if (clash.length > 1) {
-      // Boshqa mijoz ham shu vaqtga yozib qo'ygan — o'zimizni olib tashlaymiz.
-      try {
-        await fb.remove("slots/" + iso + "/" + key);
-      } catch (_) {}
-      throw { code: "slot_taken", message: "Bu vaqt shu lahzada band bo'ldi — boshqasini tanlang" };
-    }
-
-    try {
-      await fb.put("bookings/" + key, {
-        uid: payload.uid,
-        service_id: payload.service_id,
-        service_name: payload.service_name || "",
-        date: iso,
-        time: payload.time,
-        duration_min: duration,
-        price: payload.price || 0,
-        name: payload.name || "",
-        phone: payload.phone || "",
-        status: "new",
-        createdAt: Date.now(),
-        imported: false,
-        source: "miniapp",
-      });
-    } catch (err) {
-      // Navbat yozilmadi — bandlik belgisini ham olib tashlaymiz, aks holda
-      // vaqt "band" bo'lib qolardi, lekin navbat yo'q edi.
-      try {
-        await fb.remove("slots/" + iso + "/" + key);
-      } catch (_) {}
-      throw err;
-    }
-
-    return { booking: { id: key, date: iso, time: payload.time, label: dateLabel(iso) } };
+    // Yangi route — avval Worker feature flag'ini tekshiramiz (item 7).
+    await ensureWorkerFeature("secure_booking");
+    var attempt = attemptFor(BOOKING_ATTEMPT_STORE, "bk_", payload);
+    var body = Object.assign({}, payload || {}, { client_key: attempt.key });
+    var result = await callWorker("/booking", body);
+    clearAttempt(BOOKING_ATTEMPT_STORE); // FAQAT tasdiqlangan javobdan keyin
+    return result;
   }
 
-  /** Bi-LED buyurtmasi. */
+  /** Bi-LED buyurtmasi — narx va nomlar Worker'da katalogdan olinadi. */
   async function createBiledOrder(payload) {
-    var fb = window.ZimmerFB;
-    if (!fb) throw { code: "no_db", message: "Baza sozlanmagan" };
-
-    var key = "bl_" + payload.uid + "_" + Date.now();
-    var total =
-      (Number(payload.biled_price) || 0) +
-      (Number(payload.shroud_price) || 0) +
-      (Number(payload.color_price) || 0);
-
-    await fb.put("biled_orders/" + key, {
-      uid: payload.uid,
-      car_id: payload.car_id || null,
-      car_name: payload.car_name || "",
-      biled_id: payload.biled_id || null,
-      biled_name: payload.biled_name || "",
-      shroud_id: payload.shroud_id || null,
-      shroud_name: payload.shroud_name || "",
-      color_id: payload.color_id || null,
-      color_name: payload.color_name || "",
-      comment: payload.comment || "",
-      total: total,
-      name: payload.name || "",
-      phone: payload.phone || "",
-      status: "new",
-      createdAt: Date.now(),
-      imported: false,
-      source: "miniapp",
-    });
-    return {
-      order: {
-        id: key,
-        code: "BL-" + String(Date.now()).slice(-6),
-        total: total,
-        total_label: priceLabel(total),
-      },
-    };
+    await ensureWorkerFeature("secure_biled_order");
+    var attempt = attemptFor(BILED_ATTEMPT_STORE, "bl_", payload);
+    var body = Object.assign({}, payload || {}, { client_key: attempt.key });
+    var result = await callWorker("/biled-order", body);
+    clearAttempt(BILED_ATTEMPT_STORE); // FAQAT tasdiqlangan javobdan keyin
+    return result;
   }
 
   /* ==================================================================
@@ -1284,6 +1250,24 @@
     return { ok: h.features.indexOf(feature) !== -1, version: h.version || "?" };
   }
 
+  /** Yangi Worker route'iga murojaatdan OLDIN e'lon qilingan feature flag'ni
+   *  tekshiradi (item 7). WORKER_URL yo'q yoki Worker eski (feature yo'q)
+   *  bo'lsa — endpoint 404 bilan tushunarsiz yiqilishidan OLDIN aniq xabar
+   *  beramiz. Health'ni aniqlab bo'lmasa (tarmoq uzilishi) BLOKLAMAYMIZ:
+   *  callWorker haqiqiy tarmoq xatosini qaytaradi. */
+  async function ensureWorkerFeature(feature) {
+    if (!WORKER) {
+      throw { code: "no_worker", message: "WORKER_URL sozlanmagan — bu amal Worker'ni talab qiladi" };
+    }
+    var sup = await workerSupports(feature);
+    if (sup && sup.ok === false) {
+      throw {
+        code: "worker_outdated",
+        message: "Worker eski (" + sup.version + ") — bu amal uchun yangilash kerak. Cloudflare'da Worker'ni yangilang.",
+      };
+    }
+  }
+
   function initData() {
     try {
       return (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || "";
@@ -1314,10 +1298,17 @@
     } catch (_) {}
 
     if (!res.ok || !body || body.ok !== true) {
+      /* To'liq strukturaviy xato tanasini SAQLAYMIZ. Booking UI slot_taken'dan
+         keyin `err.slots` ni, status oqimi `err.allowed` ni, buyurtma oqimi
+         `err.problems` ni o'qiydi — ularni yutib yubormaymiz. */
       throw {
         code: (body && body.error) || "http_" + res.status,
         message: (body && (body.message || body.error)) || "Xatolik",
         problems: body && body.problems,
+        slots: body && body.slots,
+        allowed: body && body.allowed,
+        status: res.status,
+        body: body || null,
       };
     }
     return body;
@@ -1585,7 +1576,7 @@
     music: music,
     /** Admin paneli va `loadMusic()` uchun: XOM holat (filtrsiz). */
     musicState: musicState,
-    // Navbat va Bi-LED — bazaga to'g'ridan
+    // Navbat va Bi-LED — imzolangan Worker endpointlari orqali
     bookingDates: bookingDates,
     bookingSlots: bookingSlots,
     createBooking: createBooking,

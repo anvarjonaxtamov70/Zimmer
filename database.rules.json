@@ -11,7 +11,7 @@
           ".indexOn": ["category_id", "car_id", "is_active"],
 
           "$row": {
-            ".write": true,
+            ".write": false,
 
             "id": { ".validate": "newData.isNumber() && newData.val() >= 0" },
             "sort": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
@@ -110,7 +110,7 @@
           ".validate": "$day.matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)",
 
           "$key": {
-            ".write": true,
+            ".write": false,
             ".validate": "!newData.exists() || newData.hasChildren(['time', 'duration_min'])",
 
             "time": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{2}:[0-9]{2}$/)" },
@@ -124,7 +124,7 @@
         ".indexOn": ["uid", "day", "date", "imported"],
 
         "$key": {
-          ".write": "!data.exists() || data.child('imported').val() != true",
+          ".write": false,
 
           "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "service_id": { ".validate": "newData.val() == null || newData.isNumber()" },
@@ -151,7 +151,7 @@
         ".indexOn": ["uid", "createdAt", "imported"],
 
         "$key": {
-          ".write": "!data.exists() || data.child('imported').val() != true",
+          ".write": false,
 
           "uid": { ".validate": "newData.isNumber() && newData.val() > 0" },
           "car_id": { ".validate": "newData.val() == null || newData.isNumber()" },
@@ -184,11 +184,11 @@
 
         "$key": {
           "status": {
-            ".write": true,
+            ".write": false,
             ".validate": "newData.isString() && newData.val().matches(/^(new|confirmed|accepted|packed|shipped|done|delivered|cancelled)$/)"
           },
           "status_at": {
-            ".write": true,
+            ".write": false,
             ".validate": "newData.isNumber() && newData.val() >= 0"
           }
         }
@@ -224,24 +224,24 @@
 
       "products_counter": {
         "n": {
-          ".read": true,
-          ".write": true,
+          ".read": false,
+          ".write": false,
           ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
         }
       },
 
       "stories_counter": {
         "n": {
-          ".read": true,
-          ".write": true,
+          ".read": false,
+          ".write": false,
           ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
         }
       },
 
       "banners_counter": {
         "n": {
-          ".read": true,
-          ".write": true,
+          ".read": false,
+          ".write": false,
           ".validate": "newData.isNumber() && newData.val() >= 900000 && (!data.exists() || newData.val() > data.val())"
         }
       },

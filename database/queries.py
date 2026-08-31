@@ -1,12 +1,16 @@
 """Bazaga so'rovlar. Har bir funksiya aiosqlite.Row yoki oddiy tip qaytaradi."""
 
+import hashlib
+import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
 
+from config import config
 from database.db import get_db, write_lock
 from utils import stories as story_cfg
 
@@ -14,12 +18,303 @@ logger = logging.getLogger(__name__)
 
 
 class SlotTaken(Exception):
-    """Navbat vaqti band — baza yagona indeksi to'xtatdi.
+    """Navbat vaqti band yoki tanlash uchun yaroqsiz."""
 
-    `add_booking` ilova ichidagi tekshiruvdan KEYIN ham to'qnashuv bo'lishi
-    mumkin (ikki mijoz bir lahzada). Shu holatda chaqiruvchi mijozga
-    «boshqa vaqtni tanlang» deyishi kerak, xatoni yashirmasligi kerak.
+
+class IdempotencyConflict(Exception):
+    """Bir idempotent kalit boshqa normalizatsiyalangan so'rovga tegishli."""
+
+
+class DuplicateSizeLabel(ValueError):
+    """Razmer nomi bo'shliq/harf registri normalizatsiyasidan keyin takrorlangan."""
+
+
+MAX_SIZE_LEN = 40
+MAX_ITEM_QTY = 1000
+
+
+@asynccontextmanager
+async def _write_transaction() -> AsyncIterator[aiosqlite.Connection]:
+    """Ko'p qadamli yozuv uchun alohida SQLite ulanish/tranzaksiya beradi.
+
+    Asosiy ulanish umumiy bo'lgani uchun boshqa coroutine'ning ``commit``i
+    bizning tranzaksiyani erta yopib qo'yishi mumkin. Alohida ulanish bu
+    xavfni yo'qotadi; ``BEGIN IMMEDIATE`` esa boshqa process yozuvlarini ham
+    yakuniy commitgacha kutdiradi.
     """
+    db = await aiosqlite.connect(config.db_path)
+    db.row_factory = aiosqlite.Row
+    try:
+        await db.execute("PRAGMA foreign_keys = ON")
+        await db.execute("PRAGMA busy_timeout = 5000")
+        await db.execute("BEGIN IMMEDIATE")
+        yield db
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    finally:
+        await db.close()
+
+
+async def _fetch_product(db: aiosqlite.Connection, product_id: int):
+    async with db.execute("SELECT * FROM products WHERE id = ?", (product_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def _find_order_by_key(db: aiosqlite.Connection, key: str):
+    async with db.execute("SELECT * FROM orders WHERE idempotency_key = ?", (key,)) as cur:
+        return await cur.fetchone()
+
+
+def _normalize_size(value: Any) -> str | None:
+    text = " ".join(str(value or "").split())
+    return text[:MAX_SIZE_LEN] or None
+
+
+def _size_key(value: Any) -> str:
+    return (_normalize_size(value) or "").casefold()
+
+
+def normalize_product_sizes(
+    raw: Any, *, reject_duplicates: bool = False
+) -> list[dict[str, Any]]:
+    """Razmer JSON'ini tozalaydi; mutationda normalizatsiyalangan dublikatni rad etadi."""
+    try:
+        values = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(values, list):
+        return []
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        size = _normalize_size(item.get("size"))
+        if not size:
+            continue
+        key = _size_key(size)
+        if key in seen:
+            if reject_duplicates:
+                raise DuplicateSizeLabel(f"Takroriy razmer: {size}")
+            # Eski buzilgan yozuv ikki variant sifatida sotilmasin.
+            continue
+        seen.add(key)
+        try:
+            stock = max(0, int(item.get("stock") or 0))
+        except (TypeError, ValueError):
+            stock = 0
+        result.append({"size": size, "stock": stock})
+    return result
+
+
+def _product_sizes(product) -> list[dict[str, Any]]:
+    """Mahsulot razmerlarini xavfsiz, bir xil ko'rinishda qaytaradi."""
+    try:
+        raw = product["sizes"]
+    except (KeyError, IndexError, TypeError):
+        return []
+    return normalize_product_sizes(raw)
+
+
+def product_has_sizes(product) -> bool:
+    """Botning razmer tanlay olmaydigan savat oqimi uchun variant belgisi."""
+    return bool(_product_sizes(product))
+
+
+def _fingerprint_text(value: Any, *, fold: bool = True) -> str:
+    text = " ".join(str(value or "").split())
+    return text.casefold() if fold else text
+
+
+def _fingerprint_phone(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _order_request_fingerprint(
+    user_id: int,
+    items: dict[tuple[int, str | None], int],
+    address: str,
+    phone: str,
+    delivery_method: str | None,
+    delivery_info: str | None,
+    payment_method: str | None,
+) -> str:
+    payload = {
+        "user_id": int(user_id),
+        "items": [
+            [product_id, _size_key(size) or None, int(qty)]
+            for (product_id, size), qty in sorted(
+                items.items(), key=lambda entry: (entry[0][0], _size_key(entry[0][1]))
+            )
+        ],
+        "address": _fingerprint_text(address),
+        "phone": _fingerprint_phone(phone),
+        "delivery_method": _fingerprint_text(delivery_method),
+        "delivery_info": _fingerprint_text(delivery_info),
+        "payment_method": _fingerprint_text(payment_method),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def _stored_order_fingerprint(db: aiosqlite.Connection, order) -> str:
+    wanted: dict[tuple[int, str | None], int] = {}
+    async with db.execute(
+        "SELECT product_id, qty, size FROM order_items WHERE order_id = ?",
+        (order["id"],),
+    ) as cur:
+        rows = await cur.fetchall()
+    for row in rows:
+        if row["product_id"] is None:
+            continue
+        key = (int(row["product_id"]), _normalize_size(row["size"]))
+        wanted[key] = wanted.get(key, 0) + int(row["qty"] or 0)
+    return _order_request_fingerprint(
+        int(order["user_id"]),
+        wanted,
+        order["address"],
+        order["phone"],
+        order["delivery_method"],
+        order["delivery_info"],
+        order["payment_method"],
+    )
+
+
+async def _replay_order_id(
+    db: aiosqlite.Connection, key: str, fingerprint: str
+) -> int | None:
+    existing = await _find_order_by_key(db, key)
+    if existing is None:
+        return None
+    stored = existing["idempotency_fingerprint"]
+    if not stored:
+        stored = await _stored_order_fingerprint(db, existing)
+        await db.execute(
+            "UPDATE orders SET idempotency_fingerprint = ? WHERE id = ?",
+            (stored, existing["id"]),
+        )
+    if stored != fingerprint:
+        raise IdempotencyConflict(key)
+    return int(existing["id"])
+
+
+def _stock_problem(product_id: int, product, reason: str, available: int = 0, **extra):
+    problem = {
+        "product_id": product_id,
+        "name": product["name"] if product is not None else "Tovar",
+        "reason": reason,
+        "available": max(0, int(available)),
+    }
+    problem.update(extra)
+    return problem
+
+
+async def _reserve_product_stock(
+    db: aiosqlite.Connection,
+    product,
+    qty: int,
+    size: str | None,
+) -> tuple[bool, dict[str, Any] | None]:
+    """Umumiy va razmer qoldig'ini bitta shartli UPDATE bilan kamaytiradi."""
+    product_id = int(product["id"])
+    size = _normalize_size(size)
+    sizes = _product_sizes(product)
+
+    if sizes:
+        if not size:
+            return False, _stock_problem(product_id, product, "size_required")
+        variant = next(
+            (item for item in sizes if _size_key(item["size"]) == _size_key(size)), None
+        )
+        if variant is None:
+            return False, _stock_problem(
+                product_id, product, "invalid_size", size=size
+            )
+        if int(variant["stock"]) < qty:
+            return False, _stock_problem(
+                product_id,
+                product,
+                "out_of_stock",
+                int(variant["stock"]),
+                size=size,
+            )
+        variant["stock"] = int(variant["stock"]) - qty
+        raw_sizes = product["sizes"]
+        cur = await db.execute(
+            "UPDATE products SET stock = stock - ?, sizes = ?"
+            " WHERE id = ? AND is_active = 1 AND stock >= ? AND sizes IS ?",
+            (
+                qty,
+                json.dumps(sizes, ensure_ascii=False),
+                product_id,
+                qty,
+                raw_sizes,
+            ),
+        )
+    else:
+        if size:
+            return False, _stock_problem(
+                product_id, product, "invalid_size", size=size
+            )
+        cur = await db.execute(
+            "UPDATE products SET stock = stock - ?"
+            " WHERE id = ? AND is_active = 1 AND stock >= ?",
+            (qty, product_id, qty),
+        )
+
+    if int(cur.rowcount or 0) > 0:
+        return True, None
+
+    async with db.execute("SELECT * FROM products WHERE id = ?", (product_id,)) as cursor:
+        fresh = await cursor.fetchone()
+    if not fresh or not fresh["is_active"]:
+        return False, _stock_problem(product_id, product, "not_found")
+    fresh_sizes = _product_sizes(fresh)
+    available = int(fresh["stock"] or 0)
+    if size and fresh_sizes:
+        fresh_variant = next((item for item in fresh_sizes if item["size"] == size), None)
+        if fresh_variant is None:
+            return False, _stock_problem(product_id, fresh, "invalid_size", size=size)
+        available = int(fresh_variant["stock"])
+    return False, _stock_problem(
+        product_id, fresh, "out_of_stock", available, **({"size": size} if size else {})
+    )
+
+
+async def _restore_product_stock(
+    db: aiosqlite.Connection, product_id: int, qty: int, size: str | None
+) -> bool:
+    """Bekor qilingan qatorning umumiy va variant qoldig'ini qaytaradi."""
+    if qty <= 0:
+        return False
+    async with db.execute("SELECT * FROM products WHERE id = ?", (product_id,)) as cur:
+        product = await cur.fetchone()
+    if product is None:
+        return False
+
+    normalized = _normalize_size(size)
+    sizes = _product_sizes(product)
+    if normalized:
+        variant = next(
+            (item for item in sizes if _size_key(item["size"]) == _size_key(normalized)),
+            None,
+        )
+        if variant is None:
+            sizes.append({"size": normalized, "stock": qty})
+        else:
+            variant["stock"] = int(variant["stock"]) + qty
+        await db.execute(
+            "UPDATE products SET stock = stock + ?, sizes = ? WHERE id = ?",
+            (qty, json.dumps(sizes, ensure_ascii=False), product_id),
+        )
+    else:
+        await db.execute(
+            "UPDATE products SET stock = stock + ? WHERE id = ?", (qty, product_id)
+        )
+    return True
 
 
 # ------------------------------------------------------------------- ombor
@@ -278,29 +573,28 @@ ACTIVE_BOOKING_STATUSES = ("new", "confirmed")
 
 
 async def get_day_bookings(date: str) -> list[aiosqlite.Row]:
-    """Berilgan kundagi bekor qilinmagan navbatlar (vaqt + davomiylik bilan)."""
+    """Berilgan kundagi faol navbatlar (vaqt + davomiylik bilan)."""
     db = get_db()
     async with db.execute(
         "SELECT b.time, s.duration_min FROM bookings b"
         " JOIN services s ON s.id = b.service_id"
-        " WHERE b.date = ? AND b.status != 'cancelled'",
+        " WHERE b.date = ? AND b.status IN ('new', 'confirmed')",
         (date,),
     ) as cur:
         return await cur.fetchall()
 
 
 async def get_active_bookings(from_date: str | None = None) -> list[aiosqlite.Row]:
-    """Bekor qilinmagan navbatlar (bandlik jadvalini bulutga yozish uchun).
+    """Faol navbatlar (bandlik jadvalini bulutga yozish uchun).
 
-    `from_date` berilsa — o'sha kundan boshlab. Standart holatda hammasi
-    qaytadi: o'tgan kunlar ham bandlik jadvalida qolgani yaxshi (tarix
-    buzilmaydi va ular kelajakdagi tanlovga ta'sir qilmaydi).
+    `from_date` berilsa — o'sha kundan boshlab. `done`/`cancelled` tarixiy
+    yozuvlar bandlikka kirmaydi va bo'shagan vaqtni qayta tanlash mumkin.
     """
     db = get_db()
     sql = (
         "SELECT b.id, b.date, b.time, b.status, s.duration_min"
         " FROM bookings b JOIN services s ON s.id = b.service_id"
-        " WHERE b.status <> 'cancelled'"
+        " WHERE b.status IN ('new', 'confirmed')"
     )
     params: list[Any] = []
     if from_date:
@@ -312,24 +606,38 @@ async def get_active_bookings(from_date: str | None = None) -> list[aiosqlite.Ro
 
 
 async def add_booking(user_id: int, service_id: int, date: str, time: str) -> int:
-    """Navbat yozadi. Vaqt band bo'lsa `SlotTaken` ko'taradi.
+    """Navbatni sana, ish vaqti va interval to'qnashuvini atomik tekshirib yozadi."""
+    from utils.helpers import available_dates, free_slots
 
-    Bandlikni `idx_bookings_slot` yagona indeksi BAZA DARAJASIDA tekshiradi
-    (`database/db.py`). Ya'ni ilovadagi `free_slots()` tekshiruvi bilan bu
-    yozuv orasida boshqa mijoz o'sha vaqtni olib qo'ysa ham ikkinchi navbat
-    yaratilmaydi.
-    """
-    db = get_db()
-    try:
-        cur = await db.execute(
-            "INSERT INTO bookings (user_id, service_id, date, time) VALUES (?, ?, ?, ?)",
-            (user_id, service_id, date, time),
-        )
-    except aiosqlite.IntegrityError as error:
-        await db.rollback()
-        raise SlotTaken(f"{date} {time} band") from error
-    await db.commit()
-    return int(cur.lastrowid)
+    async with write_lock(), _write_transaction() as db:
+        async with db.execute(
+            "SELECT * FROM services"
+            " WHERE id = ? AND is_active = 1 AND COALESCE(coming_soon, 0) = 0",
+            (service_id,),
+        ) as cur:
+            service = await cur.fetchone()
+        if service is None or date not in available_dates():
+            raise SlotTaken(f"{date} {time} tanlash uchun yaroqsiz")
+
+        async with db.execute(
+            "SELECT b.time, s.duration_min FROM bookings b"
+            " JOIN services s ON s.id = b.service_id"
+            " WHERE b.date = ? AND b.status IN ('new', 'confirmed')",
+            (date,),
+        ) as cur:
+            rows = await cur.fetchall()
+        taken = [(str(row["time"]), int(row["duration_min"])) for row in rows]
+        if time not in free_slots(date, int(service["duration_min"]), taken):
+            raise SlotTaken(f"{date} {time} band")
+
+        try:
+            cur = await db.execute(
+                "INSERT INTO bookings (user_id, service_id, date, time) VALUES (?, ?, ?, ?)",
+                (user_id, service_id, date, time),
+            )
+        except aiosqlite.IntegrityError as error:
+            raise SlotTaken(f"{date} {time} band") from error
+        return int(cur.lastrowid)
 
 
 async def get_booking(booking_id: int) -> aiosqlite.Row | None:
@@ -504,6 +812,7 @@ async def get_cart(user_id: int) -> list[aiosqlite.Row]:
     db = get_db()
     async with db.execute(
         "SELECT c.product_id, c.qty, p.name, p.price, p.stock,"
+        " p.product_type, p.sizes,"
         " (c.qty * p.price) AS subtotal"
         " FROM cart_items c JOIN products p ON p.id = c.product_id"
         " WHERE c.user_id = ? ORDER BY p.name",
@@ -561,57 +870,79 @@ async def create_order(
     delivery_method: str | None = None,
     delivery_info: str | None = None,
     payment_method: str | None = None,
-) -> tuple[int | None, list[dict[str, Any]]]:
-    """Savatchadagi mahsulotlardan buyurtma yaratadi va savatchani bo'shatadi.
-
-    Qaytaradi: (order_id, muammolar). Qoldiq yetmasa order_id = None va
-    muammolar ro'yxati qaytadi — chaqiruvchi mijozga aniq aytishi kerak.
-
-    Ilgari bu funksiya qoldiqni tekshirmasdan `MAX(stock - ?, 0)` bilan
-    kamaytirardi: savatga qo'shilgandan keyin tovar tugab qolgan bo'lsa ham
-    buyurtma o'tib ketardi va ombor manfiyga ketmasin deb 0 da to'xtardi —
-    ya'ni sotilmagan tovar sotilgan bo'lib ko'rinardi.
-    """
-    items = await get_cart(user_id)
-    if not items:
-        return None, []
-
-    db = get_db()
+    idempotency_key: str | None = None,
+) -> tuple[int | None, list[dict[str, Any]], bool]:
+    """Joriy savatdan idempotent buyurtma yaratadi."""
     problems: list[dict[str, Any]] = []
 
-    async with write_lock():
-        taken: list[tuple[int, int]] = []
-        for item in items:
-            qty = int(item["qty"])
-            product_id = item["product_id"]
-            if product_id is None or qty < 1:
-                continue
-            if not await take_stock(product_id, qty):
-                fresh = await get_product(product_id)
+    async with write_lock(), _write_transaction() as db:
+        async with db.execute(
+            "SELECT product_id, qty FROM cart_items WHERE user_id = ? ORDER BY product_id",
+            (user_id,),
+        ) as cur:
+            items = await cur.fetchall()
+
+        # Muvaffaqiyatli birinchi urinish savatni tozalaydi. Shu sababli bot
+        # callback replayida mavjud kalit + bo'sh savat aynan oldingi natija.
+        if not items:
+            if idempotency_key:
+                existing = await _find_order_by_key(db, idempotency_key)
+                if existing is not None:
+                    return int(existing["id"]), [], False
+            return None, [], False
+
+        wanted = {(int(item["product_id"]), None): int(item["qty"]) for item in items}
+        for (product_id, _), qty in wanted.items():
+            if qty < 1 or qty > MAX_ITEM_QTY:
                 problems.append(
                     {
                         "product_id": product_id,
-                        "name": item["name"],
-                        "reason": "out_of_stock",
-                        "available": int(fresh["stock"]) if fresh else 0,
+                        "reason": "max_qty" if qty > MAX_ITEM_QTY else "bad_qty",
+                        "max_qty": MAX_ITEM_QTY,
                     }
                 )
-                continue
-            taken.append((product_id, qty))
-
         if problems:
-            for product_id, qty in taken:
-                await return_stock(product_id, qty)
-            if taken:
-                await db.commit()
-            return None, problems
+            return None, problems, False
 
-        total = sum(int(item["subtotal"]) for item in items)
+        fingerprint = _order_request_fingerprint(
+            user_id,
+            wanted,
+            address,
+            phone,
+            delivery_method,
+            delivery_info,
+            payment_method,
+        )
+        if idempotency_key:
+            replay_id = await _replay_order_id(db, idempotency_key, fingerprint)
+            if replay_id is not None:
+                return replay_id, [], False
+
+        prepared: list[tuple[aiosqlite.Row, int, str | None]] = []
+        reserved: list[tuple[int, int, str | None]] = []
+        for (product_id, size), qty in wanted.items():
+            product = await _fetch_product(db, product_id)
+            if product is None or not product["is_active"]:
+                problems.append(_stock_problem(product_id, product, "not_found"))
+                continue
+            ok, problem = await _reserve_product_stock(db, product, qty, size)
+            if not ok:
+                problems.append(problem or _stock_problem(product_id, product, "out_of_stock"))
+                continue
+            prepared.append((product, qty, size))
+            reserved.append((product_id, qty, size))
+
+        if problems or not prepared:
+            for product_id, qty, size in reserved:
+                await _restore_product_stock(db, product_id, qty, size)
+            return None, problems, False
+
+        total = sum(int(product["price"]) * qty for product, qty, _ in prepared)
         try:
             cur = await db.execute(
                 "INSERT INTO orders (user_id, total, address, phone,"
-                " delivery_method, delivery_info, payment_method)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " delivery_method, delivery_info, payment_method, idempotency_key,"
+                " idempotency_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     total,
@@ -620,35 +951,37 @@ async def create_order(
                     delivery_method,
                     delivery_info,
                     payment_method,
+                    idempotency_key,
+                    fingerprint if idempotency_key else None,
                 ),
             )
             order_id = int(cur.lastrowid)
-
             rows: Sequence[tuple] = [
                 (
                     order_id,
-                    item["product_id"],
-                    item["name"],
-                    int(item["price"]),
-                    int(item["qty"]),
+                    product["id"],
+                    product["name"],
+                    int(product["price"]),
+                    qty,
+                    size,
                 )
-                for item in items
+                for product, qty, size in prepared
             ]
             await db.executemany(
-                "INSERT INTO order_items (order_id, product_id, name, price, qty)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO order_items (order_id, product_id, name, price, qty, size)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 rows,
             )
             await db.execute("DELETE FROM cart_items WHERE user_id = ?", (user_id,))
-            await db.commit()
-        except Exception:
+        except aiosqlite.IntegrityError:
             await db.rollback()
-            for product_id, qty in taken:
-                await return_stock(product_id, qty)
-            await db.commit()
+            if idempotency_key:
+                replay_id = await _replay_order_id(db, idempotency_key, fingerprint)
+                if replay_id is not None:
+                    return replay_id, [], False
             raise
 
-        return order_id, []
+        return order_id, [], True
 
 
 async def get_order(order_id: int) -> aiosqlite.Row | None:
@@ -694,40 +1027,80 @@ async def get_orders(status: str | None = None, limit: int = 15) -> list[aiosqli
         return await cur.fetchall()
 
 
+async def compare_and_set_status(
+    kind: str,
+    row_id: int,
+    expected_status: str,
+    target_status: str,
+) -> tuple[bool, str | None, int]:
+    """Holatni CAS bilan almashtiradi; order bekorida stockni aynan bir marta qaytaradi."""
+    tables = {"order": "orders", "booking": "bookings", "biled": "biled_orders"}
+    table = tables.get(kind)
+    if table is None:
+        raise ValueError(f"Noma'lum buyurtma turi: {kind}")
+
+    async with write_lock(), _write_transaction() as db:
+        cur = await db.execute(
+            f"UPDATE {table} SET status = ? WHERE id = ? AND status = ?",
+            (target_status, row_id, expected_status),
+        )
+        if int(cur.rowcount or 0) == 0:
+            async with db.execute(
+                f"SELECT status FROM {table} WHERE id = ?", (row_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            return False, str(row["status"]) if row else None, 0
+
+        restored = 0
+        if kind == "order" and target_status == "cancelled":
+            async with db.execute(
+                "SELECT product_id, qty, size FROM order_items"
+                " WHERE order_id = ? AND product_id IS NOT NULL"
+                " AND COALESCE(stock_reserved, 1) = 1",
+                (row_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            for row in rows:
+                qty = int(row["qty"] or 0)
+                if qty > 0 and await _restore_product_stock(
+                    db, int(row["product_id"]), qty, row["size"]
+                ):
+                    restored += qty
+        return True, target_status, restored
+
+
 async def set_order_status(order_id: int, status: str) -> None:
+    """Eski ichki yordamchi; yangi oqim `compare_and_set_status`dan foydalanadi."""
     db = get_db()
     await db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
     await db.commit()
 
 
 async def restore_order_stock(order_id: int) -> int:
-    """Bekor qilingan buyurtmadagi tovarlarni omborga qaytaradi.
+    """Buyurtma qoldig'ini variantlari bilan qaytaradi (qo'lda tiklash uchun).
 
-    Buyurtma berilganda ombor soni kamaytiriladi (`create_order`). Buyurtma
-    bekor qilinsa, o'sha sonni qaytarish kerak — aks holda tovar bazada
-    "yo'qolib" qoladi va sotuvda ko'rinmay qoladi.
-
-    Qaytaradi: omborga qaytarilgan umumiy dona soni.
+    Faqat HAQIQATAN rezerv qilingan (`stock_reserved=1`) qatorlar qaytariladi —
+    tashqi/bulutdan tiklangan buyurtmalar (`stock_reserved=0`) qoldiqni
+    ikki marta oshirib yubormasin.
     """
     db = get_db()
-    async with db.execute(
-        "SELECT product_id, qty FROM order_items WHERE order_id = ? AND product_id IS NOT NULL",
-        (order_id,),
-    ) as cur:
-        rows = await cur.fetchall()
-
     restored = 0
-    for row in rows:
-        qty = int(row["qty"] or 0)
-        if qty <= 0:
-            continue
-        await db.execute(
-            "UPDATE products SET stock = stock + ? WHERE id = ?", (qty, row["product_id"])
-        )
-        restored += qty
-
-    if restored:
-        await db.commit()
+    async with write_lock():
+        async with db.execute(
+            "SELECT product_id, qty, size FROM order_items"
+            " WHERE order_id = ? AND product_id IS NOT NULL"
+            " AND COALESCE(stock_reserved, 1) = 1",
+            (order_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        for row in rows:
+            qty = int(row["qty"] or 0)
+            if qty > 0 and await _restore_product_stock(
+                db, int(row["product_id"]), qty, row["size"]
+            ):
+                restored += qty
+        if restored:
+            await db.commit()
     return restored
 
 
@@ -906,6 +1279,9 @@ def product_json(product: aiosqlite.Row) -> dict[str, Any]:
         else None,
         "badge": product["badge"] if "badge" in keys else None,
         "stock": int(product["stock"]),
+        "unit": product["unit"] if "unit" in keys else None,
+        "product_type": product["product_type"] if "product_type" in keys else None,
+        "sizes": _product_sizes(product),
         "car_id": product["car_id"] if "car_id" in keys else None,
         # media: xom qiymatlar — yakuniy manzillar API qatlamida yasaladi
         "has_photo": bool(product["photo_id"]),
@@ -1016,103 +1392,94 @@ async def add_favorite_by_name(user_id: int, name: str) -> bool:
 
 async def create_order_from_items(
     user_id: int,
-    items: list[tuple[int, int]],
+    items: list[tuple[int, int] | tuple[int, int, str | None]],
     address: str,
     phone: str,
     delivery_method: str | None = None,
     delivery_info: str | None = None,
     payment_method: str | None = None,
     idempotency_key: str | None = None,
-) -> tuple[int | None, list[dict[str, Any]]]:
-    """Mini App'dan kelgan ro'yxat asosida buyurtma yaratadi.
-
-    items -- [(product_id, qty), ...]
-    delivery_method -- 'courier' | 'bts' | None (yetkazib berish usuli)
-    delivery_info -- yetkazib berish tafsiloti (matn)
-    payment_method -- to'lov usuli (matn)
-    idempotency_key -- takroriy bosishni to'xtatish uchun mijoz kaliti
-    Qaytaradi: (order_id, muammolar). Muammo bo'lsa order_id = None.
-
-    QOLDIQ ATOMIK KAMAYADI
-    Ilgari bu funksiya qoldiqni O'QIB tekshirar, keyin `MAX(stock - ?, 0)`
-    bilan kamaytirardi. Ikki mijoz oxirgi donaga bir vaqtda buyurtma bersa
-    IKKISI HAM tekshiruvdan o'tib ketardi — qoldiq 0 ga tushardi va bir
-    mijozga tovar yo'q edi.
-
-    Endi:
-      • butun amal umumiy qulf ostida ketma-ket bajariladi;
-      • qoldiq `take_stock()` bilan SHARTLI kamaytiriladi;
-      • biror tovar yetmasa — allaqachon kamaytirilganlar QAYTARILADI va
-        buyurtma umuman yaratilmaydi (hammasi yoki hech nima).
-    """
+) -> tuple[int | None, list[dict[str, Any]], bool]:
+    """Mini App ro'yxatidan razmer va fingerprint bilan idempotent order yaratadi."""
     problems: list[dict[str, Any]] = []
-
-    # Bir tovar ro'yxatda ikki marta kelishi mumkin — birlashtiramiz, aks
-    # holda qoldiq ikki marta alohida tekshirilib chalkashlik chiqadi.
-    wanted: dict[int, int] = {}
-    for product_id, qty in items:
+    aggregated: dict[tuple[int, str | None], int] = {}
+    labels: dict[tuple[int, str | None], str | None] = {}
+    for item in items:
+        product_id, qty = int(item[0]), int(item[1])
+        size = _normalize_size(item[2]) if len(item) > 2 else None
         if qty < 1:
             problems.append({"product_id": product_id, "reason": "bad_qty"})
             continue
-        wanted[product_id] = wanted.get(product_id, 0) + qty
+        key = (product_id, _size_key(size) or None)
+        aggregated[key] = aggregated.get(key, 0) + qty
+        labels.setdefault(key, size)
+
+    # Bir mahsulot/razmer bir necha qatorda kelsa limit HAR QATORGA emas,
+    # normalizatsiyadan keyingi jami songa qo'llanadi.
+    for (product_id, size_key), qty in aggregated.items():
+        if qty > MAX_ITEM_QTY:
+            problems.append(
+                {
+                    "product_id": product_id,
+                    "size": labels[(product_id, size_key)],
+                    "reason": "max_qty",
+                    "max_qty": MAX_ITEM_QTY,
+                }
+            )
     if problems:
-        return None, problems
+        return None, problems, False
 
-    db = get_db()
+    wanted = {
+        (product_id, labels[(product_id, size_key)]): qty
+        for (product_id, size_key), qty in aggregated.items()
+    }
+    fingerprint = _order_request_fingerprint(
+        user_id,
+        wanted,
+        address,
+        phone,
+        delivery_method,
+        delivery_info,
+        payment_method,
+    )
 
-    async with write_lock():
-        # ---- 1-qadam: takroriy so'rovmi? (idempotentlik)
+    async with write_lock(), _write_transaction() as db:
         if idempotency_key:
-            existing = await get_order_by_idempotency_key(idempotency_key)
-            if existing is not None:
+            replay_id = await _replay_order_id(db, idempotency_key, fingerprint)
+            if replay_id is not None:
                 logger.info(
                     "Takroriy buyurtma so'rovi (%s) — mavjud #%s qaytarildi",
                     idempotency_key,
-                    existing["id"],
+                    replay_id,
                 )
-                return int(existing["id"]), []
+                return replay_id, [], False
 
-        # ---- 2-qadam: tovarlarni tekshirib, qoldiqni ZAHIRAGA olamiz
-        prepared: list[tuple[aiosqlite.Row, int]] = []
-        taken: list[tuple[int, int]] = []
-
-        for product_id, qty in wanted.items():
-            product = await get_product(product_id)
-            if not product or not product["is_active"]:
-                problems.append({"product_id": product_id, "reason": "not_found"})
+        prepared: list[tuple[aiosqlite.Row, int, str | None]] = []
+        reserved: list[tuple[int, int, str | None]] = []
+        for (product_id, size), qty in wanted.items():
+            product = await _fetch_product(db, product_id)
+            if product is None or not product["is_active"]:
+                problems.append(_stock_problem(product_id, product, "not_found"))
                 continue
-            if not await take_stock(product_id, qty):
-                # Shartli UPDATE o'tmadi — demak qoldiq yetmaydi. Aniq
-                # sonni xabar uchun o'qiymiz (bu payt qulf bizda).
-                fresh = await get_product(product_id)
-                problems.append(
-                    {
-                        "product_id": product_id,
-                        "name": product["name"],
-                        "reason": "out_of_stock",
-                        "available": int(fresh["stock"]) if fresh else 0,
-                    }
-                )
+            ok, problem = await _reserve_product_stock(db, product, qty, size)
+            if not ok:
+                problems.append(problem or _stock_problem(product_id, product, "out_of_stock"))
                 continue
-            taken.append((product_id, qty))
-            prepared.append((product, qty))
+            prepared.append((product, qty, size))
+            reserved.append((product_id, qty, size))
 
-        # ---- 3-qadam: muammo bo'lsa ORQAGA QAYTAMIZ
         if problems or not prepared:
-            for product_id, qty in taken:
-                await return_stock(product_id, qty)
-            if taken:
-                await db.commit()
-            return None, problems
+            for product_id, qty, size in reserved:
+                await _restore_product_stock(db, product_id, qty, size)
+            return None, problems, False
 
-        # ---- 4-qadam: buyurtmani yozamiz
-        total = sum(int(product["price"]) * qty for product, qty in prepared)
+        total = sum(int(product["price"]) * qty for product, qty, _ in prepared)
         try:
             cur = await db.execute(
                 "INSERT INTO orders"
                 " (user_id, total, address, phone, delivery_method, delivery_info,"
-                "  payment_method, idempotency_key)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "  payment_method, idempotency_key, idempotency_fingerprint)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     total,
@@ -1122,29 +1489,34 @@ async def create_order_from_items(
                     delivery_info,
                     payment_method,
                     idempotency_key,
+                    fingerprint if idempotency_key else None,
                 ),
             )
             order_id = int(cur.lastrowid)
-
             await db.executemany(
-                "INSERT INTO order_items (order_id, product_id, name, price, qty)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO order_items (order_id, product_id, name, price, qty, size)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 [
-                    (order_id, product["id"], product["name"], int(product["price"]), qty)
-                    for product, qty in prepared
+                    (
+                        order_id,
+                        product["id"],
+                        product["name"],
+                        int(product["price"]),
+                        qty,
+                        size,
+                    )
+                    for product, qty, size in prepared
                 ],
             )
-            await db.commit()
-        except Exception:
-            # Yozuv yiqildi — zahiraga olingan qoldiqni qaytaramiz, aks holda
-            # tovar bazada "yo'qolib" qolardi.
+        except aiosqlite.IntegrityError:
             await db.rollback()
-            for product_id, qty in taken:
-                await return_stock(product_id, qty)
-            await db.commit()
+            if idempotency_key:
+                replay_id = await _replay_order_id(db, idempotency_key, fingerprint)
+                if replay_id is not None:
+                    return replay_id, [], False
             raise
 
-        return order_id, []
+        return order_id, [], True
 
 
 async def get_order_by_idempotency_key(key: str) -> aiosqlite.Row | None:
@@ -2163,129 +2535,198 @@ async def restore_biled_order(data: dict[str, Any]) -> bool:
 
 
 async def import_external_order(data: dict[str, Any], items: Sequence[dict]) -> int | None:
-    """Tashqi manbadan (Cloudflare Worker) kelgan buyurtmani bazaga yozadi.
+    """Worker orderini alohida BEGIN IMMEDIATE tranzaksiyada dedupe/import qiladi.
 
-    `restore_shop_order` dan farqi:
-      • buyurtma raqami BAZADA yaratiladi (bulutda raqam yo'q, `ZM-XXXXXX`
-        kodi bor) — shuning uchun `id` berilmaydi;
-      • `external_code` yoziladi va u YAGONA indeks bilan himoyalangan, ya'ni
-        bir buyurtma ikki marta ko'chirilmaydi (bir vaqtda ikki import
-        ishlasa ham baza o'zi to'xtatadi);
-      • `product_id` saqlanadi (bulutda bor), shuning uchun ombor qoldig'i
-        ham kamaytiriladi — `restore_shop_order` da esa tarix tiklanadi va
-        qoldiqqa tegilmaydi.
-
-    Qaytaradi: yangi `order_id`, yoki None — allaqachon ko'chirilgan bo'lsa.
+    Qoldiq faqat muvaffaqiyatli rezerv qilingan qator uchun qaytarilishi
+    mumkin (`stock_reserved=1`). Allaqachon bekor order umuman rezerv qilmaydi.
     """
-    db = get_db()
-    code = data.get("external_code")
-
-    # Allaqachon ko'chirilganmi?
-    if code:
-        async with db.execute(
-            "SELECT id FROM orders WHERE external_code = ?", (code,)
-        ) as cur:
-            row = await cur.fetchone()
-        if row:
-            return None
+    code = str(data.get("external_code") or "").strip() or None
+    status = str(data.get("status") or "new")
+    prepared: list[dict[str, Any]] = []
+    for item in items:
+        try:
+            qty = max(1, int(item.get("qty") or 1))
+            product_id = int(item.get("product_id") or 0) or None
+        except (TypeError, ValueError):
+            continue
+        prepared.append(
+            {
+                "product_id": product_id,
+                "name": str(item.get("name") or "Tovar")[:200],
+                "price": int(item.get("price") or 0),
+                "qty": qty,
+                "size": _normalize_size(item.get("size")),
+            }
+        )
 
     total = int(data.get("total") or 0)
-    # Summa berilmagan bo'lsa qatorlardan hisoblaymiz (himoya)
     if total <= 0:
-        total = sum(int(i.get("price") or 0) * int(i.get("qty") or 1) for i in items)
+        total = sum(item["price"] * item["qty"] for item in prepared)
 
-    try:
-        cur = await db.execute(
-            "INSERT INTO orders"
-            " (user_id, total, address, phone, delivery_method, delivery_info,"
-            "  payment_method, status, created_at, external_code)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)",
-            (
-                int(data["user_id"]),
-                total,
-                data.get("address"),
-                data.get("phone"),
-                data.get("delivery_method"),
-                data.get("delivery_info"),
-                data.get("payment_method"),
-                data.get("status") or "new",
-                data.get("created_at"),
-                code,
-            ),
-        )
-    except aiosqlite.IntegrityError:
-        # Yagona indeks ishga tushdi — boshqa import allaqachon yozgan
-        await db.commit()
-        return None
+    async with write_lock(), _write_transaction() as db:
+        if code:
+            async with db.execute(
+                "SELECT id FROM orders WHERE external_code = ?", (code,)
+            ) as cur:
+                if await cur.fetchone():
+                    return None
 
-    order_id = int(cur.lastrowid)
+        try:
+            cur = await db.execute(
+                "INSERT INTO orders"
+                " (user_id, total, address, phone, delivery_method, delivery_info,"
+                "  payment_method, status, created_at, external_code)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)",
+                (
+                    int(data["user_id"]),
+                    total,
+                    data.get("address"),
+                    data.get("phone"),
+                    data.get("delivery_method"),
+                    data.get("delivery_info"),
+                    data.get("payment_method"),
+                    status,
+                    data.get("created_at"),
+                    code,
+                ),
+            )
+        except aiosqlite.IntegrityError:
+            # Boshqa process shu external_code'ni oldin yozgan bo'lishi mumkin.
+            if code:
+                async with db.execute(
+                    "SELECT id FROM orders WHERE external_code = ?", (code,)
+                ) as cursor:
+                    if await cursor.fetchone():
+                        return None
+            raise
 
-    rows = [
-        (
-            order_id,
-            item.get("product_id"),
-            str(item.get("name") or "Tovar")[:200],
-            int(item.get("price") or 0),
-            max(1, int(item.get("qty") or 1)),
-            # Razmerli tovarda mijoz tanlagan razmer (Worker yozadi).
-            # Razmersiz tovarda None — admin panelida satr chizilmaydi.
-            (str(item.get("size"))[:40] if item.get("size") else None),
-        )
-        for item in items
-    ]
-    if rows:
-        await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, price, qty, size)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            rows,
-        )
+        order_id = int(cur.lastrowid)
+        rows: list[tuple[Any, ...]] = []
+        for item in prepared:
+            reserved = False
+            product_id = item["product_id"]
+            if status != "cancelled" and product_id is not None:
+                product = await _fetch_product(db, product_id)
+                if product is not None:
+                    reserved, problem = await _reserve_product_stock(
+                        db, product, item["qty"], item["size"]
+                    )
+                    if not reserved:
+                        logger.warning(
+                            "Worker order %s qatori rezerv qilinmadi: product=%s reason=%s",
+                            code or order_id,
+                            product_id,
+                            (problem or {}).get("reason"),
+                        )
+            rows.append(
+                (
+                    order_id,
+                    product_id,
+                    item["name"],
+                    item["price"],
+                    item["qty"],
+                    item["size"],
+                    int(reserved),
+                )
+            )
 
-    # Ombor qoldig'ini kamaytiramiz. Worker bulutdagi NUSXANI allaqachon
-    # kamaytirgan, lekin SQLite asosiy manba va unga tegilmagan edi.
-    for item in items:
-        product_id = item.get("product_id")
-        if not product_id:
-            continue
-        await db.execute(
-            "UPDATE products SET stock = MAX(stock - ?, 0) WHERE id = ?",
-            (max(1, int(item.get("qty") or 1)), int(product_id)),
-        )
-
-    await db.commit()
-    return order_id
+        if rows:
+            await db.executemany(
+                "INSERT INTO order_items"
+                " (order_id, product_id, name, price, qty, size, stock_reserved)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+        return order_id
 
 
 async def restore_shop_order(data: dict[str, Any], items: Sequence[dict]) -> bool:
-    """Do'kon buyurtmasini va tarkibini tiklaydi. True — yangi qo'shildi."""
-    db = get_db()
-    cur = await db.execute(
-        "INSERT OR IGNORE INTO orders"
-        " (id, user_id, total, address, phone, delivery_method, delivery_info,"
-        "  payment_method, status, created_at)"
-        " VALUES (:id, :user_id, :total, :address, :phone, :delivery_method,"
-        "         :delivery_info, :payment_method, :status,"
-        "         COALESCE(:created_at, datetime('now')))",
-        data,
-    )
-    await db.commit()
-    if cur.rowcount <= 0:
-        return False
+    """Do'kon buyurtmasini va tarkibini bulutdan tiklaydi. True — yangi qo'shildi.
 
-    # Tovar ID'lari bulutda saqlanmaydi (ular o'zgarib ketadi) — nomi,
-    # narxi va soni saqlanadi, shuning uchun product_id = NULL.
-    rows = [
-        (data["id"], str(item.get("name") or "Tovar"), int(item.get("price") or 0),
-         int(item.get("qty") or 1))
-        for item in items
-    ]
-    if rows:
-        await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, price, qty)"
-            " VALUES (?, NULL, ?, ?, ?)",
-            rows,
+    Sarlavha va tarkib BITTA tranzaksiyada yoziladi — ilgari ular alohida
+    commit qilinardi va jarayon ular orasida uzilsa buyurtma tarkibsiz
+    qolib, keyingi tiklashda `False` qaytib, detallar abadiy tiklanmasdi.
+    Endi tarkibi yo'q eski sarlavha ham TA'MIRLANADI.
+
+    Razmer bulutdagi nusxada saqlanadi va tiklanadi. Tovar ID'si mavjud
+    bo'lsa bog'lanadi, lekin `stock_reserved=0` — bu bulut nusxasi bo'lgani
+    uchun bekor qilinganda qoldiq QAYTARILMAYDI (aks holda sotuvda
+    kamaygan qoldiq ikki marta hisoblanib shishardi).
+    """
+    order_id = int(data["id"])
+
+    def _prepared_rows() -> list[tuple[Any, ...]]:
+        rows: list[tuple[Any, ...]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                pid_raw = item.get("productId")
+                product_id = int(pid_raw) if pid_raw is not None else None
+            except (TypeError, ValueError):
+                product_id = None
+            rows.append(
+                (
+                    order_id,
+                    product_id,
+                    str(item.get("name") or "Tovar")[:200],
+                    int(item.get("price") or 0),
+                    max(1, int(item.get("qty") or 1)),
+                    _normalize_size(item.get("size")),
+                )
+            )
+        return rows
+
+    async with write_lock(), _write_transaction() as db:
+        cur = await db.execute(
+            "INSERT OR IGNORE INTO orders"
+            " (id, user_id, total, address, phone, delivery_method, delivery_info,"
+            "  payment_method, status, created_at)"
+            " VALUES (:id, :user_id, :total, :address, :phone, :delivery_method,"
+            "         :delivery_info, :payment_method, :status,"
+            "         COALESCE(:created_at, datetime('now')))",
+            data,
         )
-        await db.commit()
-    return True
+        created = cur.rowcount > 0
+
+        if not created:
+            # Sarlavha bor — tarkibi ham bormi? Bo'lsa hech narsa qilmaymiz.
+            async with db.execute(
+                "SELECT 1 FROM order_items WHERE order_id = ? LIMIT 1", (order_id,)
+            ) as check:
+                if await check.fetchone() is not None:
+                    return False
+            # Tarkibsiz sarlavha — ta'mirlaymiz (pastda item yoziladi).
+
+        rows = _prepared_rows()
+        if rows:
+            # Tovar ID mavjud bo'lmasa bog'lamaymiz (qayta qurilgan bazada
+            # ID'lar siljigan bo'lishi mumkin) — noto'g'ri tovarga bog'lanib
+            # qolmasin.
+            existing = {
+                int(r[0])
+                for r in await (
+                    await db.execute("SELECT id FROM products")
+                ).fetchall()
+            }
+            normalized = [
+                (
+                    oid,
+                    (pid if pid in existing else None),
+                    name,
+                    price,
+                    qty,
+                    size,
+                )
+                for (oid, pid, name, price, qty, size) in rows
+            ]
+            await db.executemany(
+                "INSERT INTO order_items"
+                " (order_id, product_id, name, price, qty, size, stock_reserved)"
+                " VALUES (?, ?, ?, ?, ?, ?, 0)",
+                normalized,
+            )
+        return created
 
 
 async def restore_booking(data: dict[str, Any]) -> bool:

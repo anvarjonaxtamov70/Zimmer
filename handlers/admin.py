@@ -174,7 +174,18 @@ async def admin_booking_status(callback: CallbackQuery, bot: Bot) -> None:
         await _show_booking(callback, bk)
         return
 
-    await orders.apply("booking", booking_id, status)
+    result = await orders.apply(
+        "booking", booking_id, status, expected_status=bk["status"]
+    )
+    if not result.applied:
+        current = result.current or bk["status"]
+        await callback.answer(
+            orders.reason_text("booking", current, status, result.reason), show_alert=True
+        )
+        updated = await q.get_booking(booking_id)
+        if updated:
+            await _show_booking(callback, updated)
+        return
     label = BOOKING_STATUS.get(status, status)
 
     messages = {
@@ -238,7 +249,8 @@ async def admin_biled_orders(callback: CallbackQuery) -> None:
             lines.append(
                 f"🆔 <b>#{order['id']}</b> · {order['car_name']} · {fmt_price(order['total'])}\n"
                 f"    💡 {order['biled_name']}\n"
-                f"    👤 {html_escape(order['full_name'])} · 📞 {html_escape(order['phone']) or '-'}\n"
+                f"    👤 {html_escape(order['full_name'])} · "
+                f"📞 {html_escape(order['phone']) or '-'}\n"
                 f"    {BILED_STATUS.get(order['status'], order['status'])} · {order['created_at']}"
             )
         text = "\n".join(lines)
@@ -286,7 +298,22 @@ async def admin_biled_status(callback: CallbackQuery, bot: Bot) -> None:
         )
         return
 
-    await orders.apply("biled", order_id, status)
+    result = await orders.apply(
+        "biled", order_id, status, expected_status=order["status"]
+    )
+    if not result.applied:
+        current = result.current or order["status"]
+        await callback.answer(
+            orders.reason_text("biled", current, status, result.reason), show_alert=True
+        )
+        updated = await q.get_biled_order(order_id)
+        if updated:
+            await edit_or_send(
+                callback.message,
+                _biled_detail_text(updated),
+                admin_biled_actions_kb(order_id, updated["status"]),
+            )
+        return
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\n\n"
@@ -393,8 +420,17 @@ async def admin_order_status(callback: CallbackQuery, bot: Bot) -> None:
         await admin_order_detail_refresh(callback, order_id)
         return
 
-    # Bekor qilinsa tovarlar omborga qaytadi (services/orders.py)
-    await orders.apply("order", order_id, status)
+    # Bekor qilinsa tovarlar shu CAS g'olibida aynan bir marta omborga qaytadi.
+    result = await orders.apply(
+        "order", order_id, status, expected_status=order["status"]
+    )
+    if not result.applied:
+        current = result.current or order["status"]
+        await callback.answer(
+            orders.reason_text("order", current, status, result.reason), show_alert=True
+        )
+        await admin_order_detail_refresh(callback, order_id)
+        return
     messages = {
         "accepted": (
             f"✅ Buyurtmangiz <b>#{order_id}</b> qabul qilindi!\nTez orada yetkazib beramiz. 🚚"

@@ -34,7 +34,7 @@ from aiogram.types import BufferedInputFile
 from aiohttp import web
 
 from api.auth import extract_init_data, validate_init_data
-from api.errors import bad_request, forbidden, not_found, unauthorized
+from api.errors import ApiError, bad_request, forbidden, not_found, unauthorized
 from api.media import media_url
 from config import config, is_admin, service_video_allowed
 from database import queries as q
@@ -1043,13 +1043,25 @@ async def admin_order_status(request: web.Request) -> web.Response:
     # Bekor qilingan yoki yopilgan buyurtmani qayta ochib bo'lmaydi
     allowed, reason = orders.check(kind, order["status"], status)
     if not allowed:
-        raise bad_request(
+        raise ApiError(
+            409,
+            "status_conflict",
             orders.reason_text(kind, order["status"], status, reason),
             {"status": order["status"], "status_label": orders.label(kind, order["status"])},
         )
 
-    # Baza + ombor (bekor qilinsa tovar qaytadi) + Firebase
-    await orders.apply(kind, row_id, status)
+    # Atomik CAS: bir paytdagi ikkinchi admin eski holat bilan yozolmaydi.
+    result = await orders.apply(
+        kind, row_id, status, expected_status=order["status"]
+    )
+    if not result.applied:
+        current = result.current or order["status"]
+        raise ApiError(
+            409,
+            "status_conflict",
+            orders.reason_text(kind, current, status, result.reason),
+            {"status": current, "status_label": orders.label(kind, current)},
+        )
 
     # Mijozga xabar beramiz — holat o'zgargani bilinib turishi kerak
     bot = request.app["bot"]
@@ -1101,12 +1113,20 @@ def _parse_sizes(raw) -> list[dict]:
     if not isinstance(raw, list):
         return []
     out = []
+    seen: set[str] = set()
     for item in raw:
         if not isinstance(item, dict):
             continue
         size = str(item.get("size") or "").strip()[:40]
         if not size:
             continue
+        # Bir xil razmer ikki marta kiritilsa (masalan "M" va " m ")
+        # rezerv/tiklash faqat birinchi mosini yangilaydi va qoldiq
+        # nomutanosib bo'lib qolardi — takror yorliqni tashlab yuboramiz.
+        key = " ".join(size.split()).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
         try:
             stock = max(0, int(item.get("stock") or 0))
         except (TypeError, ValueError):

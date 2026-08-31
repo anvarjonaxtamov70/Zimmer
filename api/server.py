@@ -10,7 +10,7 @@ import os
 import aiohttp
 from aiohttp import web
 
-from api.admin import admin_routes
+from api.admin import MAX_VIDEO_BYTES, admin_routes
 from api.errors import ApiError
 from api.media import handle_media
 from api.routes import routes
@@ -133,7 +133,13 @@ def create_app(bot, bot_username: str | None = None) -> web.Application:
             }
         )
 
-    app = web.Application(middlewares=[error_and_cors_middleware])
+    # Admin brauzer uploadi 45 MiB videoni qabul qiladi. Multipart sarlavha
+    # va chegaralari limitni yeb qo'ymasligi uchun 1 MiB texnik zaxira bor;
+    # handlerning o'zi faylni baribir MAX_VIDEO_BYTES da qat'iy tekshiradi.
+    app = web.Application(
+        middlewares=[error_and_cors_middleware],
+        client_max_size=MAX_VIDEO_BYTES + 1024 * 1024,
+    )
     app["bot"] = bot
     app.on_startup.append(_startup)
     app.on_cleanup.append(_cleanup)

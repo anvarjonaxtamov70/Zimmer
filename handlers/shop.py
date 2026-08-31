@@ -104,6 +104,14 @@ async def add_to_cart(callback: CallbackQuery) -> None:
         await callback.answer("Mahsulot topilmadi", show_alert=True)
         return
 
+    if q.product_has_sizes(product):
+        await callback.answer(
+            "Bu mahsulot razmerli. Razmerni tanlash uchun asosiy menyudagi "
+            "«Ilovani ochish» orqali Mini App do'konidan foydalaning.",
+            show_alert=True,
+        )
+        return
+
     cart = await q.get_cart(callback.from_user.id)
     current = next((item["qty"] for item in cart if item["product_id"] == product_id), 0)
     if current + 1 > int(product["stock"]):

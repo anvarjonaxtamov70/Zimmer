@@ -96,6 +96,7 @@
     dlvMethod: null, // tanlangan usul (tasdiqlashdan oldin)
     coStep: 1, // rasmiylashtirish oynasidagi qadam: 1 | 2 | 3
     payMethod: null, // tanlangan to'lov usuli: "card" | "app" | "cash"
+    orderAttemptKey: loadOrderAttemptKey(), // checkout urinishining tasodifiy idempotent kaliti
     /* Xizmatlar ro'yxati (kesh). `servicesFallback` — server bo'sh
        ro'yxat bergani va ichki zaxira ishlatilgani belgisi. */
     services: null,
@@ -1030,6 +1031,11 @@
   function updateCta() {
     const btn = $("flow-next");
     if (!btn) return;
+    /* Konfigurator qadamlari orasida tugma DOIM faol. `submitConfig` uni
+       jo'natish paytida o'chiradi va COMMIT'dan keyin ATAYLAB tiklamaydi
+       (dublikatning oldini olish) — shu sababli yangi konfiguratsiyaga
+       qaytilganda faol holatni SHU YERDA tiklaymiz (item 8). */
+    btn.disabled = false;
     if (S.step === STEPS.length) btn.textContent = "Buyurtmani yuborish";
     else if (S.step === 3 && !S.shroud) btn.textContent = "O'tkazib yuborish";
     else if (S.step === 4 && !S.color) btn.textContent = "O'tkazib yuborish";
@@ -1410,9 +1416,11 @@
       const btn = $("flow-next");
       btn.disabled = true;
       btn.textContent = "Yuborilmoqda...";
+      // 1) FAQAT tarmoq chaqiruvi shu try ichida (item 8).
+      let res;
       try {
         // Bazaga to'g'ridan yoziladi — Render kerak emas.
-        const res = S.offline
+        res = S.offline
           ? await ZimmerOffline.createBiledOrder({
               uid: (S.me && (S.me.user_id || S.me.id)) || 0,
               car_id: S.car.id,
@@ -1440,12 +1448,21 @@
             comment: $("order-comment").value.trim(),
           },
         });
+      } catch (err) {
+        // COMMIT'DAN OLDINGI xato — tugmani tiklaymiz (qayta urinish mumkin).
+        btn.disabled = false;
+        btn.textContent = "Buyurtmani yuborish";
+        throw err;
+      }
+      // 2) COMMIT bo'ldi — tugmani TIKLAMAYMIZ (dublikatning oldini olish);
+      //    UI render'i alohida bloko va uning istisnosi buyurtmani
+      //    "muvaffaqiyatsiz" ko'rsatmaydi.
+      try {
         haptic("ok");
         burst();
         showDone(res.order);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Buyurtmani yuborish";
+      } catch (uiErr) {
+        console.error("[biled] commit keyingi UI xatosi:", uiErr);
       }
     });
   }
@@ -2649,20 +2666,34 @@
         return;
       }
       try {
-        /* Ilgari faqat `/api/admin/...` (Render) ishlatilardi va server
-           uxlab yotganda o'chirish yiqilardi. Endi bulutdagi nusxa ham
-           belgilanadi — do'kon katalogi Firebase'dan o'qiladi. */
+        /* Ikki manba: bulutdagi nusxa (Firebase, imzolangan Worker orqali)
+           VA Render (SQLite). Signed mirror yozuvi YIQILSA HAM
+           autentifikatsiya qilingan Render zaxirasi baribir urinib ko'riladi
+           (item 7) — aks holda Worker eski bo'lsa story umuman o'chmasdi. */
+        let mirrorErr = null;
+        let mirrorTried = false;
         if (fbOk()) {
-          await window.ZimmerFB.patch("catalog/stories/" + story.id, {
-            deleted: true,
-            is_active: 0,
-            updatedAt: Date.now(),
-          });
+          mirrorTried = true;
+          try {
+            await window.ZimmerFB.patch("catalog/stories/" + story.id, {
+              deleted: true,
+              is_active: 0,
+              updatedAt: Date.now(),
+            });
+          } catch (e) {
+            mirrorErr = e;
+          }
         }
+        let renderOk = false;
         try {
           await api(`/api/admin/section/sto/${story.id}`, { method: "DELETE" });
+          renderOk = true;
         } catch (_) {
-          // Render uxlab yotgan bo'lsa ham bulutda belgilandi — yetarli
+          // Render uxlab yotgan bo'lsa ham bulut belgisi (mirror) yetarli
+        }
+        // Faqat IKKALA manba ham muvaffaqiyatsiz bo'lsa xato deb hisoblaymiz.
+        if (!renderOk && (mirrorErr || !mirrorTried)) {
+          throw mirrorErr || { message: "O'chirishda xatolik yuz berdi" };
         }
         haptic("ok");
         toast("Story o'chirildi", 2600);
@@ -4642,6 +4673,10 @@
     S.delivery = null;
     S.dlvMethod = null;
     S.payMethod = null; // yangi buyurtma — usul qaytadan tanlanadi
+    /* Har REAL checkout uchun yangi, tarkibdan mustaqil kalit. Xato/retryda
+       (hatto WebView reload bo'lsa ham) shu qiymat saqlanadi; faqat
+       buyurtma tasdiqlanganda tozalanadi. */
+    currentOrderAttemptKey();
     S.coStep = 1;
     haptic();
     show("checkout");
@@ -4818,7 +4853,8 @@
     $("dlv-courier").onclick = () => pickDelivery("courier");
     $("dlv-bts").onclick = () => pickDelivery("bts");
     $("dlv-map-btn").onclick = () => openMapPicker("checkout");
-    regSel.onchange = btsRegionChange;
+    const regSel = $("bts-region");
+    if (regSel) regSel.onchange = btsRegionChange;
     $("bts-district").onchange = btsDistrictChange;
     $("bts-branch").onchange = btsBranchChange;
     $("dlv-continue").onclick = confirmDelivery;
@@ -5298,7 +5334,7 @@
       );
       if (!ok) return;
     }
-    placeOrder(m.label, !!m.chat);
+    return placeOrder(m.label, !!m.chat);
   }
 
   /** Yakuniy qadam: buyurtmani yuboradi.
@@ -5343,7 +5379,9 @@
   /** Zaxira yo'l: Render `/api/orders` (SQLite bo'yicha tekshiradi). */
   function placeOrderViaApi(paymentLabel, openAdminChat) {
     return withPhone(async () => {
-      const btn = $("pay-done"); // naqdda bu tugma bo'lmaydi
+      // Haqiqiy checkout submit tugmasi — payment ekranidagi yakka CTA.
+      const btn = $("pz-cta");
+      const retryText = (PAY_METHODS[S.payMethod] || {}).cta || "Qayta urinish";
       if (btn) {
         btn.disabled = true;
         btn.textContent = "Yuborilmoqda...";
@@ -5365,8 +5403,10 @@
             delivery_method: S.delivery.method,
             delivery_info: S.delivery.summary,
             payment_method: paymentLabel,
+            client_key: currentOrderAttemptKey(),
           },
         });
+        clearOrderAttemptKey();
         S.cart = [];
         saveCart();
         renderCart();
@@ -5388,7 +5428,7 @@
       } catch (err) {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = "✓ To'ladim";
+          btn.textContent = retryText;
         }
         // 409 `order_failed` — sabab «qoldiq yetarli emas» deb yoziladi,
         // lekin aslida tovar SQLite'da yo'q bo'lishi ham mumkin. Aniq
@@ -7841,10 +7881,15 @@
     return withPhone(async () => {
       btn.disabled = true;
       btn.textContent = "Band qilinmoqda...";
+      // 1) FAQAT tarmoq chaqiruvi shu try ichida (item 8). Commit'dan
+      //    keyingi UI render'i pastda alohida — undagi istisno tasdiqlangan
+      //    navbatni "xato" qilib ko'rsatmasligi va dublikatga sabab
+      //    bo'lmasligi kerak.
+      let res;
       try {
         // Bazaga to'g'ridan yoziladi. Bandlik yozishdan OLDIN qayta
         // tekshiriladi — oradа boshqa mijoz olib qo'ygan bo'lishi mumkin.
-        const res = bkLocal()
+        res = bkLocal()
           ? await ZimmerOffline.createBooking({
               uid: (S.me && (S.me.user_id || S.me.id)) || 0,
               service_id: BK.service.id,
@@ -7860,15 +7905,12 @@
           method: "POST",
           body: { service_id: BK.service.id, date: BK.day.date, time: BK.time },
         });
-        haptic("ok");
-        closeSheet();
-        burst();
-        toast(`✅ Navbat #${res.booking.id} · ${BK.time}`, 3400);
-        show("profile");
       } catch (err) {
+        // COMMIT'DAN OLDINGI xato — tugmani tiklaymiz (mijoz qayta urina oladi).
         btn.disabled = false;
         btn.textContent = "Navbatni band qilish";
-        // Kimdir shu vaqtni oldindan olib qo'ygan bo'lsa — ro'yxatni yangilaymiz
+        // Kimdir shu vaqtni oldindan olib qo'ygan bo'lsa — ro'yxatni yangilaymiz.
+        // `err.slots` — Worker bergan BO'SH vaqtlar (callWorker uni saqlaydi).
         if (err && err.code === "slot_taken") {
           haptic("err");
           toast("Bu vaqt band bo'lib qoldi — boshqa vaqtni tanlang", 3200);
@@ -7878,6 +7920,16 @@
           return;
         }
         throw err;
+      }
+      // 2) COMMIT bo'ldi — tugmani TIKLAMAYMIZ; UI render'i alohida bloko.
+      try {
+        haptic("ok");
+        closeSheet();
+        burst();
+        toast(`✅ Navbat #${res.booking.id} · ${BK.time}`, 3400);
+        show("profile");
+      } catch (uiErr) {
+        console.error("[booking] commit keyingi UI xatosi:", uiErr);
       }
     });
   }
@@ -10459,19 +10511,23 @@
    */
   function placeOrderViaWorker(paymentLabel, openAdminChat) {
     return withPhone(async () => {
-      const btn = $("pay-done");
+      const btn = $("pz-cta");
+      const retryText = (PAY_METHODS[S.payMethod] || {}).cta || "Qayta urinish";
       if (btn) {
         btn.disabled = true;
         btn.textContent = "Yuborilmoqda...";
       }
 
-      // Idempotent kalit: ikki marta bosilsa Worker BITTA buyurtma yaratadi.
-      // Savat tarkibiga bog'lab yasaymiz, shunda savat o'zgarsa kalit ham
-      // o'zgaradi va yangi buyurtma bo'ladi.
-      const key = orderKey();
+      // Bir checkout urinishida retrylar AYNI tasodifiy kalitni ishlatadi.
+      const key = currentOrderAttemptKey();
 
+      /* 1) FAQAT tarmoq chaqiruvi shu try ichida. Commit'dan keyingi UI
+         render'i pastda alohida turadi — undagi istisno tasdiqlangan
+         buyurtmani "qayta urinsa bo'ladigan xato" qilib ko'rsatmasligi va
+         dublikatga sabab bo'lmasligi kerak (item 8). */
+      let res;
       try {
-        const res = await ZimmerOffline.createOrder({
+        res = await ZimmerOffline.createOrder({
           // Razmer — Worker uni buyurtma qatoriga yozadi (v1.6.0+)
           items: S.cart.map((i) => ({
             product_id: i.id,
@@ -10486,7 +10542,45 @@
           payment_method: paymentLabel,
           client_key: key,
         });
+      } catch (err) {
+        // COMMIT'DAN OLDINGI xato — tugmani tiklaymiz (mijoz qayta urina oladi).
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = retryText;
+        }
+        /* Worker `problems` qaytaradi — SABABNI aniq aytamiz va savatni
+           tuzatamiz. Ilgari hamma holat uchun «Yetarli emas» yozilardi,
+           hatto tovar katalogdan o'chirilgan bo'lsa ham — mijoz savatni
+           behuda yangilab o'tirardi. */
+        if (err && err.problems && err.problems.length) {
+          const gone = err.problems.filter((p) => /topilmadi/i.test(p.reason || ""));
+          const short = err.problems.filter((p) => !/topilmadi/i.test(p.reason || ""));
+          // Katalogda yo'q tovarlarni savatdan olib tashlaymiz
+          if (gone.length) {
+            const ids = new Set(gone.map((p) => String(p.product_id)));
+            S.cart = S.cart.filter((i) => !ids.has(String(i.id)));
+            saveCart();
+            renderCart();
+          }
+          const label = (list) => list.map((p) => p.name || "#" + p.product_id).join(", ");
+          if (gone.length && short.length) {
+            toast(`❌ Sotuvda yo'q: ${label(gone)} · Qoldiq yetmadi: ${label(short)}`, 6000);
+          } else if (gone.length) {
+            toast(`❌ Sotuvda yo'q — savatdan olib tashladim: ${label(gone)}`, 6000);
+          } else {
+            toast(`❌ Qoldiq yetarli emas: ${label(short)}`, 5000);
+          }
+          return;
+        }
+        toast(`❌ ${(err && err.message) || "Buyurtma yuborilmadi"}`, 5000);
+        return;
+      }
 
+      /* 2) COMMIT bo'ldi. Idempotent kalitni DARHOL tozalaymiz va tugmani
+         TIKLAMAYMIZ (dublikat yuborishning oldini olish). Bu yerdagi UI
+         istisnosi buyurtmani "muvaffaqiyatsiz" qilib ko'rsatmaydi. */
+      clearOrderAttemptKey();
+      try {
         S.cart = [];
         saveCart();
         renderCart();
@@ -10528,52 +10622,47 @@
             tg.openTelegramLink("https://t.me/" + S.pay.admin);
           } catch (_) {}
         }
-      } catch (err) {
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = "✓ To'ladim";
-        }
-        /* Worker `problems` qaytaradi — SABABNI aniq aytamiz va savatni
-           tuzatamiz. Ilgari hamma holat uchun «Yetarli emas» yozilardi,
-           hatto tovar katalogdan o'chirilgan bo'lsa ham — mijoz savatni
-           behuda yangilab o'tirardi. */
-        if (err && err.problems && err.problems.length) {
-          const gone = err.problems.filter((p) => /topilmadi/i.test(p.reason || ""));
-          const short = err.problems.filter((p) => !/topilmadi/i.test(p.reason || ""));
-          // Katalogda yo'q tovarlarni savatdan olib tashlaymiz
-          if (gone.length) {
-            const ids = new Set(gone.map((p) => String(p.product_id)));
-            S.cart = S.cart.filter((i) => !ids.has(String(i.id)));
-            saveCart();
-            renderCart();
-          }
-          const label = (list) => list.map((p) => p.name || "#" + p.product_id).join(", ");
-          if (gone.length && short.length) {
-            toast(`❌ Sotuvda yo'q: ${label(gone)} · Qoldiq yetmadi: ${label(short)}`, 6000);
-          } else if (gone.length) {
-            toast(`❌ Sotuvda yo'q — savatdan olib tashladim: ${label(gone)}`, 6000);
-          } else {
-            toast(`❌ Qoldiq yetarli emas: ${label(short)}`, 5000);
-          }
-          return;
-        }
-        toast(`❌ ${(err && err.message) || "Buyurtma yuborilmadi"}`, 5000);
+      } catch (uiErr) {
+        // Buyurtma ALLAQACHON qabul qilingan — UI xatosini faqat log qilamiz.
+        console.error("[order] commit keyingi UI xatosi:", uiErr);
       }
     });
   }
 
-  /** Savat tarkibidan idempotent kalit — bir xil savat = bir xil kalit. */
-  function orderKey() {
-    const parts = S.cart
-      // Razmer ham kalitga kiradi: mijoz H4 ni H7 ga o'zgartirsa bu
-      // BOSHQA buyurtma — aks holda Worker uni «takror» deb rad etardi.
-      .map((i) => `${i.id}:${i.size || ""}x${i.qty}`)
-      .sort()
-      .join("|");
-    let hash = 5381;
-    const text = parts + "|" + (S.delivery ? S.delivery.address : "");
-    for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
-    return "k" + hash.toString(36);
+  /** Yangi REAL checkout uchun tarkibdan mustaqil, kuchli tasodifiy kalit. */
+  function newOrderAttemptKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return "ord_" + window.crypto.randomUUID().replace(/-/g, "");
+    }
+    const bytes = new Uint8Array(18);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return "ord_" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  function loadOrderAttemptKey() {
+    try {
+      return sessionStorage.getItem("zimmer_order_attempt") || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function currentOrderAttemptKey() {
+    if (!S.orderAttemptKey) {
+      S.orderAttemptKey = newOrderAttemptKey();
+      try {
+        sessionStorage.setItem("zimmer_order_attempt", S.orderAttemptKey);
+      } catch (_) {}
+    }
+    return S.orderAttemptKey;
+  }
+
+  function clearOrderAttemptKey() {
+    S.orderAttemptKey = null;
+    try {
+      sessionStorage.removeItem("zimmer_order_attempt");
+    } catch (_) {}
   }
 
   /** Modaldagi yurak — ASOSIY `toggleFavorite` ga topshiriladi, ya'ni holat

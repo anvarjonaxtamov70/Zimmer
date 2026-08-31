@@ -18,7 +18,8 @@ from keyboards.inline import (
     admin_new_booking_kb,
     admin_new_order_kb,
 )
-from services import identity, orders as order_flow, shogird, sync
+from services import identity, shogird, sync
+from services import orders as order_flow
 from utils.helpers import (
     available_dates,
     date_label,
@@ -57,7 +58,7 @@ def _row_size(row) -> str | None:
 # chegara yo'q edi — mijoz minglab qator yoki juda uzun matn yuborib
 # serverni ortiqcha ishga majburlashi mumkin edi.
 MAX_ORDER_ITEMS = 50
-MAX_ITEM_QTY = 1000
+MAX_ITEM_QTY = q.MAX_ITEM_QTY
 MAX_ADDRESS_LEN = 400
 
 
@@ -955,7 +956,17 @@ async def api_cancel_booking(request: web.Request) -> web.Response:
             },
         )
 
-    await order_flow.apply("booking", booking_id, "cancelled")
+    result = await order_flow.apply(
+        "booking", booking_id, "cancelled", expected_status=booking["status"]
+    )
+    if not result.applied:
+        current = result.current or booking["status"]
+        raise ApiError(
+            409,
+            "status_conflict",
+            order_flow.reason_text("booking", current, "cancelled", result.reason),
+            {"status": current, "status_label": order_flow.label("booking", current)},
+        )
     try:
         await notify_admins(
             request.app["bot"],
@@ -1017,7 +1028,7 @@ async def api_create_order(request: web.Request) -> web.Response:
     if len(raw_items) > MAX_ORDER_ITEMS:
         raise bad_request(f"Savatchada {MAX_ORDER_ITEMS} turdan ko'p tovar bo'lmasin")
 
-    items: list[tuple[int, int]] = []
+    items: list[tuple[int, int, str | None]] = []
     for entry in raw_items:
         if not isinstance(entry, dict):
             raise bad_request("items formati noto'g'ri")
@@ -1028,7 +1039,10 @@ async def api_create_order(request: web.Request) -> web.Response:
             raise bad_request("items ichida product_id va qty bo'lishi kerak") from error
         if qty < 1 or qty > MAX_ITEM_QTY:
             raise bad_request(f"Har bir tovar soni 1 dan {MAX_ITEM_QTY} gacha bo'lsin")
-        items.append((product_id, qty))
+        raw_size = str(entry.get("size") or "").strip()
+        if len(raw_size) > q.MAX_SIZE_LEN:
+            raise bad_request(f"Razmer {q.MAX_SIZE_LEN} belgidan qisqa bo'lsin")
+        items.append((product_id, qty, raw_size or None))
 
     address = str(body.get("address", "")).strip()
     if len(address) < 5:
@@ -1055,16 +1069,23 @@ async def api_create_order(request: web.Request) -> web.Response:
     delivery_info = str(body.get("delivery_info", "")).strip()[:400] or None
     payment_method = str(body.get("payment_method", "")).strip()[:120] or None
 
-    order_id, problems = await q.create_order_from_items(
-        user_id,
-        items,
-        address,
-        phone,
-        delivery_method=delivery_method,
-        delivery_info=delivery_info,
-        payment_method=payment_method,
-        idempotency_key=idempotency_key,
-    )
+    try:
+        order_id, problems, created = await q.create_order_from_items(
+            user_id,
+            items,
+            address,
+            phone,
+            delivery_method=delivery_method,
+            delivery_info=delivery_info,
+            payment_method=payment_method,
+            idempotency_key=idempotency_key,
+        )
+    except q.IdempotencyConflict as error:
+        raise ApiError(
+            409,
+            "idempotency_conflict",
+            "Bu takrorlash kaliti boshqa buyurtma ma'lumotlari bilan ishlatilgan.",
+        ) from error
     if order_id is None:
         raise ApiError(
             409,
@@ -1075,6 +1096,21 @@ async def api_create_order(request: web.Request) -> web.Response:
 
     order = await q.get_order(order_id)
     order_items = await q.get_order_items(order_id)
+    if not created:
+        # Idempotent replay: mavjud natijani qaytaramiz, lekin Firebase va
+        # Telegram xabarlarini ikkinchi marta yubormaymiz.
+        return web.json_response(
+            {
+                "ok": True,
+                "created": False,
+                "order": {
+                    "id": order_id,
+                    "total": int(order["total"]),
+                    "total_label": fmt_price(order["total"]),
+                },
+            }
+        )
+
     await sync.push_order(order, order_items)
     lines = [
         f"• {html_escape(item['name'])}{size_tag(item)} × {item['qty']}"
@@ -1127,6 +1163,7 @@ async def api_create_order(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "ok": True,
+            "created": True,
             "order": {
                 "id": order_id,
                 "total": int(order["total"]),

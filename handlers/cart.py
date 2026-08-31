@@ -1,5 +1,8 @@
 """Savatcha va buyurtma berish (checkout)."""
 
+import logging
+from uuid import uuid4
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -21,12 +24,14 @@ from keyboards.inline import (
     payment_method_kb,
 )
 from keyboards.reply import cancel_kb, main_menu
+from services import sync
 from states import Checkout
-from utils.helpers import fmt_price, html_escape, normalize_phone, user_link
+from utils.helpers import fmt_price, html_escape, normalize_phone, size_tag, user_link
 from utils.texts import BTN_CANCEL, BTN_CART, BTN_PHONE
 from utils.ui import edit_or_send, notify_admins
 
 router = Router(name="cart")
+logger = logging.getLogger(__name__)
 
 EMPTY_CART = (
     "🧺 Savatchangiz bo'sh.\n\n«🛍 Do'kon» bo'limidan mahsulot tanlashingiz mumkin."
@@ -47,7 +52,10 @@ _PAY_LABELS = {
 def _item_line(item) -> str:
     """Buyurtma tarkibidagi bitta qator (tovar nomi HTML uchun tozalanadi)."""
     total = int(item["price"]) * int(item["qty"])
-    return f"• {html_escape(item['name'])} × {item['qty']} = {fmt_price(total)}"
+    return (
+        f"• {html_escape(item['name'])}{size_tag(item)} × {item['qty']}"
+        f" = {fmt_price(total)}"
+    )
 
 
 async def render_cart(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
@@ -88,6 +96,12 @@ async def cart_plus(callback: CallbackQuery) -> None:
     product = await q.get_product(product_id)
     items = await q.get_cart(callback.from_user.id)
     current = next((item["qty"] for item in items if item["product_id"] == product_id), 0)
+    if product and q.product_has_sizes(product):
+        await callback.answer(
+            "Bu mahsulot razmerli. Razmerni Mini App do'konida tanlang.",
+            show_alert=True,
+        )
+        return
     if product and current + 1 > int(product["stock"]):
         await callback.answer(f"Omborda {product['stock']} dona bor", show_alert=True)
         return
@@ -304,6 +318,11 @@ async def _checkout_summary(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(EMPTY_CART)
         return
 
+    # Shu tasdiqlash oynasining barcha parallel callbacklari bitta kalitni
+    # ishlatadi; foydalanuvchi yangi checkout boshlasa yangi urinish bo'ladi.
+    await state.update_data(
+        checkout_idempotency_key=f"bot:{callback.from_user.id}:{uuid4().hex}"
+    )
     await state.set_state(Checkout.confirm)
 
     lines = ["🧾 <b>Buyurtmani tekshiring</b>\n"]
@@ -336,13 +355,14 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     if address and address != "-":
         delivery_info = f"{delivery_label}: {address}"
 
-    order_id, problems = await q.create_order(
+    order_id, problems, created = await q.create_order(
         callback.from_user.id,
         address,
         phone,
         delivery_method=delivery_method,
         delivery_info=delivery_info,
         payment_method=payment_label or None,
+        idempotency_key=data.get("checkout_idempotency_key"),
     )
     await state.clear()
 
@@ -353,12 +373,20 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
             lines = ["⚠️ <b>Buyurtma o'tmadi — ombor o'zgargan</b>\n"]
             for problem in problems:
                 name = html_escape(str(problem.get("name") or "Tovar"))
+                reason = problem.get("reason")
                 available = problem.get("available", 0)
-                lines.append(
-                    f"• {name} — omborda {available} dona qoldi"
-                    if available
-                    else f"• {name} — tugadi"
-                )
+                if reason == "size_required":
+                    lines.append(f"• {name} — razmer tanlanmagan (Mini App orqali tanlang)")
+                elif reason == "invalid_size":
+                    lines.append(f"• {name} — tanlangan razmer mavjud emas")
+                elif reason == "not_found":
+                    lines.append(f"• {name} — sotuvdan olib tashlangan")
+                else:
+                    lines.append(
+                        f"• {name} — omborda {available} dona qoldi"
+                        if available
+                        else f"• {name} — tugadi"
+                    )
             lines.append("\nSavatchadagi sonni kamaytirib qaytadan urinib ko'ring.")
             await edit_or_send(callback.message, "\n".join(lines))
         else:
@@ -366,8 +394,16 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
         await callback.answer()
         return
 
+    if not created:
+        await callback.answer(
+            f"Buyurtma #{order_id} avval qabul qilingan ✅", show_alert=True
+        )
+        return
+
     items = await q.get_order_items(order_id)
     order = await q.get_order(order_id)
+    # Bot orderi ham API orderi kabi deploydan oldin mirror/outboxga tushadi.
+    await sync.push_order(order, items)
 
     # Yetkazib berish/to'lov meta-qatorlari.
     # Mijoz kiritgan matn HTML uchun tozalanadi — aks holda ichidagi `<`
@@ -405,7 +441,10 @@ async def order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     admin_lines.append("")
     admin_lines.extend(_item_line(item) for item in items)
     admin_lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
-    await notify_admins(bot, "\n".join(admin_lines), admin_new_order_kb(order_id))
+    try:
+        await notify_admins(bot, "\n".join(admin_lines), admin_new_order_kb(order_id))
+    except Exception as error:
+        logger.error("Buyurtma #%s haqida adminga xabar yuborilmadi: %s", order_id, error)
 
 
 @router.callback_query(F.data == "order:cancel")

@@ -505,12 +505,14 @@ window.ZimmerShop = (function () {
         total: Number(r.total) || 0,
         total_label: money(Number(r.total) || 0),
         created_at: Number(r.createdAt) || 0,
-        // Bi-LED tafsiloti
+        // Bi-LED tafsiloti. Worker yaratgan yozuvlar `*_name` maydonlarini
+        // ishlatadi; eski/boshqa yozuvlar `car`/`biled`/... — ikkalasini ham
+        // qo'llab-quvvatlaymiz (item 6).
         lines: [
-          ["🚗", r.car],
-          ["💡", r.biled],
-          ["🕶", r.shroud],
-          ["🎨", r.color],
+          ["🚗", r.car_name || r.car],
+          ["💡", r.biled_name || r.biled],
+          ["🕶", r.shroud_name || r.shroud],
+          ["🎨", r.color_name || r.color],
           ["💬", r.comment],
         ],
       }));
@@ -530,7 +532,9 @@ window.ZimmerShop = (function () {
         total_label: "",
         created_at: Number(r.createdAt) || 0,
         lines: [
-          ["🛠", r.service],
+          // Worker navbat yozuvi `service_name` ni ishlatadi; eski yozuvlar
+          // `service` — ikkalasini ham qo'llab-quvvatlaymiz (item 6).
+          ["🛠", r.service_name || r.service],
           ["📅", r.date],
           ["🕐", r.time],
         ],
@@ -824,38 +828,21 @@ window.ZimmerShop = (function () {
     const cfg = KINDS[order.kind] || KINDS.order;
     const label = (cfg.statuses[status] || {}).label || status;
 
-    /* 1-yo'l: Worker. U TO'G'RI tugunga yozadi (`pending_orders`, `orders`,
-       `biled_orders`, `bookings`) va mijozga Telegram xabarini yuboradi
-       (bot tokeni faqat o'sha yerda). */
+    /* Worker — yagona yozish yo'li. Direct Firebase fallback ATAYLAB yo'q:
+       qoidalar bu tugunlarni yopadi va mirror-only muvaffaqiyat xavfli. */
     const off = window.ZimmerOffline;
-    if (off && off.workerReady && off.workerReady() && off.adminOrderStatus) {
-      try {
-        await off.adminOrderStatus(order.key, status, order.source, order.kind);
-        haptic("ok");
-        toast("✅ " + label + " — mijozga xabar ketdi");
-        S.busy = false;
-        return openKind(order.kind);
-      } catch (err) {
-        console.warn("[shop] Worker holatni o'zgartirmadi:", err);
-      }
-    }
-
-    /* 2-yo'l: to'g'ridan Firebase. Qoidalarda `pending_orders`,
-       `biled_orders` va `bookings` yozishga ochiq; `orders` esa YOPIQ —
-       SQLite buyurtmasi uchun Worker shart. */
-    const NODE = { biled: "biled_orders", booking: "bookings" };
-    const node = order.kind === "order" ? "pending_orders" : NODE[order.kind];
-    if (order.kind === "order" && order.source === "db") {
+    if (!off || !off.workerReady || !off.workerReady() || !off.adminOrderStatus) {
       S.busy = false;
-      return toast("❌ Bu buyurtma uchun Worker kerak (config.js -> WORKER_URL)", 5000);
+      return toast("❌ Holatni o'zgartirish uchun Worker kerak", 5000);
     }
     try {
-      await fb().patch(node + "/" + order.key, { status: status, status_at: Date.now() });
+      await off.adminOrderStatus(order.key, status, order.source, order.kind);
       haptic("ok");
-      toast("✅ " + label + " (mijozga xabar ketmadi)");
+      toast("✅ " + label + " — mijozga xabar ketdi");
       S.busy = false;
       return openKind(order.kind);
     } catch (err) {
+      console.warn("[shop] Worker holatni o'zgartirmadi:", err);
       toast((err && err.message) || "Holat o'zgarmadi");
       S.busy = false;
     }

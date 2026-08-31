@@ -204,6 +204,9 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery_method TEXT,              -- 'courier' | 'bts' | NULL
     delivery_info   TEXT,              -- yetkazib berish tafsiloti (matn)
     payment_method  TEXT,              -- to'lov usuli (matn)
+    external_code   TEXT,
+    idempotency_key TEXT,
+    idempotency_fingerprint TEXT,
     status          TEXT NOT NULL DEFAULT 'new',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -219,7 +222,11 @@ CREATE TABLE IF NOT EXISTS order_items (
     -- Razmerli tovarda mijoz tanlagan razmer ("H4", "3\"", "XL").
     -- Razmersiz tovarda NULL. Bu ustun bo'lmasa admin buyurtmani ko'rib
     -- "qaysi razmer?" deb mijozga qayta qo'ng'iroq qilishga majbur bo'ladi.
-    size       TEXT
+    size       TEXT,
+    -- Qoldiq aynan shu qator uchun kamaytirilganmi. Firebase tarixini
+    -- tiklash va allaqachon bekor Worker orderlari 0 yozadi; bekor qilish
+    -- faqat 1 bo'lgan qatorlarni omborga qaytaradi.
+    stock_reserved INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 
@@ -732,7 +739,16 @@ DEMO_PRODUCTS = [
         8,
         None,
     ),
-    ("Aksesuarlar", None, "Fara germetigi (qora)", "Issiqqa chidamli, 310 ml", 85_000, None, 40, None),
+    (
+        "Aksesuarlar",
+        None,
+        "Fara germetigi (qora)",
+        "Issiqqa chidamli, 310 ml",
+        85_000,
+        None,
+        40,
+        None,
+    ),
     (
         "Aksesuarlar",
         None,
@@ -743,7 +759,16 @@ DEMO_PRODUCTS = [
         15,
         None,
     ),
-    ("Aksesuarlar", "nexia2", "Nexia 2 fara shishasi", "Original o'lchamda, shaffof", 480_000, None, 6, None),
+    (
+        "Aksesuarlar",
+        "nexia2",
+        "Nexia 2 fara shishasi",
+        "Original o'lchamda, shaffof",
+        480_000,
+        None,
+        6,
+        None,
+    ),
 ]
 
 DEMO_BANNERS = [
@@ -917,11 +942,18 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         # qaytarilsa — ikkinchi urinish YANGI buyurtma yaratmasligi kerak.
         # `idx_orders_idem` yagona indeksi bilan baza o'zi to'xtatadi.
         ("idempotency_key", "TEXT"),
+        # Bir kalit boshqa mazmundagi so'rov bilan qayta ishlatilsa, eski
+        # orderni replay qilish o'rniga aniq conflict qaytariladi.
+        ("idempotency_fingerprint", "TEXT"),
     ],
     # Razmerli tovarlar. Mavjud bazalarda `order_items` ustunsiz yaratilgan,
     # shuning uchun migratsiya kerak — aks holda `INSERT ... size` yiqiladi
-    # va Worker buyurtmalari bazaga UMUMAN ko'chirilmasdi.
-    "order_items": [("size", "TEXT")],
+    # va Worker buyurtmalari bazaga UMUMAN ko'chirilmasdi. `stock_reserved`
+    # mavjud lokal orderlar uchun 1: ular tarixan qoldiqni kamaytirgan.
+    "order_items": [
+        ("size", "TEXT"),
+        ("stock_reserved", "INTEGER NOT NULL DEFAULT 1"),
+    ],
     "cars": [*MEDIA_COLUMNS],
     "biled_types": [*MEDIA_COLUMNS],
     "shrouds": [*MEDIA_COLUMNS],
@@ -1093,8 +1125,8 @@ async def _migrate() -> None:
     #
     #  Bu indeks aynan bir xil (sana, vaqt) juftligini to'xtatadi — ya'ni
     #  ekranda ko'rinadigan slotni ikki kishi olib qo'yishi MUMKIN EMAS.
-    #  Bekor qilingan navbatlar hisobga olinmaydi, shuning uchun bo'shagan
-    #  vaqtni qaytadan band qilish mumkin.
+    #  Faqat faol (`new`, `confirmed`) navbatlar hisobga olinadi; `done`
+    #  tarix bo'lib qoladi va vaqtni qayta band qilishga xalaqit bermaydi.
     #
     #  DIQQAT: bu ustma-ust TUSHISHNI (60 daqiqali xizmat 09:00 va 09:30)
     #  to'xtatmaydi — u `free_slots()` vazifasi. Indeks eng ko'p uchraydigan
@@ -1104,12 +1136,22 @@ async def _migrate() -> None:
     #  Mavjud bazada allaqachon dublikat bo'lsa indeks YARATILMAYDI va
     #  xato ko'tariladi. Bot shu sababli ishga tushmay qolmasligi kerak —
     #  ogohlantirish yozamiz va to'qnashgan navbatlarni ko'rsatamiz.
+    savepoint = "booking_slot_index"
+    await db.execute(f"SAVEPOINT {savepoint}")
     try:
+        # Eski versiyadagi `status <> cancelled` predikatini ham yangilash
+        # uchun indeksni qayta yaratamiz (SQLite IF NOT EXISTS uni almashtirmaydi).
+        await db.execute("DROP INDEX IF EXISTS idx_bookings_slot")
         await db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot"
-            " ON bookings(date, time) WHERE status <> 'cancelled'"
+            "CREATE UNIQUE INDEX idx_bookings_slot"
+            " ON bookings(date, time) WHERE status IN ('new', 'confirmed')"
         )
+        await db.execute(f"RELEASE SAVEPOINT {savepoint}")
     except Exception as error:
+        # DROP muvaffaqiyatli, CREATE esa dublikat sabab yiqilsa eski indeks
+        # yo'qolib ketmasin: SQLite DDL ham savepoint bilan qaytariladi.
+        await db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        await db.execute(f"RELEASE SAVEPOINT {savepoint}")
         logger.warning(
             "Navbat uchun yagona indeks yaratilmadi (%s). Bazada bir vaqtga "
             "ikki navbat bor — ularni bekor qilib bot'ni qayta ishga tushiring.",
@@ -1117,7 +1159,8 @@ async def _migrate() -> None:
         )
         async with db.execute(
             "SELECT date, time, COUNT(*) AS n FROM bookings"
-            " WHERE status <> 'cancelled' GROUP BY date, time HAVING n > 1"
+            " WHERE status IN ('new', 'confirmed')"
+            " GROUP BY date, time HAVING n > 1"
         ) as cur:
             async for row in cur:
                 logger.warning(
@@ -1228,7 +1271,9 @@ def guess_theme(name: str) -> str | None:
 async def _ensure_services() -> None:
     """Yetishmayotgan xizmatlarni qo'shadi, bo'sh maydonlarni to'ldiradi."""
     db = get_db()
-    async with db.execute("SELECT id, name, warranty, description, theme, sort FROM services") as cur:
+    async with db.execute(
+        "SELECT id, name, warranty, description, theme, sort FROM services"
+    ) as cur:
         rows = await cur.fetchall()
 
     have = {(row["name"] or "").strip().lower() for row in rows}
