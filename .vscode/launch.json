@@ -1,0 +1,45 @@
+{
+  // VS Code'da F5 bosib botni ishga tushirish.
+  // To'liq qo'llanma: RUN_LOCAL.md
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Zimmer bot (lokal)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bot.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        // Mini App API'si va /health shu portda ochiladi.
+        // bot.py: PORT yoki API_PORT bo'lmasa API server UMUMAN yoqilmaydi.
+        "API_PORT": "8080",
+        // Lokalda o'ziga ping yuborish keraksiz (u faqat Render uchun).
+        "KEEP_ALIVE_URL": "",
+        // Baza fayli loyiha ichida qoladi (.gitignore uni tashlaydi).
+        "DB_PATH": "zimmer.db"
+      }
+    },
+    {
+      "name": "Zimmer bot (Firebase'siz — faqat lokal baza)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bot.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "API_PORT": "8080",
+        "KEEP_ALIVE_URL": "",
+        "DB_PATH": "zimmer-local.db",
+        // Firebase'ni ATAYLAB o'chiramiz: bulutdagi haqiqiy ma'lumotga
+        // tegmasdan sinash uchun qulay.
+        "FIREBASE_DB_URL": "",
+        "STARTUP_REPORT": "0"
+      }
+    }
+  ]
+}
