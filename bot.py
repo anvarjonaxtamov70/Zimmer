@@ -17,7 +17,7 @@ from database.db import close_db, init_db
 from handlers import get_routers
 from middlewares import IdentityMiddleware
 from services import admins as admin_registry
-from services import firebase, sync
+from services import backup, firebase, sync
 from utils.commands import set_default_commands, set_menu_button
 from utils.ui import notify_admins
 
@@ -136,6 +136,9 @@ async def main() -> None:
         # Cloudflare Worker qabul qilgan buyurtmalarni bazaga ko'chirib turadi
         # (Render o'chgan paytda Mini App shu yo'l bilan buyurtma oladi).
         background.append(asyncio.create_task(sync.pending_orders_worker(bot)))
+        # To'liq zaxira nusxa: butun bazani vaqti-vaqti bilan Firebase'ga
+        # yozadi (BACKUP_INTERVAL_HOURS=0 bo'lsa vazifa o'zi to'xtaydi).
+        background.append(asyncio.create_task(backup.backup_worker()))
     else:
         logger.warning(
             "FIREBASE_DB_URL berilmagan — ma'lumotlar faqat mahalliy bazada. "

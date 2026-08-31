@@ -6,6 +6,7 @@ env o'zgaruvchisi mavjud bo'lganda ishga tushadi.
 
 import logging
 import os
+import time
 
 import aiohttp
 from aiohttp import web
@@ -15,6 +16,8 @@ from api.errors import ApiError
 from api.media import handle_media
 from api.routes import routes
 from config import config
+from database import queries as q
+from database.db import get_db
 from utils.helpers import TZ, now
 
 logger = logging.getLogger(__name__)
@@ -108,6 +111,112 @@ async def error_and_cors_middleware(request: web.Request, handler):
     return response
 
 
+# =====================================================================
+#  YENGIL RATE-LIMIT (IP bo'yicha, oyna = 60 soniya)
+#
+#  NEGA KERAK. API Render/Fly proksisi ortida ochiq turadi. Bitta mijoz
+#  (yoki bot) sekundiga o'nlab so'rov yuborsa, bepul tarif kvotasi tez
+#  tugaydi va HAMMA uchun xizmat sekinlashadi. Bu oddiy chegara aynan bir
+#  IP'dan kelayotgan portlashni to'xtatadi.
+#
+#  QANDAY ISHLAYDI. Har IP uchun (oyna_boshi, sanoq) saqlanadi. Oyna
+#  60 soniya: shu vaqt ichida `RATE_LIMIT_PER_MIN` dan oshsa 429 qaytadi.
+#  Xotira cheksiz o'smasligi uchun eskirgan yozuvlar vaqti-vaqti bilan
+#  tozalanadi. Bu — RAM'dagi oddiy hisob, taqsimlangan (ko'p instansli)
+#  emas; bitta jarayonli Render/Fly uchun yetarli.
+# =====================================================================
+
+# Sog'liq/tayyorlik/metrika so'rovlari CHEKLANMAYDI — monitoring va
+# self-ping ularni tez-tez chaqiradi.
+_RATE_LIMIT_EXEMPT = frozenset({"/", "/health", "/ready", "/metrics"})
+_RATE_WINDOW = 60.0
+
+# Kuzatiladigan IP'lar soniga QATTIQ chegara — soxta `X-Forwarded-For`
+# bilan IP almashtirib xotirani shishirishning oldini oladi. Chegaraga
+# yetganda eskirganlar tozalanadi, baribir to'lsa lug'at bo'shatiladi
+# (rate-limit "fail-open" bo'ladi — bu himoyaning yon ta'siridan afzal).
+_RATE_MAX_IPS = 20000
+
+# IP -> (oyna_boshlangan_vaqt, shu oynadagi so'rovlar soni)
+_rate_hits: dict[str, tuple[float, int]] = {}
+_rate_last_prune = 0.0
+
+
+def _client_ip(request: web.Request) -> str:
+    """Mijoz IP'si. Proksi ortida `X-Forwarded-For` ning BIRINCHI hop'i."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return request.remote or "unknown"
+
+
+def _prune_rate_hits(now_ts: float) -> None:
+    """Eskirgan IP yozuvlarini tozalaydi (xotira cheksiz o'smasin).
+
+    Odatda 60 soniyada bir marta tozalanadi. Ammo lug'at qattiq chegaradan
+    oshsa (masalan soxta IP hujumi), darhol tozalanadi; shundan keyin ham
+    to'la bo'lsa butunlay bo'shatiladi — xotira har qanday holatda chegarali
+    qoladi.
+    """
+    global _rate_last_prune
+    over_cap = len(_rate_hits) > _RATE_MAX_IPS
+    if not over_cap and now_ts - _rate_last_prune < _RATE_WINDOW:
+        return
+    _rate_last_prune = now_ts
+    stale = [
+        ip for ip, (start, _) in _rate_hits.items() if now_ts - start >= _RATE_WINDOW
+    ]
+    for ip in stale:
+        _rate_hits.pop(ip, None)
+    if len(_rate_hits) > _RATE_MAX_IPS:
+        # Hali ham to'la — eng radikal chora. Rate-limit vaqtincha "ochiq"
+        # bo'ladi, lekin xotira portlamaydi.
+        _rate_hits.clear()
+
+
+@web.middleware
+async def rate_limit_middleware(request: web.Request, handler):
+    """IP bo'yicha oddiy oyna-asosidagi rate-limit (error/CORS'dan OLDIN)."""
+    limit = config.rate_limit_per_min
+
+    # 0 -> o'chiq; sog'liq yo'llari ozod; CORS preflight (OPTIONS) o'tadi
+    # (uni error_and_cors_middleware 204 bilan hal qiladi).
+    if limit <= 0 or request.method == "OPTIONS" or request.path in _RATE_LIMIT_EXEMPT:
+        return await handler(request)
+
+    now_ts = time.monotonic()
+    _prune_rate_hits(now_ts)
+
+    ip = _client_ip(request)
+    start, count = _rate_hits.get(ip, (now_ts, 0))
+    if now_ts - start >= _RATE_WINDOW:
+        start, count = now_ts, 0
+    count += 1
+    _rate_hits[ip] = (start, count)
+
+    if count > limit:
+        retry_after = max(1, int(_RATE_WINDOW - (now_ts - start)) + 1)
+        response = web.json_response(
+            {
+                "ok": False,
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Juda ko'p so'rov yuborildi — birozdan keyin urinib ko'ring.",
+                },
+            },
+            status=429,
+        )
+        response.headers["Retry-After"] = str(retry_after)
+        # Brauzer 429'ni ko'ra olishi uchun CORS sarlavhalarini ham qo'shamiz
+        # (bu javob error_and_cors_middleware'gacha yetib bormaydi).
+        response.headers.update(_cors_headers(request))
+        return response
+
+    return await handler(request)
+
+
 def create_app(bot, bot_username: str | None = None) -> web.Application:
     started_at = now()
 
@@ -133,12 +242,67 @@ def create_app(bot, bot_username: str | None = None) -> web.Application:
             }
         )
 
-    app = web.Application(middlewares=[error_and_cors_middleware])
+    async def _outbox_counts() -> tuple[int, int]:
+        """(navbatda, yo'qolgan) — DB'dan; xato bo'lsa (0, 0)."""
+        pending = dropped = 0
+        try:
+            pending = await q.outbox_count()
+        except Exception:
+            pending = 0
+        try:
+            raw = await q.outbox_meta_get("dropped")
+            dropped = int(raw) if raw else 0
+        except Exception:
+            dropped = 0
+        return pending, dropped
+
+    async def ready(_request: web.Request) -> web.Response:
+        """Tayyorlik (readiness): baza javob berayaptimi?
+
+        Liveness (`/health`) — «jarayon tirikmi», readiness — «so'rovga
+        xizmat qila oladimi». Ular ALOHIDA: baza yiqilsa jarayon tirik,
+        lekin tayyor EMAS (Render/Fly trafikni to'xtatib turishi mumkin).
+        """
+        db_ok = True
+        try:
+            db = get_db()
+            async with db.execute("SELECT 1") as cur:
+                await cur.fetchone()
+        except Exception as error:
+            db_ok = False
+            logger.warning("Readiness: baza tekshiruvi yiqildi: %s", error)
+
+        pending, dropped = await _outbox_counts()
+        payload = {
+            "ready": db_ok,
+            "db": "ok" if db_ok else "error",
+            "firebase_enabled": bool(config.has_firebase),
+            "outbox_pending": pending,
+            "outbox_dropped": dropped,
+        }
+        return web.json_response(payload, status=200 if db_ok else 503)
+
+    async def metrics(_request: web.Request) -> web.Response:
+        """Yengil JSON metrikalar (Prometheus shart emas)."""
+        pending, dropped = await _outbox_counts()
+        return web.json_response(
+            {
+                "uptime_seconds": int((now() - started_at).total_seconds()),
+                "outbox_pending": pending,
+                "outbox_dropped": dropped,
+                "firebase_enabled": bool(config.has_firebase),
+                "bot": bool(bot_username),
+            }
+        )
+
+    app = web.Application(middlewares=[rate_limit_middleware, error_and_cors_middleware])
     app["bot"] = bot
     app.on_startup.append(_startup)
     app.on_cleanup.append(_cleanup)
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
+    app.router.add_get("/ready", ready)
+    app.router.add_get("/metrics", metrics)
     app.add_routes(routes)
     # Mini App ichidagi admin panel: /api/admin/*
     app.add_routes(admin_routes)
