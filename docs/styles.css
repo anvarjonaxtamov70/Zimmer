@@ -563,6 +563,64 @@ img, video { display: block; max-width: 100%; }
 .car-chip:active { transform: scale(0.95); }
 .car-chip i, .car-chip em { font-style: normal; }
 .car-chip em { color: var(--dim); font-size: 10px; }
+/* Mashina chipi eng avval siqiladi: yonida to'rttagacha tugma turadi va
+   ular MUHIMROQ (bosiladigan amallar), chip esa faqat holatni ko'rsatadi. */
+.car-chip { min-width: 0; flex: 0 1 auto; }
+.car-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ==========================================================================
+   TEPADAGI AMAL TUGMALARI (☁️ · 🔇 · ❤️ · 🎓)
+
+   Guruh o'ngda, tugmalar orasi ixcham. Ilgari bu tugmalar header ning
+   bevosita farzandlari edi va `justify-content: space-between` ularni
+   bir-biridan uzoqlashtirib, «ZIMMER» yozuvi bilan mashina chipini
+   siqib qo'yardi.
+   ========================================================================== */
+.home-acts {
+  display: flex; align-items: center; gap: 6px;
+  flex: 0 0 auto; margin-left: auto;
+}
+/* `.music-btn` va `.offline-badge` da o'zining `margin-left: 6px` si bor —
+   guruh ichida `gap` bilan qo'shilib ikki barobar oraliq chiqardi. */
+.home-acts > .music-btn,
+.home-acts > .offline-badge { margin-left: 0; }
+
+.hdr-btn {
+  position: relative; flex: 0 0 auto;
+  width: 30px; height: 30px; padding: 0;
+  display: grid; place-items: center;
+  font-size: 13px; line-height: 1;
+  border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text); cursor: pointer;
+  transition: transform 0.16s var(--spring), background 0.2s, border-color 0.2s;
+}
+.hdr-btn:active { transform: scale(0.9); }
+/* Shogird — yordamchi, shuning uchun ozgina ajralib turadi (lekin
+   e'tiborni katalogdan tortib olmaydi). */
+.sg-open { background: rgba(120, 160, 255, 0.12); border-color: rgba(120, 160, 255, 0.3); }
+
+/* Saqlanganlar soni — tugma ustidagi kichik doira */
+.hdr-dot {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: var(--red); color: #fff;
+  font-size: 9px; font-weight: 800; line-height: 1;
+  border: 1.5px solid #0b0b0e; /* header foni — doira «kesib» turadi */
+}
+
+/* Juda tor ekran (320-360px): brand yozuvi eng avval qurbon bo'ladi —
+   logotip qoladi, tugmalar esa hammasi joyida turadi. */
+@media (max-width: 360px) {
+  .brand-txt { display: none; }
+  .home-acts { gap: 5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hdr-btn:active { transform: none; }
+}
 
 /* stories */
 .stories {

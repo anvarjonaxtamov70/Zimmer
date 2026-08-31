@@ -139,32 +139,74 @@
       <div class="brand-txt"><b>ZIMMER</b><small>Zimmer avtotuning</small></div>
     </div>
     <button class="car-chip" id="car-chip"><i>🚗</i><span id="car-chip-name">—</span><em>▾</em></button>
-    <!-- Zaxira rejim belgisi.
-         Ilgari pastda katta sariq chiziq chiqardi va u bezovta qilgani
-         uchun BUTUNLAY olib tashlangan edi — natijada mijoz buyurtma
-         bloklanganini faqat «Rasmiylashtirish» ni bosganda bilardi.
-         Endi kichik belgi: joy egallamaydi, lekin holat ko'rinadi. -->
-    <button
-      class="offline-badge hidden"
-      id="offline-badge"
-      type="button"
-      aria-label="Server bilan aloqa yo'q — faqat ko'rish mumkin"
-      title="Server bilan aloqa yo'q"
-    >☁️</button>
-    <!-- Fon musiqasi tugmasi.
-         Musiqa qo'shilmagan bo'lsa BUTUNLAY yashiriladi (`paintMusicBtn`) —
-         bosilganda hech narsa bo'lmaydigan tugma turmasin.
 
-         DIQQAT: brauzer ovozni o'zi boshlamaydi (Chrome/Safari qoidasi),
-         shuning uchun boshlash uchun aynan shu tugma kerak. Tanlov
-         eslab qolinadi va keyingi kirishda o'zi davom etadi. -->
-    <button
-      class="music-btn hidden"
-      id="music-btn"
-      type="button"
-      aria-pressed="false"
-      aria-label="Fon musiqasini yoqish"
-    >🔇</button>
+    <!-- ======================================================================
+         TEPADAGI AMAL TUGMALARI
+
+         NEGA GURUHGA OLINDI
+         Ilgari bu tugmalar `.home-header` ning BEVOSITA farzandlari edi va
+         header `justify-content: space-between` bo'lgani uchun ular bir-biridan
+         uzoqlashib ketardi. Ikki yangi tugma (❤️ va 🎓) qo'shilgandan keyin
+         esa ular «ZIMMER» yozuvi bilan mashina chipini siqib qo'yardi.
+         Endi hammasi o'ngdagi bitta guruhda, orasi ixcham.
+
+         NEGA ❤️ VA 🎓 AYNAN SHU YERDA
+         Ikkisi ham pastdagi navigatsiyada edi va u YETTITA tugmaga
+         cho'zilgan edi (adminda) — yozuvlar uch nuqtaga aylanardi. Endi nav
+         beshta asosiy bo'lim bilan qoladi, bu ikkisi esa doim ko'rinadigan
+         tepa qatorda (Avto_A1 dagi tartib).
+         ====================================================================== -->
+    <div class="home-acts">
+      <!-- Zaxira rejim belgisi.
+           Ilgari pastda katta sariq chiziq chiqardi va u bezovta qilgani
+           uchun BUTUNLAY olib tashlangan edi — natijada mijoz buyurtma
+           bloklanganini faqat «Rasmiylashtirish» ni bosganda bilardi.
+           Endi kichik belgi: joy egallamaydi, lekin holat ko'rinadi. -->
+      <button
+        class="offline-badge hidden"
+        id="offline-badge"
+        type="button"
+        aria-label="Server bilan aloqa yo'q — faqat ko'rish mumkin"
+        title="Server bilan aloqa yo'q"
+      >☁️</button>
+
+      <!-- Fon musiqasi tugmasi.
+           Musiqa qo'shilmagan bo'lsa BUTUNLAY yashiriladi (`paintMusicBtn`) —
+           bosilganda hech narsa bo'lmaydigan tugma turmasin.
+
+           DIQQAT: brauzer ovozni o'zi boshlamaydi (Chrome/Safari qoidasi),
+           shuning uchun boshlash uchun aynan shu tugma kerak. Tanlov
+           eslab qolinadi va keyingi kirishda o'zi davom etadi. -->
+      <button
+        class="music-btn hidden"
+        id="music-btn"
+        type="button"
+        aria-pressed="false"
+        aria-label="Fon musiqasini yoqish"
+      >🔇</button>
+
+      <!-- Saqlanganlar — musiqa tugmasi YONIDA (ilgari pastdagi navigatsiyada).
+           Ustidagi son saqlangan tovarlar sonini ko'rsatadi; nol bo'lsa
+           yashiriladi (bo'sh doira bezovta qiladi). -->
+      <button
+        class="hdr-btn"
+        id="saved-open"
+        type="button"
+        aria-label="Saqlanganlar"
+        title="Saqlanganlar"
+      >❤️<b class="hdr-dot hidden" id="saved-dot" aria-hidden="true">0</b></button>
+
+      <!-- 🎓 Shogird — pastdagi menyudan CHIQARILDI (Avto_A1 dagi kabi).
+           Yordamchi doim ko'rinadigan joyda turishi kerak, lekin pastdagi
+           panelda o'rin yetmasdi. -->
+      <button
+        class="hdr-btn sg-open"
+        id="sg-open"
+        type="button"
+        aria-label="Shogird — yordamchi"
+        title="Shogird"
+      >🎓</button>
+    </div>
   </header>
 
   <!-- DIQQAT: «Xayrli tong / Xayrli kun / Xayrli kech» salomlashuv bloki
@@ -181,7 +223,7 @@
 
          * Konfigurator va Navbat  ->  «🛠 Xizmatlar» bo'limi (har xizmatning
            o'z oynasi, narxi va navbat tugmasi bilan);
-         * Shogird                 ->  pastdagi menyudagi «🎓 Shogird».
+         * Shogird                 ->  tepadagi «🎓» tugmasi (`.home-acts`).
 
        Ya'ni plitkalar hech qanday YANGI yo'l ochmasdi — faqat stories
        bilan banner orasida bir qator joy egallab, mahsulotlarni pastga
@@ -566,6 +608,11 @@
 <!-- ==================== SAQLANGANLAR (alohida bo'lim) ==================== -->
 <section id="saved" class="page hidden">
   <header class="topbar static">
+    <!-- «‹» tugmasi QO'SHILDI: bu bo'lim endi pastdagi navigatsiyada emas
+         (kirish nuqtasi bosh sahifaning tepa qatorida), shuning uchun
+         chiqish yo'li shu sarlavhada bo'lishi kerak. Navbar pastda
+         qolgani uchun boshqa bo'limga o'tish ham ishlaydi. -->
+    <button class="icon-btn" id="saved-back" aria-label="Orqaga">‹</button>
     <div class="topbar-mid"><div class="topbar-title">❤️ Saqlanganlar</div></div>
   </header>
   <div class="pad">
@@ -667,10 +714,19 @@
   <!-- «Konfigurator» → «Xizmatlar»: bu bo'lim endi BARCHA xizmatlarni
        o'z ichiga oladi (konfigurator ham ular orasida bittasi). -->
   <button class="nav-btn" data-page="services"><i>🛠</i><span>Xizmatlar</span></button>
-  <!-- Yordamchi ENG KO'RINADIGAN joyda turishi kerak: mijoz savoli
-       paydo bo'lganda uni izlab yurmasin. -->
-  <button class="nav-btn" data-page="shogird"><i>🎓</i><span>Shogird</span></button>
-  <button class="nav-btn" data-page="saved"><i>❤️</i><span>Saqlangan</span></button>
+  <!-- ==========================================================================
+       «🎓 Shogird» va «❤️ Saqlangan» BU YERDAN OLIB TASHLANDI
+
+       Ikkisi ham endi bosh sahifaning TEPA qatorida (`.home-acts`), fon
+       musiqasi tugmasi yonida — Avto_A1 dagi tartib.
+
+       NEGA: panel adminda YETTITA tugmaga cho'zilgan edi va yozuvlar
+       («Xizmatlar», «Saqlangan») uch nuqtaga aylanardi. Endi beshta asosiy
+       bo'lim qoladi va har birining yozuvi to'liq o'qiladi.
+
+       Bo'limlarning O'ZI joyida qoladi: `show("shogird")` va `show("saved")`
+       ishlashda davom etadi, faqat kirish nuqtasi ko'chdi.
+       ========================================================================== -->
   <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge" aria-live="polite" aria-label="Savatchadagi tovarlar soni">0</b></button>
   <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
   <button class="nav-btn hidden" id="nav-admin" data-page="admin"><i>⚙️</i><span>Admin</span></button>

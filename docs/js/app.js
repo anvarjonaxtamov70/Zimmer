@@ -1899,6 +1899,9 @@
       // to'siq ekraniga TUSHMAYDI.
       if (window.ZimmerOffline && !S.offline) ZimmerOffline.save(S.home);
 
+      // Tepadagi ❤️ tugmasi ustidagi son — saqlanganlar o'qilgandan KEYIN
+      paintSavedDot(S.favorites ? S.favorites.size : 0);
+
       // Yuklangan vaqt — `isHomeStale()` shundan hisoblaydi
       S.homeAt = Date.now();
 
@@ -3150,6 +3153,8 @@
       setTimeout(() => button.classList.remove("pop", "burst"), 520);
     }
     haptic(wasSaved ? "light" : "medium");
+    // Tepadagi ❤️ tugmasi ustidagi son darhol o'zgaradi
+    paintSavedDot(S.favorites.size);
 
     // Zaxira rejim: server yo'q — faqat mahalliy xotiraga yozamiz.
     // Server tiklanganda mijoz yuraklarni qaytadan bosishi kerak bo'lmasin
@@ -3169,12 +3174,14 @@
       if (res.saved) S.favorites.add(product.id);
       else S.favorites.delete(product.id);
       if (button) button.classList.toggle("on", !!res.saved);
+      paintSavedDot(S.favorites.size);
       toast(res.saved ? "Saqlanganlarga qo'shildi ❤️" : "Saqlanganlardan olindi");
     } catch (err) {
       // Xato bo'lsa — orqaga qaytaramiz, yolg'on ko'rsatmaymiz
       if (wasSaved) S.favorites.add(product.id);
       else S.favorites.delete(product.id);
       if (button) button.classList.toggle("on", wasSaved);
+      paintSavedDot(S.favorites.size);
       onError(err);
     }
   }
@@ -3204,6 +3211,7 @@
     box.innerHTML = "";
     empty.classList.toggle("hidden", items.length > 0);
     animateStat("pf-stat-saved", items.length);
+    paintSavedDot(items.length);
 
     items.forEach((p) => {
       const row = el("div", "saved-row");
@@ -4014,7 +4022,7 @@
          tovar ko'rish uchun ochadi, salomlashuvni o'qish uchun emas.
        * TEZ O'TISH PLITKALARI (`#hm-quick`) — «Konfigurator», «Navbat»
          va «Shogird». Uchalasi boshqa joyda bor: birinchi ikkisi
-         «🛠 Xizmatlar» bo'limida, Shogird esa pastdagi menyuda. Ular
+         «🛠 Xizmatlar» bo'limida, Shogird esa tepadagi «🎓» tugmasida. Ular
          bilan birga `bindQuickActions()` va `refreshQuickBadges()` ham
          ketdi — ikkinchisi allaqachon hech narsa qilmasdi, lekin
          `saveCart()` va `loadHome()` dan chaqirilib turardi.
@@ -5641,6 +5649,7 @@
     }
     // "Saqlangan" endi alohida bo'lim — bu yerda faqat sonini ko'rsatamiz
     animateNum("pf-stat-saved", S.favorites ? S.favorites.size : 0);
+    paintSavedDot(S.favorites ? S.favorites.size : 0);
     renderAddrHint();
 
     // Ilgari bu yerda «Server uyg'onmoqda» izohi bor edi va to'liq rejimga
@@ -8647,11 +8656,11 @@
       if (me.is_admin) {
         const adminBtn = $("nav-admin");
         if (adminBtn) adminBtn.classList.remove("hidden");
-        /* Adminda tugma YETTITA bo'ladi («🎓 Shogird» qo'shilgandan
-           keyin). Yozuvlar sig'ishi uchun panel ixchamlashadi — aks
-           holda «Xizmatlar» va «Saqlangan» uch nuqtaga aylanardi. */
-        const nav = $("nav");
-        if (nav) nav.classList.add("is-wide");
+        /* Adminda tugma BESHTA bo'ladi (Asosiy · Xizmatlar · Savatcha ·
+           Kabinet · Admin). «🎓 Shogird» va «❤️ Saqlangan» tepa qatorga
+           ko'chgandan keyin `is-wide` ixchamlashtirishi KERAK EMAS: beshta
+           yozuv normal o'lchamda ham to'liq sig'adi. Ilgari yettita tugma
+           bor edi va yozuvlar uch nuqtaga aylanardi. */
       }
 
     // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
@@ -8795,6 +8804,28 @@
     show("home");
   };
   $("sg-reset").onclick = sgReset;
+
+  /* Shogird va Saqlanganlar endi pastdagi navigatsiyada EMAS — bosh
+     sahifaning tepa qatorida (`.home-acts`). Ular `.nav-btn` sinfiga ega
+     bo'lmagani uchun yuqoridagi umumiy bog'lovchi ularni tutmaydi. */
+  if ($("sg-open")) {
+    $("sg-open").onclick = () => {
+      haptic();
+      show("shogird");
+    };
+  }
+  if ($("saved-open")) {
+    $("saved-open").onclick = () => {
+      haptic();
+      show("saved");
+    };
+  }
+  if ($("saved-back")) {
+    $("saved-back").onclick = () => {
+      haptic();
+      show("home");
+    };
+  }
 
   $("sg-topics").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-sg-topic]");
@@ -10658,6 +10689,21 @@
     const count = S.favorites ? S.favorites.size : 0;
     const obj = $("pf-stat-saved");
     if (obj) animateStat("pf-stat-saved", count);
+    paintSavedDot(count);
+  }
+
+  /** Tepadagi ❤️ tugmasi ustidagi son.
+   *
+   *  Saqlanganlar endi pastdagi navigatsiyada emas, shuning uchun «nechta
+   *  saqlangan» degan ma'lumot boshqa hech qayerda ko'rinmaydi (kabinetdagi
+   *  sanoqchi faqat kabinetga kirganda). Nol bo'lsa YASHIRILADI: bo'sh
+   *  doira e'tiborni behuda tortadi. */
+  function paintSavedDot(count) {
+    const dot = $("saved-dot");
+    if (!dot) return;
+    const n = Number(count) || 0;
+    dot.textContent = n > 99 ? "99+" : String(n);
+    dot.classList.toggle("hidden", n <= 0);
   }
 
   boot();
