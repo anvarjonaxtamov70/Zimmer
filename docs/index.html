@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=62">
+  <link rel="stylesheet" href="styles.css?v=63">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -146,15 +146,15 @@
          NEGA GURUHGA OLINDI
          Ilgari bu tugmalar `.home-header` ning BEVOSITA farzandlari edi va
          header `justify-content: space-between` bo'lgani uchun ular bir-biridan
-         uzoqlashib ketardi. Ikki yangi tugma (❤️ va 🎓) qo'shilgandan keyin
-         esa ular «ZIMMER» yozuvi bilan mashina chipini siqib qo'yardi.
+         uzoqlashib ketardi. ❤️ Saqlangan tugmasi qo'shilgandan keyin esa ular
+         «ZIMMER» yozuvi bilan mashina chipini siqib qo'yardi.
          Endi hammasi o'ngdagi bitta guruhda, orasi ixcham.
 
-         NEGA ❤️ VA 🎓 AYNAN SHU YERDA
-         Ikkisi ham pastdagi navigatsiyada edi va u YETTITA tugmaga
-         cho'zilgan edi (adminda) — yozuvlar uch nuqtaga aylanardi. Endi nav
-         beshta asosiy bo'lim bilan qoladi, bu ikkisi esa doim ko'rinadigan
-         tepa qatorda (Avto_A1 dagi tartib).
+         NEGA ❤️ AYNAN SHU YERDA
+         Saqlangan pastdagi navigatsiyada edi va u YETTITA tugmaga cho'zilgan
+         edi (adminda) — yozuvlar uch nuqtaga aylanardi. Endi nav beshta
+         asosiy bo'lim bilan qoladi, ❤️ esa doim ko'rinadigan tepa qatorda.
+         🎓 Shogird esa o'ng pastdagi suzuvchi «✨» tugmaga ko'chdi (`#sg-fab`).
          ====================================================================== -->
     <div class="home-acts">
       <!-- Zaxira rejim belgisi.
@@ -195,17 +195,6 @@
         aria-label="Saqlanganlar"
         title="Saqlanganlar"
       >❤️<b class="hdr-dot hidden" id="saved-dot" aria-hidden="true">0</b></button>
-
-      <!-- 🎓 Shogird — pastdagi menyudan CHIQARILDI (Avto_A1 dagi kabi).
-           Yordamchi doim ko'rinadigan joyda turishi kerak, lekin pastdagi
-           panelda o'rin yetmasdi. -->
-      <button
-        class="hdr-btn sg-open"
-        id="sg-open"
-        type="button"
-        aria-label="Shogird — yordamchi"
-        title="Shogird"
-      >🎓</button>
     </div>
   </header>
 
@@ -223,7 +212,7 @@
 
          * Konfigurator va Navbat  ->  «🛠 Xizmatlar» bo'limi (har xizmatning
            o'z oynasi, narxi va navbat tugmasi bilan);
-         * Shogird                 ->  tepadagi «🎓» tugmasi (`.home-acts`).
+         * Shogird                 ->  o'ng pastdagi suzuvchi «✨» tugma (`#sg-fab`).
 
        Ya'ni plitkalar hech qanday YANGI yo'l ochmasdi — faqat stories
        bilan banner orasida bir qator joy egallab, mahsulotlarni pastga
@@ -708,6 +697,32 @@
   </form>
 </section>
 
+<!-- ==========================================================================
+     🎓 SHOGIRD — SUZUVCHI TUGMA (FAB)
+
+     Yordamchi endi bosh sahifada o'ng pastki burchakda, navigatsiya
+     USTIDA suzib turadi (Avto_A1 dagi «✨» tugmasi kabi). Doim ko'z
+     oldida, lekin katalogni to'smaydi.
+
+     NEGA HEADERDAN KO'CHDI: tepada u boshqa tugmalar (☁️/🔇/❤️) bilan
+     bir qatorda kichik bo'lib turardi va ko'zga tashlanmasdi. FAB esa
+     ajralib turadi va bir qo'l bilan yetish oson (ekranning pastki
+     qismida).
+
+     KO'RINISH: nav ko'rinadigan asosiy bo'limlarda chiqadi
+     (`syncShogirdFab`), Shogirdning O'ZIDA va oqim/oyna ekranlarida
+     yashiriladi — aks holda o'zini ochadigan tugma turardi. -->
+<button
+  class="sg-fab hidden"
+  id="sg-fab"
+  type="button"
+  aria-label="Shogird — yordamchi bilan yozishma"
+  title="Shogird — savol bering"
+>
+  <span class="sg-fab-glow" aria-hidden="true"></span>
+  <span class="sg-fab-ic" aria-hidden="true">✨</span>
+</button>
+
 <!-- ==================== NAVIGATSIYA ==================== -->
 <nav class="nav hidden" id="nav">
   <button class="nav-btn active" data-page="home"><i>🏠</i><span>Asosiy</span></button>
@@ -951,16 +966,16 @@
         pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
         tanlanganda kerak, lekin har ochilishda o'qilardi.
      ========================================================================== -->
-<script defer src="config.js?v=62"></script>
+<script defer src="config.js?v=63"></script>
 <!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
-<script defer src="js/fb.js?v=62"></script>
+<script defer src="js/fb.js?v=63"></script>
 <!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
-<script defer src="js/upload.js?v=62"></script>
+<script defer src="js/upload.js?v=63"></script>
 <!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
      app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
-<script defer src="js/offline.js?v=62"></script>
-<script defer src="js/headlight.js?v=62"></script>
-<script defer src="js/cars.js?v=62"></script>
-<script defer src="js/app.js?v=62"></script>
+<script defer src="js/offline.js?v=63"></script>
+<script defer src="js/headlight.js?v=63"></script>
+<script defer src="js/cars.js?v=63"></script>
+<script defer src="js/app.js?v=63"></script>
 </body>
 </html>
