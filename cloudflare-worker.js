@@ -1509,6 +1509,7 @@ const CATALOG_COUNTERS = {
   products: "products_counter",
   stories: "stories_counter",
   banners: "banners_counter",
+  cars: "cars_counter",
 };
 
 /* Server tomonda katalog mutatsiyasini `database.rules.json` bilan AYNAN

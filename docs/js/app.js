@@ -2045,7 +2045,7 @@
      yuklanadi: takror chaqiruv o'sha Promise'ni qaytaradi.
      ==================================================================== */
 
-  const SCRIPT_VERSION = "66"; // index.html dagi `?v=` bilan bir xil bo'lsin
+  const SCRIPT_VERSION = "67"; // index.html dagi `?v=` bilan bir xil bo'lsin
   const _scripts = new Map();
 
   function loadScript(src) {

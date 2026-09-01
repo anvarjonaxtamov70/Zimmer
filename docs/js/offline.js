@@ -724,6 +724,15 @@
     } catch (_) {}
   }
 
+  /** Mashinalar keshini bo'shatadi. Admin panelidan mashina qo'shil/o'chirilsa
+   *  chaqiriladi — aks holda 30 kunlik kesh eski ro'yxatni ushlab turadi va
+   *  konfiguratorda yangi mashina ko'rinmasdi. */
+  function clearCarsCache() {
+    try {
+      localStorage.removeItem(CARS_KEY);
+    } catch (_) {}
+  }
+
   function cachedCars() {
     try {
       var raw = JSON.parse(localStorage.getItem(CARS_KEY) || "null");
@@ -750,6 +759,13 @@
             name: r.name || "",
             years: r.years || null,
             note: r.note || null,
+            /* Siluet kaliti. Bulut yozuvida `slug` ustuni SAQLANMAYDI
+               (Firebase katalog sxemasida u yo'q), shuning uchun bo'lmasa
+               nomdan yasaymiz — `ZimmerCars.typeOf` nomdagi kalit so'zga
+               qarab to'g'ri siluetni tanlaydi (Damas->van, Matiz->hatch,
+               Tracker->suv...). Aks holda panel orqali qo'shilgan mashina
+               mijozda har doim umumiy sedan bo'lib ko'rinardi. */
+            slug: r.slug || String(r.name || "").trim().toLowerCase(),
             photo_url: pic,
             has_media: !!pic,
           };
@@ -1628,5 +1644,6 @@
     hasAnyData: hasAnyData,
     snapshot: snapshot,
     saveCars: saveCars,
+    clearCarsCache: clearCarsCache,
   };
 })();
