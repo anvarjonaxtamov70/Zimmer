@@ -1,0 +1,690 @@
+{
+ "car_id": null,
+ "_generated_at": "2026-09-01T03:57:33Z",
+ "banners": [
+  {
+   "id": 1,
+   "title": "Bi-LED o'rnatish",
+   "subtitle": "Ikki faraga to'liq to'plam + o'rnatish",
+   "tag": "-15% shu hafta",
+   "color_from": "#c1121f",
+   "color_to": "#101215",
+   "photo_url": "https://i.ibb.co/WW9L6s5j/63de4f6647cb.jpg",
+   "photo_external": true,
+   "video_url": null,
+   "video_external": true,
+   "has_media": true
+  },
+  {
+   "id": 2,
+   "title": "Kafolat 1 yil",
+   "subtitle": "Linzalarga rasmiy kafolat, xizmat ko'rsatish bilan",
+   "tag": "Ishonch",
+   "color_from": "#c1121f",
+   "color_to": "#101215",
+   "photo_url": "https://i.ibb.co/XkL68CfL/47673fc1a16b.jpg",
+   "photo_external": true,
+   "video_url": null,
+   "video_external": true,
+   "has_media": true
+  },
+  {
+   "id": 3,
+   "title": "Gentra & Nexia 2",
+   "subtitle": "Aynan sizning modelga tayyor yechimlar",
+   "tag": "Yangi",
+   "color_from": "#c1121f",
+   "color_to": "#101215",
+   "photo_url": "https://i.ibb.co/fGLRdjr0/5d1822981012.jpg",
+   "photo_external": true,
+   "video_url": null,
+   "video_external": true,
+   "has_media": true
+  },
+  {
+   "id": 4,
+   "title": "Registon",
+   "subtitle": "Samarqand",
+   "tag": "Kechga chiroyli",
+   "color_from": "#3a3f4b",
+   "color_to": "#0c0d11",
+   "photo_url": "https://i.ibb.co/TBnhht72/c7ff791c1c09.jpg",
+   "photo_external": true,
+   "video_url": null,
+   "video_external": true,
+   "has_media": true
+  }
+ ],
+ "stories": [
+  {
+   "key": "bugun",
+   "title": "Bugun",
+   "emoji": "⚡️",
+   "color_from": "#ff6b3d",
+   "color_to": "#3a0f00",
+   "count": 1,
+   "items": [
+    {
+     "id": 6,
+     "heading": "Nexia 3. Bi led va RGB maska",
+     "title": "Nexia 3. Bi led va RGB maska",
+     "body": "1 yil kafolatlangan",
+     "emoji": "⚡️",
+     "color_from": "#ff6b3d",
+     "color_to": "#3a0f00",
+     "photo_url": null,
+     "photo_external": false,
+     "video_url": null,
+     "video_external": true,
+     "has_media": false,
+     "link": null,
+     "createdAt": null
+    }
+   ]
+  },
+  {
+   "key": "mijozlar",
+   "title": "Mijozlar",
+   "emoji": "💬",
+   "color_from": "#e01020",
+   "color_to": "#2a0006",
+   "count": 1,
+   "items": [
+    {
+     "id": 7,
+     "heading": "Surxandaryolik klentimzdan  izoh.",
+     "title": "Surxandaryolik klentimzdan  izoh.",
+     "body": "Nexia 2 fara zubori holatda. Bi led va RGB maska blan yigʻib bergandik",
+     "emoji": "💬",
+     "color_from": "#e01020",
+     "color_to": "#2a0006",
+     "photo_url": null,
+     "photo_external": false,
+     "video_url": null,
+     "video_external": true,
+     "has_media": false,
+     "link": null,
+     "createdAt": null
+    }
+   ]
+  },
+  {
+   "key": "natijalar",
+   "title": "Natijalar",
+   "emoji": "🏆",
+   "color_from": "#ff4b3e",
+   "color_to": "#1a0508",
+   "count": 1,
+   "items": [
+    {
+     "id": 8,
+     "heading": "Damasga bi led va RGB maska",
+     "title": "Damasga bi led va RGB maska",
+     "body": "",
+     "emoji": "🏆",
+     "color_from": "#ff4b3e",
+     "color_to": "#1a0508",
+     "photo_url": "https://i.ibb.co/BHVJYFSm/d0c7c5270016.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "link": null,
+     "createdAt": null
+    }
+   ]
+  }
+ ],
+ "catalog": [
+  {
+   "id": 3,
+   "name": "Aksesuarlar",
+   "icon": "🧰",
+   "products": [
+    {
+     "id": 18,
+     "name": "RGB maska .transformerrr",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 280000,
+     "old_price": 310000,
+     "badge": "Transformer",
+     "stock": 9,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "310 000 so'm",
+     "photo_url": "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg"
+     ]
+    },
+    {
+     "id": 17,
+     "name": "Masska bi led.",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 85000,
+     "old_price": 95000,
+     "badge": "Black",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "85 000 so'm",
+     "old_price_label": "95 000 so'm",
+     "photo_url": "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg"
+     ]
+    },
+    {
+     "id": 11,
+     "name": "RGB maska. BMW dizaynda",
+     "description": null,
+     "price": 280000,
+     "old_price": 320000,
+     "badge": "Bmw dizayn",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "320 000 so'm",
+     "photo_url": "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+      "https://i.ibb.co/LhxP0J6s/c297be27206b.jpg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "name": "BI-ledlar",
+   "icon": "🔵",
+   "products": [
+    {
+     "id": 16,
+     "name": "Zimmer r50 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 460000,
+     "old_price": 500000,
+     "badge": "R50",
+     "stock": 9,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "460 000 so'm",
+     "old_price_label": "500 000 so'm",
+     "photo_url": "https://i.ibb.co/v6BYf0P2/28ecc232f126.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/v6BYf0P2/28ecc232f126.jpg"
+     ]
+    },
+    {
+     "id": 15,
+     "name": "Zemmer r60 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 580000,
+     "old_price": 650000,
+     "badge": "R60",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "580 000 so'm",
+     "old_price_label": "650 000 so'm",
+     "photo_url": "https://i.ibb.co/7d8JvJHD/6e09df73bbc5.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/7d8JvJHD/6e09df73bbc5.jpg"
+     ]
+    },
+    {
+     "id": 14,
+     "name": "Zimmer r70 max",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 700000,
+     "old_price": 750000,
+     "badge": "R70",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "700 000 so'm",
+     "old_price_label": "750 000 so'm",
+     "photo_url": "https://i.ibb.co/rrDFqD2/eb28a23b47f4.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/rrDFqD2/eb28a23b47f4.jpg"
+     ]
+    },
+    {
+     "id": 12,
+     "name": "Zimmer G90",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 1000000,
+     "old_price": 1200000,
+     "badge": "G90",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "1 000 000 so'm",
+     "old_price_label": "1 200 000 so'm",
+     "photo_url": "https://i.ibb.co/VWpDNtbT/3cdbd269254c.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/VWpDNtbT/3cdbd269254c.jpg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "name": "Lampalar",
+   "icon": "💡",
+   "products": [
+    {
+     "id": 13,
+     "name": "Zimmer. E300",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 350000,
+     "old_price": 400000,
+     "badge": "H7",
+     "stock": 10,
+     "car_id": 9,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [
+      "Nexia 2"
+     ],
+     "car_name": "Nexia 2",
+     "price_label": "350 000 so'm",
+     "old_price_label": "400 000 so'm",
+     "photo_url": "https://i.ibb.co/d4SN7x0V/e97389a3d21b.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/d4SN7x0V/e97389a3d21b.jpg"
+     ]
+    },
+    {
+     "id": 10,
+     "name": "Zimmer r80",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.\n🛡 1 yil kafolat beriladi.",
+     "price": 825000,
+     "old_price": 850000,
+     "badge": null,
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "825 000 so'm",
+     "old_price_label": "850 000 so'm",
+     "photo_url": "https://i.ibb.co/zh8mPjvW/b57e358ffc23.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/zh8mPjvW/b57e358ffc23.jpg"
+     ]
+    }
+   ]
+  }
+ ],
+ "favorite_ids": [],
+ "cars": [
+  {
+   "id": 1,
+   "name": "Damas",
+   "years": "1996 – hozir",
+   "note": "Chevrolet / Daewoo Damas",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 18,
+   "name": "Gentra",
+   "years": "2013 – 2024",
+   "note": "Chevrolet / Ravon Gentra",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 2,
+   "name": "Labo",
+   "years": "1996 – hozir",
+   "note": "Chevrolet / Daewoo Labo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 9,
+   "name": "Nexia 2",
+   "years": "2008 – 2016",
+   "note": "Daewoo Nexia 2 (DOHC / SOHC)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 3,
+   "name": "Tico",
+   "years": "1996 – 2001",
+   "note": "Daewoo Tico",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 36,
+   "name": "Kobalt",
+   "years": "2013 2026",
+   "note": "Chevrolet. Ravon",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 4,
+   "name": "Matiz",
+   "years": "2001 – 2015",
+   "note": "Daewoo / Chevrolet Matiz",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 37,
+   "name": "Lasseti",
+   "years": "2006 2013",
+   "note": "Chevrolet daewoo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 5,
+   "name": "Spark",
+   "years": "2011 – 2015",
+   "note": "Chevrolet Spark (M300)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 6,
+   "name": "Spark 2",
+   "years": "2016 – 2022",
+   "note": "Chevrolet Spark (M400)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 7,
+   "name": "Ravon R2",
+   "years": "2016 – 2018",
+   "note": "Ravon R2 (Spark)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 8,
+   "name": "Nexia 1",
+   "years": "1996 – 2008",
+   "note": "Daewoo Nexia (SOHC / DOHC)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 10,
+   "name": "Nexia 3",
+   "years": "2016 – hozir",
+   "note": "Ravon Nexia R3 / Nexia 3",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 11,
+   "name": "Ravon R3",
+   "years": "2016 – 2018",
+   "note": "Ravon R3 (Nexia)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 12,
+   "name": "Espero",
+   "years": "1995 – 1999",
+   "note": "Daewoo Espero",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 13,
+   "name": "Nubira",
+   "years": "1999 – 2003",
+   "note": "Daewoo Nubira",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 14,
+   "name": "Leganza",
+   "years": "1997 – 2002",
+   "note": "Daewoo Leganza",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 15,
+   "name": "Magnus",
+   "years": "2003 – 2007",
+   "note": "Daewoo Magnus / Evanda",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 16,
+   "name": "Epica",
+   "years": "2007 – 2011",
+   "note": "Chevrolet Epica",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 17,
+   "name": "Lacetti",
+   "years": "2004 – 2018",
+   "note": "Chevrolet Lacetti",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 19,
+   "name": "Aveo",
+   "years": "2011 – 2015",
+   "note": "Chevrolet Aveo",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 20,
+   "name": "Cobalt",
+   "years": "2013 – hozir",
+   "note": "Chevrolet / Ravon Cobalt",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 21,
+   "name": "Ravon R4",
+   "years": "2016 – 2020",
+   "note": "Ravon R4 (Cobalt)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 22,
+   "name": "Onix",
+   "years": "2019 – hozir",
+   "note": "Chevrolet Onix",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 23,
+   "name": "Monza",
+   "years": "2023 – hozir",
+   "note": "Chevrolet Monza",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 24,
+   "name": "Malibu",
+   "years": "2012 – 2016",
+   "note": "Chevrolet Malibu",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 25,
+   "name": "Malibu 2",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Malibu 2",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 26,
+   "name": "Malibu XL",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Malibu XL",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 27,
+   "name": "Orlando",
+   "years": "2011 – 2018",
+   "note": "Chevrolet Orlando (7 o'rin)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 28,
+   "name": "Tracker",
+   "years": "2013 – 2020",
+   "note": "Chevrolet Tracker 1",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 29,
+   "name": "Tracker 2",
+   "years": "2020 – hozir",
+   "note": "Chevrolet Tracker 2",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 30,
+   "name": "Captiva",
+   "years": "2007 – 2018",
+   "note": "Chevrolet Captiva",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 31,
+   "name": "Captiva 5",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Captiva 5",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 32,
+   "name": "Trailblazer",
+   "years": "2021 – hozir",
+   "note": "Chevrolet Trailblazer",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 33,
+   "name": "Equinox",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Equinox",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 34,
+   "name": "Traverse",
+   "years": "2018 – hozir",
+   "note": "Chevrolet Traverse (7 o'rin)",
+   "photo_url": null,
+   "has_media": false
+  },
+  {
+   "id": 35,
+   "name": "Tahoe",
+   "years": "2015 – hozir",
+   "note": "Chevrolet Tahoe",
+   "photo_url": null,
+   "has_media": false
+  }
+ ],
+ "_source": "firebase",
+ "_snapshot": true
+}

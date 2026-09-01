@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <!-- ZOOM BUTUNLAY O'CHIRILGAN (mahsulot qarori): ilova butun ekran
+       bo'lib rasm kabi kattalashmasin. `user-scalable=no` + `maximum-scale=1`
+       Android WebView'da yetarli; iOS (Telegram WKWebView) buni e'tiborsiz
+       qoldiradi, shuning uchun pastda pinch/double-tap jestlari JS bilan ham
+       to'xtatiladi. Skroll va swipe (stories, karusel) ISHLAYVERADI. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#08080a">
+  <title>ZIMMER — Avtotuning</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=68">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Zoom jestlarini to'xtatish. `touch-action: manipulation` (CSS)
+       double-tap zoom'ni o'chiradi va BOSISHNI buzmaydi; quyidagi JS esa
+       pinch (ikki barmoq) zoom'ni to'xtatadi. Bir barmoqli bosish/skroll
+       hech qanday ta'sirlanmaydi. -->
+  <script>
+    (function () {
+      // iOS Safari / WKWebView: pinch = gesture* hodisalari
+      ["gesturestart", "gesturechange", "gestureend"].forEach(function (ev) {
+        document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+      });
+      // Boshqa WebView'lar: ikki (yoki ko'p) barmoqli tegishni bloklaymiz
+      document.addEventListener("touchmove", function (e) {
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+      }, { passive: false });
+      // Desktop: Ctrl + g'ildirak va Ctrl +/-/0 bilan zoom
+      document.addEventListener("wheel", function (e) {
+        if (e.ctrlKey) e.preventDefault();
+      }, { passive: false });
+      document.addEventListener("keydown", function (e) {
+        if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].indexOf(e.key) !== -1) {
+          e.preventDefault();
+        }
+      });
+    })();
+  </script>
+</head>
+<body>
+
+<!-- fon effektlari -->
+<div class="fx" aria-hidden="true">
+  <div class="fx-grid"></div>
+  <div class="fx-beam fx-beam-1"></div>
+  <div class="fx-beam fx-beam-2"></div>
+  <div class="fx-vignette"></div>
+</div>
+
+<!-- ==================== SPLASH / SALOM ====================
+     Sodda: faqat salomlashuv. Maydadan kattalashib chiroyli chiqadi,
+     so'ng bosh menyu o'zi ochiladi (tugma bosish shart emas). -->
+<section id="splash" class="splash">
+  <div class="splash-hello" id="splash-hello">
+    <div class="hello-skeleton"></div>
+  </div>
+</section>
+
+<!-- ==================== TO'SIQ EKRANI (oxirgi chora) ====================
+     DIQQAT: sarlavha ilgari QATTIQ «Ro'yxatdan o'tish kerak» deb yozilgan edi
+     va `gate()` faqat pastdagi matnni o'zgartirardi. Natijada server o'chganda
+     ham mijoz «Ro'yxatdan o'tish kerak» degan YOLG'ON xabarni ko'rardi —
+     vaholanki u allaqachon ro'yxatda edi.
+
+     Endi sarlavha ham `gate()` orqali o'rnatiladi va bu ekran faqat HAQIQATAN
+     iloji yo'q holatda (Telegram tashqarisida ochilganda) chiqadi. -->
+<section id="gate" class="gate hidden">
+  <div class="gate-icon" id="gate-icon">⏳</div>
+  <h2 id="gate-title">Bir lahza…</h2>
+  <p id="gate-text">Ma'lumotlar yuklanmoqda.</p>
+  <button class="btn btn-primary" id="gate-close">Botga qaytish</button>
+  <button class="btn btn-ghost" id="gate-retry">Qayta urinish</button>
+</section>
+
+<!-- ==================== KONFIGURATOR ==================== -->
+<section id="flow" class="page hidden">
+  <header class="topbar">
+    <button class="icon-btn" id="flow-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="flow-title">Mashinani tanlang</div>
+      <div class="topbar-sub" id="flow-sub">1-qadam / 4</div>
+    </div>
+    <button class="icon-btn ghost" id="flow-close" aria-label="Yopish">✕</button>
+  </header>
+
+  <div class="progress"><i id="progress-fill"></i></div>
+
+  <!-- fara jonli ko'rinishi: ro'yxat aylanganda joyida turadi (sticky) -->
+  <div class="preview hidden" id="preview">
+    <div class="preview-stage">
+      <div class="preview-halo"></div>
+      <div class="preview-svg" id="headlight"></div>
+      <div class="preview-media hidden" id="preview-media"></div>
+      <div class="preview-tabs hidden" id="preview-tabs"></div>
+    </div>
+    <div class="preview-caption" id="preview-caption"></div>
+  </div>
+
+  <div class="flow-body">
+    <!-- 1. mashina -->
+    <div class="step" id="fstep-car">
+      <h2 class="step-title">Mashinangiz qaysi?</h2>
+      <p class="step-sub">Faqat modelingizga mos yechimlarni ko'rsatamiz</p>
+      <div class="cars" id="cars"></div>
+    </div>
+
+    <!-- 2. bi-led -->
+    <div class="step hidden" id="fstep-biled">
+      <h2 class="step-title">Bi&#8209;LED linzani tanlang</h2>
+      <p class="step-sub">Fara ichiga o'rnatiladigan linza — yorug'lik shu yerdan chiqadi</p>
+      <div class="opts" id="biled-list"></div>
+    </div>
+
+    <!-- 3. ochki -->
+    <div class="step hidden" id="fstep-shroud">
+      <h2 class="step-title">Ochki (maska)</h2>
+      <p class="step-sub">Linza ustidagi bezak halqa — faraning yuzi shu bilan belgilanadi</p>
+      <div class="opts" id="shroud-list"></div>
+    </div>
+
+    <!-- 4. optika rangi -->
+    <div class="step hidden" id="fstep-color">
+      <h2 class="step-title">Fara optikasi rangi</h2>
+      <p class="step-sub">Korpus va reflektor rangi</p>
+      <div class="swatches" id="color-list"></div>
+    </div>
+
+    <!-- 5. yakun -->
+    <div class="step hidden" id="fstep-summary">
+      <h2 class="step-title">Konfiguratsiya tayyor</h2>
+      <p class="step-sub">Tekshirib, buyurtmani yuboring</p>
+      <div class="summary card" id="summary"></div>
+      <label class="field">
+        <span>📝 Izoh (ixtiyoriy)</span>
+        <textarea id="order-comment" rows="2" placeholder="Masalan: shanba kuni kelmoqchiman"></textarea>
+      </label>
+      <div class="trust">
+        <div><b>🛡</b> 1 yil kafolat</div>
+        <div><b>🔧</b> Professional o'rnatish</div>
+        <div><b>💳</b> Bo'lib to'lash mumkin</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sticky-cta hidden" id="flow-cta">
+    <div class="cta-total">
+      <span>Jami</span>
+      <b id="flow-total">0</b>
+    </div>
+    <button class="btn btn-primary" id="flow-next">Davom etish</button>
+  </div>
+</section>
+
+<!-- ==================== ASOSIY MENYU ==================== -->
+<section id="home" class="page hidden">
+  <header class="home-header">
+    <div class="brand">
+      <span class="brand-mark">Z</span>
+      <div class="brand-txt"><b>ZIMMER</b><small>Zimmer avtotuning</small></div>
+    </div>
+    <button class="car-chip" id="car-chip"><i>🚗</i><span id="car-chip-name">—</span><em>▾</em></button>
+
+    <!-- ======================================================================
+         TEPADAGI AMAL TUGMALARI
+
+         NEGA GURUHGA OLINDI
+         Ilgari bu tugmalar `.home-header` ning BEVOSITA farzandlari edi va
+         header `justify-content: space-between` bo'lgani uchun ular bir-biridan
+         uzoqlashib ketardi. ❤️ Saqlangan tugmasi qo'shilgandan keyin esa ular
+         «ZIMMER» yozuvi bilan mashina chipini siqib qo'yardi.
+         Endi hammasi o'ngdagi bitta guruhda, orasi ixcham.
+
+         NEGA ❤️ AYNAN SHU YERDA
+         Saqlangan pastdagi navigatsiyada edi va u YETTITA tugmaga cho'zilgan
+         edi (adminda) — yozuvlar uch nuqtaga aylanardi. Endi nav beshta
+         asosiy bo'lim bilan qoladi, ❤️ esa doim ko'rinadigan tepa qatorda.
+         🎓 Shogird esa o'ng pastdagi suzuvchi 🎓 tugmaga ko'chdi (`#sg-fab`).
+         ====================================================================== -->
+    <div class="home-acts">
+      <!-- Zaxira rejim belgisi.
+           Ilgari pastda katta sariq chiziq chiqardi va u bezovta qilgani
+           uchun BUTUNLAY olib tashlangan edi — natijada mijoz buyurtma
+           bloklanganini faqat «Rasmiylashtirish» ni bosganda bilardi.
+           Endi kichik belgi: joy egallamaydi, lekin holat ko'rinadi. -->
+      <button
+        class="offline-badge hidden"
+        id="offline-badge"
+        type="button"
+        aria-label="Server bilan aloqa yo'q — faqat ko'rish mumkin"
+        title="Server bilan aloqa yo'q"
+      >☁️</button>
+
+      <!-- Fon musiqasi tugmasi.
+           Musiqa qo'shilmagan bo'lsa BUTUNLAY yashiriladi (`paintMusicBtn`) —
+           bosilganda hech narsa bo'lmaydigan tugma turmasin.
+
+           DIQQAT: brauzer ovozni o'zi boshlamaydi (Chrome/Safari qoidasi),
+           shuning uchun boshlash uchun aynan shu tugma kerak. Tanlov
+           eslab qolinadi va keyingi kirishda o'zi davom etadi. -->
+      <button
+        class="music-btn hidden"
+        id="music-btn"
+        type="button"
+        aria-pressed="false"
+        aria-label="Fon musiqasini yoqish"
+      >🔇</button>
+
+      <!-- Saqlanganlar — musiqa tugmasi YONIDA (ilgari pastdagi navigatsiyada).
+           Ustidagi son saqlangan tovarlar sonini ko'rsatadi; nol bo'lsa
+           yashiriladi (bo'sh doira bezovta qiladi). -->
+      <button
+        class="hdr-btn"
+        id="saved-open"
+        type="button"
+        aria-label="Saqlanganlar"
+        title="Saqlanganlar"
+      >❤️<b class="hdr-dot hidden" id="saved-dot" aria-hidden="true">0</b></button>
+    </div>
+  </header>
+
+  <!-- DIQQAT: «Xayrli tong / Xayrli kun / Xayrli kech» salomlashuv bloki
+       ATAYLAB OLIB TASHLANDI. U har ochilishda bir xil gap takrorlab,
+       ekranning eng qimmatli tepa qismini egallab turardi. -->
+
+  <div class="stories" id="stories"></div>
+
+  <!-- ==========================================================================
+       TEZ O'TISH PLITKALARI BUTUNLAY OLIB TASHLANDI
+
+       Bu qatorda «Konfigurator», «Navbat» va «Shogird» plitkalari turardi.
+       Uchalasi ham BOSHQA JOYDA allaqachon bor:
+
+         * Konfigurator va Navbat  ->  «🛠 Xizmatlar» bo'limi (har xizmatning
+           o'z oynasi, narxi va navbat tugmasi bilan);
+         * Shogird                 ->  o'ng pastdagi suzuvchi 🎓 tugma (`#sg-fab`).
+
+       Ya'ni plitkalar hech qanday YANGI yo'l ochmasdi — faqat stories
+       bilan banner orasida bir qator joy egallab, mahsulotlarni pastga
+       surib turardi. Bosh sahifaning maqsadi — DO'KON.
+
+       Ilgari bu yerda «Saqlangan» va «Savatcha» ham bo'lgan va aynan shu
+       sabab (pastdagi menyuda takrorlanishi) olib tashlangan edi.
+       ========================================================================== -->
+
+  <div class="banner-wrap">
+    <div class="banners" id="banners"></div>
+    <div class="dots" id="banner-dots"></div>
+  </div>
+
+  <!-- DIQQAT: «Bi-LED konfigurator» bloki va «O'rnatishga navbat» bo'limi
+       bosh menyudan OLIB TASHLANDI. Ikkisi ham endi pastdagi
+       «🛠 Xizmatlar» bo'limida (`#services`) — barcha xizmatlar bitta
+       joyda turadi, bosh menyu esa do'kon uchun bo'shab qoldi. -->
+
+  <section class="sec" id="catalog-sec">
+    <div class="sec-head">
+      <h3 class="sec-title">🛍 Mahsulotlar</h3>
+      <span class="sec-count" id="products-count" aria-live="polite"></span>
+    </div>
+    <!-- ====================================================================
+         QIDIRUV VA SARALASH
+
+         ILGARI BUTUN ILOVADA TOVAR QIDIRUVI YO'Q EDI. Mijoz faqat
+         kategoriya chiplari bilan ko'rardi: «H4 linza» kerak bo'lsa
+         qo'lda varaqlab, topmasa ketardi.
+
+         `p.car_id` bazada allaqachon bor va kartochka hatto
+         «✓ Mashinangizga mos» yozuvini CHIZARDI — lekin filtr yo'q edi.
+         ==================================================================== -->
+    <div class="shop-tools">
+      <div class="shop-search">
+        <span class="shop-search-i" aria-hidden="true">🔍</span>
+        <input
+          type="search"
+          id="shop-q"
+          placeholder="Tovar nomi yoki kodi…"
+          autocomplete="off"
+          enterkeyhint="search"
+          aria-label="Tovarlar orasidan qidirish"
+        >
+        <button class="shop-search-x hidden" id="shop-q-clear" type="button" aria-label="Qidiruvni tozalash">✕</button>
+      </div>
+      <div class="shop-filters">
+        <button class="chip chip-f" id="shop-f-car" type="button" aria-pressed="false">
+          🚗 Mashinamga mos
+        </button>
+        <button class="chip chip-f" id="shop-f-stock" type="button" aria-pressed="false">
+          ✅ Faqat bor
+        </button>
+        <label class="shop-sort">
+          <select id="shop-sort" aria-label="Saralash tartibi">
+            <option value="new">Yangi avval</option>
+            <option value="cheap">Arzon avval</option>
+            <option value="dear">Qimmat avval</option>
+            <option value="name">Nom bo'yicha</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <!-- Kategoriya chiplari: ilgari `renderCatalog` ularni tozalab
+         YASHIRARDI, ya'ni butun katalog bitta uzun ro'yxat edi va filtr
+         yo'q edi. Endi ular ishlaydi. -->
+    <div class="chips hidden" id="cats"></div>
+    <!-- Qidiruv AYNAN topmagan, lekin o'xshash tovarlar chiqqan holat.
+         Bo'lmasa mijoz nima uchun boshqa nomli tovar chiqqanini
+         tushunmaydi va qidiruv buzuqdek tuyuladi. -->
+    <p class="shop-hint hidden" id="shop-hint" role="status"></p>
+    <div class="grid" id="products"></div>
+    <p class="empty hidden" id="products-empty">Bu bo'limda hozircha mahsulot yo'q.</p>
+  </section>
+</section>
+
+<!-- ==========================================================================
+     XIZMATLAR
+
+     Ilgari «konfigurator» pastdagi navigatsiyada alohida bo'lim edi, navbat
+     esa bosh menyudagi bitta kartochka — qolgan xizmatlar (polirovka, chexol
+     tikish, shisha almashtirish...) hech qayerda ko'rinmasdi.
+
+     Endi hammasi shu bo'limda. Har xizmat O'ZINING narxi, kafolati,
+     davomiyligi va ALOHIDA navbat oqimiga ega. Kartochka dizaynlari ham
+     har xil (`SERVICE_THEMES`) — ro'yxat bir xil kulrang qatorlar bo'lib
+     ko'rinmasin.
+     ========================================================================== -->
+<section id="services" class="page hidden">
+  <header class="topbar static">
+    <div class="topbar-mid">
+      <div class="topbar-title">🛠 Xizmatlar</div>
+      <div class="topbar-sub" id="sv-sub">Narx va navbat</div>
+    </div>
+    <button class="icon-btn ghost" id="sv-refresh" aria-label="Yangilash">↻</button>
+  </header>
+  <div class="pad">
+    <!-- Xizmatlar TUGMA-PLITKA ko'rinishida (admin panelidagi kabi).
+         Har biri bosilganda alohida oyna (`#service`) ochiladi. -->
+    <div class="svt-grid" id="sv-list"></div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     BITTA XIZMAT — ALOHIDA OYNA
+
+     Plitka bosilganda shu oyna ochiladi. Ichida xizmatning to'liq
+     ko'rinishi (temaga xos dizayn), narxi, kafolati, davomiyligi va
+     pastda yopishgan yakka tugma (navbat yoki konfigurator).
+
+     Navbar ATAYLAB yashiriladi: bu alohida oyna va pastda o'zining
+     tugmasi bor — ikki panel ustma-ust turishi siqiq ko'rinardi.
+     ========================================================================== -->
+<section id="service" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="sd-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="sd-title">Xizmat</div>
+      <div class="topbar-sub" id="sd-sub"></div>
+    </div>
+  </header>
+  <div class="pad" id="sd-body"></div>
+  <div class="sd-bar" id="sd-bar">
+    <button class="btn btn-primary sd-cta" id="sd-cta">🗓 Navbat olish</button>
+  </div>
+</section>
+
+<!-- ==================== SAVATCHA ==================== -->
+<section id="cart" class="page hidden">
+  <header class="topbar static">
+    <div class="topbar-mid"><div class="topbar-title">🧺 Savatcha</div></div>
+  </header>
+  <div class="pad">
+    <!-- bepul yetkazib berishgacha progress (animatsiyali) -->
+    <div class="cart-progress-wrap hidden" id="cart-progress-wrap">
+      <div class="cart-progress-text" id="cart-progress-msg"></div>
+      <div class="cart-progress-container"><i class="cart-progress-bar" id="cart-progress-bar"></i></div>
+    </div>
+
+    <div id="cart-items"></div>
+    <p class="empty hidden" id="cart-empty"></p>
+
+    <!-- pastga yopishadigan panel: jami + kafolat + tugma -->
+    <div class="cart-checkout-bar hidden" id="cart-checkout">
+      <div class="cart-total-footer">
+        <span>Jami <i id="cart-total-n"></i></span>
+        <b id="cart-total-sum">0</b>
+      </div>
+
+      <!-- Ishonch belgilari.
+           DIQQAT: «7 kun / Qaytarish» va «1–2 kun» ATAYLAB OLIB TASHLANDI —
+           bunday shartlar amalda berilmaydi. Kafolat muddati endi har
+           tovarning O'ZIDA (admin panelda qo'yiladi), shu sababli bu yerda
+           umumiy «1 yil» ham yozilmaydi. -->
+      <div class="cart-trust">
+        <div class="ct-badge"><i>🚚</i><b>Kuryer</b><small id="ct-city">Samarqand</small></div>
+        <div class="ct-badge"><i>📦</i><b>BTS Pochta</b><small>Butun O'zbekiston</small></div>
+        <div class="ct-badge"><i>🛡</i><b>Kafolat</b><small>Tovarga qarab</small></div>
+      </div>
+
+      <!-- Telefon, manzil va usul keyingi bosqichda so'raladi -->
+      <button class="btn btn-primary" id="order-submit">Rasmiylashtirish →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     RASMIYLASHTIRISH — ALOHIDA TO'LIQ EKRANLI OYNA (uch qadam)
+
+     NEGA ALOHIDA BO'LIM
+     Ilgari bu oqim pastdan chiqadigan panelda (`#sheet`) edi: ism/telefon,
+     yetkazib berish va to'lov bitta 88vh balandlikdagi oynachaga sig'ardi.
+     Muammolari:
+       * uzun forma (BTS filiallari, xarita, karta rekvizitlari) ichida
+         IKKI QATLAM skroll bo'lib qolardi — panel ham, sahifa ham surilardi;
+       * qadamlar orasida qaytish YO'Q edi: «orqaga» panelni butunlay yopib,
+         tanlangan manzil va usul yo'qolardi;
+       * mijoz qaysi qadamda turganini va nechta qadam qolganini ko'rmasdi.
+
+     Endi bu `#home` / `#cart` kabi to'liq ekranli ALOHIDA bo'lim: tepada
+     sarlavha va qadam ko'rsatkichi, «‹» bir qadam orqaga, «✕» savatga
+     qaytaradi. Pastdagi suzuvchi navbar yashiriladi — oyna to'liq ekran.
+     ========================================================================== -->
+<section id="checkout" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="co-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="co-title">Rasmiylashtirish</div>
+      <div class="topbar-sub" id="co-sub">1-qadam / 3</div>
+    </div>
+    <button class="icon-btn ghost" id="co-close" aria-label="Savatga qaytish">✕</button>
+  </header>
+  <!-- Qadam ko'rsatkichi (bajarilganiga qaytish uchun bosiladi) -->
+  <div class="co-rail" id="co-steps"></div>
+  <div class="pad" id="co-body"></div>
+</section>
+
+<!-- ==================== KABINET ==================== -->
+<section id="profile" class="page hidden">
+  <header class="topbar static">
+    <div class="topbar-mid"><div class="topbar-title">👤 Kabinet</div></div>
+  </header>
+  <div class="pad">
+    <!-- VIP mijoz kartasi -->
+    <div class="pf-card">
+      <div class="pf-glow"></div>
+      <div class="pf-head">
+        <div class="pf-avatar-wrap">
+          <div class="pf-avatar" id="pf-avatar">M</div>
+          <div class="pf-vip-ring"></div>
+        </div>
+        <div class="pf-meta">
+          <h3 id="pf-name">Mijoz</h3>
+          <p id="pf-id">ID: —</p>
+          <div class="pf-since" id="pf-since">Zimmer mijozi</div>
+        </div>
+        <button class="pf-edit" id="pf-edit" aria-label="Tahrirlash">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- statistika (count-up) -->
+    <div class="pf-stats">
+      <div class="pf-stat"><b id="pf-stat-orders">0</b><span>Buyurtma</span></div>
+      <div class="pf-stat"><b id="pf-stat-bookings">0</b><span>Navbat</span></div>
+      <div class="pf-stat"><b id="pf-stat-saved">0</b><span>Saqlangan</span></div>
+    </div>
+
+    <div id="phone-warn" class="hidden"></div>
+
+    <!-- mening mashinam -->
+    <div class="pf-block">
+      <div class="pf-block-head">
+        <h4>🚗 Mening mashinam</h4>
+        <button class="pf-mini-btn" id="change-car">O'zgartirish</button>
+      </div>
+      <div class="pf-car-info" id="profile-car">Belgilanmagan</div>
+    </div>
+
+    <!-- ==========================================================
+         BUYURTMALARIM — UCH BO'LIM, UCH ALOHIDA OYNA
+
+         Ilgari uchala ro'yxat (Bi-LED, navbat, mahsulot) shu yerda
+         ketma-ket chizilardi. Buyurtma ko'paygan mijozda kabinet
+         cho'zilib ketardi va menyu tugmalari ekrandan chiqib qolardi.
+
+         Endi admin panelidagi mantiq (`admin-shop.js` → `KINDS`)
+         mijozga moslandi: har bo'lim ALOHIDA to'liq ekranli oyna
+         (`#orders`), plitkada esa soni, oxirgi holati va yangilar
+         belgisi turadi.
+         ========================================================== -->
+    <h3 class="sec-title">📋 Buyurtmalarim</h3>
+    <div class="mo-hub" id="mo-hub">
+      <button class="mo-tile" id="mo-open-order" data-kind="order">
+        <span class="mo-tile-ic">📦</span>
+        <span class="mo-tile-tx">
+          <b>Mahsulot buyurtmalari</b>
+          <small id="mo-sum-order">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-order">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-order">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+      <button class="mo-tile" id="mo-open-biled" data-kind="biled">
+        <span class="mo-tile-ic">🔥</span>
+        <span class="mo-tile-tx">
+          <b>Bi&#8209;LED buyurtmalarim</b>
+          <small id="mo-sum-biled">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-biled">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-biled">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+      <button class="mo-tile" id="mo-open-booking" data-kind="booking">
+        <span class="mo-tile-ic">🗓</span>
+        <span class="mo-tile-tx">
+          <b>Navbatlarim</b>
+          <small id="mo-sum-booking">Yuklanmoqda…</small>
+        </span>
+        <span class="mo-tile-n" id="mo-cnt-booking">0</span>
+        <span class="mo-tile-badge hidden" id="mo-new-booking">0</span>
+        <span class="mo-tile-go">›</span>
+      </button>
+    </div>
+
+    <!-- profil menyusi -->
+    <div class="pf-menu">
+      <button class="pf-menu-item" id="pf-addresses">
+        <span class="left"><i>📍</i> Manzillarim</span>
+        <em><span class="pf-menu-hint" id="pf-addr-hint"></span> ›</em>
+      </button>
+      <button class="pf-menu-item" id="pf-contact">
+        <span class="left"><i>📞</i> Biz bilan aloqa</span><em>›</em>
+      </button>
+      <button class="pf-menu-item" id="pf-trust">
+        <span class="left"><i>🛡</i> Kafolat va yetkazib berish</span><em>›</em>
+      </button>
+      <button class="pf-menu-item danger" id="pf-clear-cache">
+        <span class="left"><i>↻</i> Ilovani yangilash</span><em>↻</em>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     BUYURTMALARIM — UMUMIY OYNA (uch bo'lim uchun bitta qolip)
+
+     NEGA BITTA SAHIFA, LEKIN UCH OYNA
+     Mijoz uchun bular uch alohida oyna: kabinetdagi uch tugma uch xil
+     ro'yxatni ochadi, sarlavha va tugmalar ham har xil. Kod tomonida esa
+     bitta qolip — chunki uchalasining tuzilishi bir xil (xulosa, qidiruv,
+     filtr, kartochkalar). Uchta nusxa yozilsa, ertaga kartochka
+     o'zgarganda uchtasini yangilash kerak bo'lardi va bittasi eskirib
+     qolardi (aynan shu xato ilgari holat lug'atlarida bo'lgan).
+
+     Qaysi bo'lim ochilgani `S.moKind` da: "order" | "biled" | "booking".
+     ========================================================================== -->
+<section id="orders" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="mo-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="mo-title">Buyurtmalarim</div>
+      <div class="topbar-sub" id="mo-sub"></div>
+    </div>
+    <button class="icon-btn ghost" id="mo-refresh" aria-label="Yangilash">↻</button>
+  </header>
+
+  <!-- Pastga tortib yangilash ko'rsatkichi -->
+  <div class="mo-ptr" id="mo-ptr"><span class="mo-ptr-spin">↻</span><b id="mo-ptr-tx">Yangilash uchun tortib turing</b></div>
+
+  <div class="pad">
+    <!-- xulosa: soni · jarayonda · sarflangan -->
+    <div class="mo-stats" id="mo-stats"></div>
+
+    <!-- qidiruv: kod yoki tovar nomi bo'yicha -->
+    <div class="mo-search" id="mo-search">
+      <span class="mo-search-ic">🔍</span>
+      <input type="text" id="mo-q" placeholder="Kod yoki nom bo'yicha izlash…" autocomplete="off">
+      <button class="mo-search-x hidden" id="mo-q-clear" aria-label="Tozalash">✕</button>
+    </div>
+
+    <!-- filtr chiplari (admin panelidagi kabi, sanoq bilan) -->
+    <div class="ord-filters" id="mo-filters"></div>
+
+    <div id="mo-list"></div>
+  </div>
+</section>
+
+<!-- ==========================================================================
+     MANZILLARIM (Avto_A1 dagi manzil menejeri, Zimmer dizaynida)
+
+     Ilgari manzillar FAQAT rasmiylashtirish oynasining ichida ko'rinardi:
+     mijoz manzilni faqat buyurtma berayotganda ko'rar, tahrirlay olmas va
+     «asosiy» manzil tushunchasi yo'q edi. Endi kabinetda alohida bo'lim.
+
+     Saqlash joyi o'zgarmadi — `localStorage["zimmer_addresses"]`, ya'ni
+     rasmiylashtirish oynasi bilan YAGONA manba. Yozuvga faqat qo'shimcha
+     (majburiy bo'lmagan) maydonlar qo'shildi: `def`, `note`, `lat`, `lng`.
+     ========================================================================== -->
+<section id="addresses" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="ad-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title">📍 Manzillarim</div>
+      <div class="topbar-sub" id="ad-sub"></div>
+    </div>
+  </header>
+  <div class="pad">
+    <button class="ad-add" id="ad-add">
+      <span class="ad-add-ic">🗺</span>
+      <span class="ad-add-tx"><b>Xaritadan yangi manzil</b>
+        <small>Nuqtani belgilang — manzil o'zi topiladi</small></span>
+      <span class="ad-add-plus">+</span>
+    </button>
+    <div id="ad-list"></div>
+    <p class="ad-tip" id="ad-tip">💡 «Asosiy» deb belgilangan manzil buyurtma berayotganda o'zi tanlanadi.</p>
+  </div>
+</section>
+
+<!-- ==================== SAQLANGANLAR (alohida bo'lim) ==================== -->
+<section id="saved" class="page hidden">
+  <header class="topbar static">
+    <!-- «‹» tugmasi QO'SHILDI: bu bo'lim endi pastdagi navigatsiyada emas
+         (kirish nuqtasi bosh sahifaning tepa qatorida), shuning uchun
+         chiqish yo'li shu sarlavhada bo'lishi kerak. Navbar pastda
+         qolgani uchun boshqa bo'limga o'tish ham ishlaydi. -->
+    <button class="icon-btn" id="saved-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid"><div class="topbar-title">❤️ Saqlanganlar</div></div>
+  </header>
+  <div class="pad">
+    <div class="saved" id="my-saved"></div>
+    <p class="empty hidden" id="saved-empty">Hali tovar saqlamagansiz. Tovar ustidagi ❤️ ni bosing.</p>
+  </div>
+</section>
+
+<!-- ==================== ADMIN PANEL (faqat adminlarga) ==================== -->
+<section id="admin" class="page hidden">
+  <header class="topbar static">
+    <button class="icon-btn" id="admin-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title" id="admin-title">Boshqaruv</div>
+      <div class="topbar-sub" id="admin-sub">Zimmer admin</div>
+    </div>
+    <button class="icon-btn ghost" id="admin-reload" aria-label="Yangilash">⟳</button>
+  </header>
+  <div class="pad" id="admin-body"></div>
+</section>
+
+<!-- ==========================================================================
+     🎓 SHOGIRD — ILOVA ICHIDAGI YORDAMCHI
+
+     NEGA KERAK
+     Ilovada ma'lumot BOR, lekin u tarqoq: narx «Xizmatlar» da, kafolat
+     tovar kartochkasida, yetkazib berish savatchada, ish vaqti esa
+     hech qayerda. Mijoz «faram xira bo'lib qolgan, nima qilsam bo'ladi?»
+     degan SODDA savolga javob topish uchun uch bo'limni varaqlashi
+     kerak edi — ko'pchilik esa shunchaki chiqib ketardi.
+
+     Botda AI yordamchi allaqachon bor, lekin uning ko'rsatmasi «mijozni
+     ilovaga olib borish» ga qurilgan — ilova ICHIDA bu foydasiz. Shogird
+     esa aksincha: mijoz qayerda turganini biladi va uni ILOVA ICHIDA
+     yo'naltiradi.
+
+     DIZAYN — QOLGAN BO'LIMLARDAN ATAYLAB BOSHQACHA
+     Bu yerda kartochka to'ri yo'q: yozishma oqimi, ustaxona shogirdi
+     ko'rinishidagi avatar va «Nima bo'ldi?» degan muammo plitkalari.
+     Navbar YASHIRILADI (`service` va `checkout` kabi): pastda yozish
+     maydoni turadi, ikki panel ustma-ust bo'lsa klaviatura ochilganda
+     ekran siqilib qolardi.
+
+     TUZILISHI
+       * salom bloki (`#sg-hero`) — faqat suhbat boshlanmaganda ko'rinadi;
+       * muammo plitkalari (`#sg-topics`) — bir bosishda savol yuboriladi;
+       * yozishma (`#sg-log`) — pufakchalar + javob ostidagi haqiqiy
+         xizmat/tovar kartochkalari (ular bazadan, modeldan EMAS);
+       * pastda yozish maydoni (`#sg-form`).
+     ========================================================================== -->
+<section id="shogird" class="page hidden">
+  <header class="topbar static sg-top">
+    <button class="icon-btn" id="sg-back" aria-label="Orqaga">‹</button>
+    <div class="topbar-mid">
+      <div class="topbar-title">🎓 Shogird</div>
+      <div class="topbar-sub" id="sg-sub">Ustaxona yordamchisi</div>
+    </div>
+    <!-- Suhbat boshlanmaguncha yashirin: bosiladigan, lekin hech narsa
+         qilmaydigan tugma turmasin. -->
+    <button class="icon-btn ghost hidden" id="sg-reset" aria-label="Yangi suhbat">↻</button>
+  </header>
+
+  <div class="sg-wrap">
+    <div class="sg-hero" id="sg-hero">
+      <div class="sg-ava">
+        <i class="sg-ava-ring" aria-hidden="true"></i>
+        <span aria-hidden="true">🎓</span>
+      </div>
+      <h2 class="sg-hi" id="sg-hi">Assalomu alaykum</h2>
+      <p class="sg-hi-sub">
+        Men Zimmer ustaxonasining shogirdiman. Fara, narx, kafolat yoki
+        navbat haqida so'rang — tushuntirib, yo'lini ko'rsatib beraman.
+      </p>
+      <div class="sg-topics" id="sg-topics"></div>
+    </div>
+
+    <!-- `aria-live="polite"` — javob kelganini skrinreader ham o'qiydi -->
+    <div class="sg-log" id="sg-log" aria-live="polite"></div>
+  </div>
+
+  <form class="sg-bar" id="sg-form" autocomplete="off">
+    <!-- `textarea`, `input` emas: mijoz ikki-uch gapli muammo yozadi va
+         matn ko'rinib turishi kerak. Balandligi JS bilan o'sadi. -->
+    <textarea
+      id="sg-in"
+      rows="1"
+      maxlength="700"
+      placeholder="Savolingizni yozing…"
+      enterkeyhint="send"
+      aria-label="Shogirdga savol"
+    ></textarea>
+    <button type="submit" class="sg-send" id="sg-send" aria-label="Yuborish">➤</button>
+  </form>
+</section>
+
+<!-- ==========================================================================
+     🎓 SHOGIRD — SUZUVCHI TUGMA (FAB)
+
+     Yordamchi endi bosh sahifada o'ng pastki burchakda, navigatsiya
+     USTIDA suzib turadi (Avto_A1 dagi suzuvchi tugma kabi). Doim ko'z
+     oldida, lekin katalogni to'smaydi.
+
+     NEGA HEADERDAN KO'CHDI: tepada u boshqa tugmalar (☁️/🔇/❤️) bilan
+     bir qatorda kichik bo'lib turardi va ko'zga tashlanmasdi. FAB esa
+     ajralib turadi va bir qo'l bilan yetish oson (ekranning pastki
+     qismida).
+
+     KO'RINISH: nav ko'rinadigan asosiy bo'limlarda chiqadi
+     (`syncShogirdFab`), Shogirdning O'ZIDA va oqim/oyna ekranlarida
+     yashiriladi — aks holda o'zini ochadigan tugma turardi. -->
+<button
+  class="sg-fab hidden"
+  id="sg-fab"
+  type="button"
+  aria-label="Shogird — yordamchi bilan yozishma"
+  title="Shogird — savol bering"
+>
+  <span class="sg-fab-glow" aria-hidden="true"></span>
+  <span class="sg-fab-ic" aria-hidden="true">🎓</span>
+</button>
+
+<!-- ==================== NAVIGATSIYA ==================== -->
+<nav class="nav hidden" id="nav">
+  <button class="nav-btn active" data-page="home"><i>🏠</i><span>Asosiy</span></button>
+  <!-- «Konfigurator» → «Xizmatlar»: bu bo'lim endi BARCHA xizmatlarni
+       o'z ichiga oladi (konfigurator ham ular orasida bittasi). -->
+  <button class="nav-btn" data-page="services"><i>🛠</i><span>Xizmatlar</span></button>
+  <!-- ==========================================================================
+       «🎓 Shogird» va «❤️ Saqlangan» BU YERDAN OLIB TASHLANDI
+
+       Ikkisi ham endi bosh sahifaning TEPA qatorida (`.home-acts`), fon
+       musiqasi tugmasi yonida — Avto_A1 dagi tartib.
+
+       NEGA: panel adminda YETTITA tugmaga cho'zilgan edi va yozuvlar
+       («Xizmatlar», «Saqlangan») uch nuqtaga aylanardi. Endi beshta asosiy
+       bo'lim qoladi va har birining yozuvi to'liq o'qiladi.
+
+       Bo'limlarning O'ZI joyida qoladi: `show("shogird")` va `show("saved")`
+       ishlashda davom etadi, faqat kirish nuqtasi ko'chdi.
+       ========================================================================== -->
+  <button class="nav-btn" data-page="cart"><i>🧺</i><span>Savatcha</span><b class="badge hidden" id="cart-badge" aria-live="polite" aria-label="Savatchadagi tovarlar soni">0</b></button>
+  <button class="nav-btn" data-page="profile"><i>👤</i><span>Kabinet</span></button>
+  <button class="nav-btn hidden" id="nav-admin" data-page="admin"><i>⚙️</i><span>Admin</span></button>
+</nav>
+
+<!-- ==================== STORY KO'RUVCHI ==================== -->
+<!-- ==========================================================================
+     STORIES KO'RUVCHISI (Instagram mantiqi)
+
+     Tuzilishi tepadan pastga:
+       * bo'limlar chizig'i (progress) — har element uchun bitta segment;
+       * sarlavha: avatar + bo'lim nomi + "qancha vaqt oldin" + tugmalar;
+       * media (rasm/video) butun ekranni to'ldiradi;
+       * chap/o'ng bosish zonalari (oldinga/orqaga), bosib turish — pauza;
+       * pastda: tez reaksiyalar va "Xabar yozing" maydoni. Javob adminga
+         QAYSI story'dan kelganini bildirib boradi.
+     ========================================================================== -->
+<div class="story-view hidden" id="story-view">
+  <div class="story-bars" id="story-bars"></div>
+
+  <header class="story-head" id="story-head">
+    <span class="story-ava" id="story-ava"></span>
+    <span class="story-who">
+      <b id="story-who-name">Zimmer</b>
+      <i id="story-who-time"></i>
+    </span>
+    <button class="story-ico hidden" id="story-sound" aria-label="Ovoz">🔇</button>
+    <button class="story-ico" id="story-save" aria-label="Yuklab olish">⬇</button>
+    <!-- faqat adminlarga ko'rinadi -->
+    <button class="story-ico danger hidden" id="story-del" aria-label="O'chirish">🗑</button>
+    <button class="story-ico" id="story-close" aria-label="Yopish">✕</button>
+  </header>
+
+  <div class="story-inner" id="story-inner"></div>
+
+  <div class="story-tap left" id="story-prev"></div>
+  <div class="story-tap right" id="story-next"></div>
+  <div class="story-pause" id="story-pause">⏸</div>
+  <!-- ikki marta bosilganda uchib chiqadigan yurak -->
+  <div class="story-heart" id="story-heart">❤️</div>
+
+  <!-- Story'ga bog'langan havola (tovarga o'tish) -->
+  <button class="story-cta hidden" id="story-cta"><i>↗</i><span id="story-cta-tx"></span></button>
+
+  <div class="story-foot" id="story-foot">
+    <!-- Adminlar uchun: nechta kishi ko'rgani va reaksiyalar -->
+    <div class="story-stats hidden" id="story-stats"></div>
+    <div class="story-reacts" id="story-reacts"></div>
+    <form class="story-reply" id="story-reply" autocomplete="off">
+      <input type="text" id="story-reply-in" maxlength="900" placeholder="Xabar yozing...">
+      <button type="submit" class="story-send" id="story-send" aria-label="Yuborish">➤</button>
+    </form>
+  </div>
+</div>
+
+<!-- sheet: navbat olish -->
+<div class="sheet hidden" id="sheet">
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <b id="sheet-title">O'rnatishga navbat</b>
+      <button class="icon-btn ghost" id="sheet-close">✕</button>
+    </div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<!-- ==================== XARITA TANLASH (Map Picker) ==================== -->
+<div class="map-picker-overlay hidden" id="map-picker-overlay">
+  <div class="map-picker-map" id="map-picker-map"></div>
+  <div class="map-locate-hint" id="map-locate-hint">Joyni belgilang yoki 🎯 tugmasini bosing</div>
+  <button class="map-locate-btn" id="map-locate-btn" aria-label="Mening joylashuvim">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7"></circle>
+      <line x1="12" y1="1" x2="12" y2="4"></line>
+      <line x1="12" y1="20" x2="12" y2="23"></line>
+      <line x1="1" y1="12" x2="4" y2="12"></line>
+      <line x1="20" y1="12" x2="23" y2="12"></line>
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle>
+    </svg>
+  </button>
+  <!-- Ikki tugma TENG o'lchamda, yonma-yon (CSS: .map-picker-bar .btn).
+       Matnlar ham qisqa va bir xil uzunlikda — biri ikkinchisidan
+       katta ko'rinmasin. -->
+  <div class="map-picker-bar">
+    <button class="btn btn-ghost" id="map-cancel">Bekor qilish</button>
+    <button class="btn btn-primary" id="map-confirm">✓ Tanlash</button>
+  </div>
+</div>
+
+<!-- ==================== MANZILGA NOM BERISH ==================== -->
+<div class="addr-name-overlay hidden" id="addr-name-overlay">
+  <div class="addr-name-sheet">
+    <div class="addr-name-grip"></div>
+    <h3>🏷️ Manzilga nom bering</h3>
+    <p class="step-sub">Keyingi safar oson topishingiz uchun bu manzilga qulay nom qo'ying.</p>
+    <input type="text" class="addr-name-input" id="addr-name-input" maxlength="40" placeholder="Masalan: Uy, Ish, Onamniki..." autocomplete="off">
+    <div class="addr-name-chips" id="addr-name-chips">
+      <button class="addr-chip" data-label="Uy" data-type="home">🏠 Uy</button>
+      <button class="addr-chip" data-label="Ish" data-type="work">💼 Ish</button>
+      <button class="addr-chip" data-label="Do'kon" data-type="shop">🏪 Do'kon</button>
+      <button class="addr-chip" data-label="Boshqa" data-type="map">📍 Boshqa</button>
+    </div>
+    <!-- Kuryer uchun eng kerakli qo'shimcha: uy/xonadon/mo'ljal.
+         Ilgari bunday maydon yo'q edi va mijoz «12-uy, 3-podyezd» ni
+         hech qayerga yozib qo'ya olmasdi — kuryer telefon qilishga
+         majbur bo'lardi. -->
+    <input type="text" class="addr-name-input addr-note-input" id="addr-note-input" maxlength="80" placeholder="Uy / xonadon / mo'ljal (majburiy emas)" autocomplete="off">
+    <!-- Xaritadan topilgan haqiqiy manzil (reverse geocoding) -->
+    <div class="addr-found hidden" id="addr-name-found"></div>
+    <div class="addr-name-coords" id="addr-name-coords"></div>
+    <button class="btn btn-primary" id="addr-name-save">Saqlash</button>
+  </div>
+</div>
+
+<!-- ==================== MAHSULOT MODAL (IVY → Zimmer) ==================== -->
+<div id="productModal" class="product-modal hidden">
+  <div class="pm-header">
+    <button class="pm-close" id="pm-close">✕</button>
+    <button class="pm-wishlist" id="pm-wishlist">♥</button>
+  </div>
+
+  <div class="pm-gallery">
+    <div class="pm-slider" id="pm-slider"></div>
+    <div class="pm-dots" id="pm-dots"></div>
+    <!-- Rasmni to'liq ekranda ochish. Ilgari rasmni kattalashtirish
+         imkoni UMUMAN yo'q edi (bosish hech narsa qilmasdi). -->
+    <button class="pm-zoom" id="pm-zoom" aria-label="Rasmni kattalashtirish">
+      <span>⤢</span> Kattalashtirish
+    </button>
+  </div>
+
+  <div class="pm-body" id="pm-body">
+    <div class="pm-badges" id="pm-badges"></div>
+    <h1 class="pm-title" id="pm-title"></h1>
+    
+    <div class="pm-price-row">
+      <div class="pm-price" id="pm-price"></div>
+      <div class="pm-stock" id="pm-stock"></div>
+    </div>
+
+    <p class="pm-desc" id="pm-desc"></p>
+
+    <!-- RAZMER TANLAGICHI.
+         Faqat razmerli tovarda ko'rinadi (`openProductModal` to'ldiradi).
+         Razmer tanlanmaguncha «Savatga qo'shish» tugmasi ISHLAMAYDI —
+         aks holda admin buyurtmani ko'rib «qaysi razmer?» deb mijozga
+         qayta qo'ng'iroq qilishga majbur bo'lardi. -->
+    <div class="pm-sizes hidden" id="pm-sizes"></div>
+
+    <div class="pm-specs" id="pm-specs"></div>
+  </div>
+
+  <div class="pm-footer">
+    <div class="pm-qty-wrap">
+      <button class="pm-qty-btn" id="pm-qty-minus">−</button>
+      <span class="pm-qty-val" id="pm-qty-val">1</span>
+      <button class="pm-qty-btn" id="pm-qty-plus">+</button>
+    </div>
+    <button class="btn btn-primary pm-add-cart" id="pm-add-cart">
+      Savatga qo'shish
+    </button>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     RASM KO'RUVCHI (to'liq ekran)
+
+     NEGA KERAK
+     Mahsulot rasmini kattalashtirib ko'rish imkoni yo'q edi: galereyada rasm
+     OQ kvadrat ichida `object-fit: cover` bilan QIRQIB ko'rsatilardi (ya'ni
+     kartochkada butun tovar ko'rinib, "kattalashtirganda" chetlari kesilardi),
+     rasmni bosish esa hech narsa qilmasdi. Brauzerning o'z kattalashtirishi
+     ham `viewport` da o'chirilgan (`user-scalable=no`).
+
+     Endi: qora fonda to'liq rasm, ikki marta bosib yoki chimchilab
+     kattalashtirish, surib ko'rish, chapga-o'ngga surib almashtirish va
+     pastga surib yopish.
+     ========================================================================== -->
+<div class="iv hidden" id="imgViewer">
+  <div class="iv-top">
+    <span class="iv-count" id="iv-count"></span>
+    <button class="iv-close" id="iv-close" aria-label="Yopish">✕</button>
+  </div>
+  <div class="iv-stage" id="iv-stage">
+    <img id="iv-img" alt="">
+  </div>
+  <div class="iv-foot">
+    <div class="iv-thumbs" id="iv-thumbs"></div>
+    <p class="iv-hint" id="iv-hint">Ikki marta bosing yoki chimchilab kattalashtiring</p>
+  </div>
+</div>
+
+<!-- `aria-live` — skrinreader xabarni O'QIYDI. Ilgari toast
+     butunlay jimgina o'tardi: ko'rmaydigan mijoz «savatga
+     qo'shildi» yoki xato haqida hech narsa bilmasdi. -->
+<div class="toast hidden" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div class="burst hidden" id="burst"></div>
+
+<!-- ==========================================================================
+     SKRIPTLAR
+
+     NIMA O'ZGARDI VA NEGA
+
+     1. HAMMASIGA `defer` QO'SHILDI.
+        Ilgari 12 ta skript BLOKLAB yuklanardi — birinchi piksel
+        chizilishidan oldin ~680 KB JS kutilardi. `defer` bilan HTML
+        chizilishi to'xtamaydi, skriptlar esa BIR XIL TARTIBDA va DOM
+        tayyor bo'lgandan keyin bajariladi (ya'ni mantiq buzilmaydi).
+
+     2. ADMIN PANELI (231 KB) BU YERDA YUKLANMAYDI.
+        `admin.js` (61 KB) + `admin-shop.js` (103 KB) + `admin-crm.js`
+        (41 KB) + `admin-stories.js` (26 KB) — jami 231 KB. Ular faqat
+        3-4 admin uchun kerak, lekin HAR BIR MIJOZ yuklab olardi.
+        Admin tugmasi `me.is_admin` bo'lmasa yashirilgan, lekin kod
+        baribir tushardi.
+        Endi ular `app.js` dagi `ensureAdminBundle()` orqali, faqat
+        admin panel ochilganda yuklanadi.
+
+     3. BTS FILIALLARI (61 KB) TALAB BO'YICHA.
+        `bts.js` — bitta satrdagi katta JSON (O'zbekistondagi barcha
+        pochta filiallari). U faqat rasmiylashtirishda «BTS Pochta»
+        tanlanganda kerak, lekin har ochilishda o'qilardi.
+     ========================================================================== -->
+<script defer src="config.js?v=68"></script>
+<!-- Brauzerdan bazaga to'g'ridan yozish (Avto_A1 modeli) -->
+<script defer src="js/fb.js?v=68"></script>
+<!-- Telefon galereyasidan rasm yuklash (siqish + EXIF burilishi) -->
+<script defer src="js/upload.js?v=68"></script>
+<!-- Zaxira rejim: Render o'chganda katalogni Firebase'dan o'qiydi.
+     app.js dan OLDIN yuklanishi kerak — u `window.ZimmerOffline` ni ishlatadi. -->
+<script defer src="js/offline.js?v=68"></script>
+<script defer src="js/headlight.js?v=68"></script>
+<script defer src="js/cars.js?v=68"></script>
+<script defer src="js/app.js?v=68"></script>
+</body>
+</html>
