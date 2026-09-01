@@ -1160,6 +1160,39 @@
     return built.slice();
   }
 
+  /** Mashinalar ro'yxatini yuklaydi — DO'KON bilan bir xil model:
+   *  FIREBASE BIRINCHI (Avto_A1), `/api/cars` esa faqat zaxira.
+   *
+   *  NEGA (haqiqiy xato). Mini App admin paneli mashinani Firebase
+   *  `catalog/cars` ga yozadi (`admin-shop.js`), mijoz esa ONLAYN holatda
+   *  `/api/cars` dan, ya'ni Render + SQLite dan o'qirdi. Yangi qo'shilgan
+   *  mashina SQLite'ga faqat bot sinxron qilganda tushadi — shu sababli
+   *  «Mening mashinam» ro'yxatida KO'RINMASDI. Endi tovar bilan bir xil:
+   *  admin qaysi joyga yozsa, mijoz ham o'sha joydan o'qiydi. */
+  async function fetchCarList() {
+    const canFb = !!(window.ZimmerOffline && ZimmerOffline.available());
+    let list = null;
+    // 1) Firebase birinchi — admin mashinani shu yerga yozadi
+    if (canFb) {
+      try {
+        list = await ZimmerOffline.cars();
+      } catch (_) {}
+    }
+    // 2) Onlayn zaxira — server (SQLite)
+    if ((!list || !list.length) && !S.offline) {
+      try {
+        list = await api("/api/cars");
+      } catch (_) {}
+    }
+    // 3) Firebase yo'q va offline — kesh / statik nusxa
+    if ((!list || !list.length) && !canFb && window.ZimmerOffline && ZimmerOffline.cars) {
+      try {
+        list = await ZimmerOffline.cars();
+      } catch (_) {}
+    }
+    return list;
+  }
+
   function renderCars(target) {
     const box = target || $("cars");
     box.innerHTML = "";
@@ -1193,22 +1226,29 @@
     renderCars();
     if ($("sheet-cars")) closeSheet();
 
-    /* Tanlov serverga yozilmaydigan ikki holat:
+    /* Tanlovni DARHOL mahalliy saqlaymiz — konfigurator va «mashinam»
+       yorlig'i shu bilan ishlaydi, serverga yozish esa best-effort. */
+    if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
+    $("car-chip-name").textContent = car.name;
+
+    /* Serverga yozish quyidagi holatlarda O'TKAZIB YUBORILADI yoki
+       XATOsi jimgina yutiladi:
          • zaxira rejim (server javob bermayapti);
-         • mashina ICHKI ro'yxatdan olingan (`_fallback`) — uning id'si
-           bazada yo'q, so'rov 404 bilan yiqilib mijozga tushunarsiz xato
-           ko'rsatardi.
-       Ikkalasida ham tanlov ekranda to'liq ishlaydi. */
-    if (S.offline || car._fallback) {
-      if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
-      $("car-chip-name").textContent = car.name;
-    } else {
+         • mashina ICHKI ro'yxatdan (`_fallback`, manfiy id) — bazada yo'q;
+         • mashina Mini App admin orqali Firebase'ga endi qo'shilgan va
+           Render'ga hali SINXRON bo'lmagan — server uni bilmaydi va 404
+           («not_found») qaytaradi.
+       Uchala holatda ham tanlov ekranda to'liq ishlaydi; sinxrondan keyin
+       server ham biladi. Shu sababli 404 ni JIMGINA o'tkazamiz —
+       ilgari `onError` tushunarsiz «Mashina topilmadi» xatosini ko'rsatib,
+       tanlovni to'xtatib qo'yardi. */
+    if (!S.offline && !car._fallback) {
       try {
         await api("/api/me/car", { method: "POST", body: { car_id: car.id } });
-        if (S.me) S.me.car = { id: car.id, name: car.name, years: car.years };
-        $("car-chip-name").textContent = car.name;
       } catch (err) {
-        onError(err);
+        if (!(err && (err.code === "not_found" || err.code === "http_404"))) {
+          onError(err);
+        }
       }
     }
 
@@ -2045,7 +2085,7 @@
      yuklanadi: takror chaqiruv o'sha Promise'ni qaytaradi.
      ==================================================================== */
 
-  const SCRIPT_VERSION = "67"; // index.html dagi `?v=` bilan bir xil bo'lsin
+  const SCRIPT_VERSION = "68"; // index.html dagi `?v=` bilan bir xil bo'lsin
   const _scripts = new Map();
 
   function loadScript(src) {
@@ -7943,17 +7983,10 @@
     if (!S.cars.length) {
       /* Ilgari bu yerda FAQAT `/api/cars` so'ralardi va Render uxlagan
          bo'lsa konfigurator umuman ochilmasdi (`onError` bilan chiqib
-         ketardi). Endi bulut, keyin ichki ro'yxat — oyna har holda
-         ishlaydi. */
-      let list = null;
-      try {
-        list = S.offline ? await ZimmerOffline.cars() : await api("/api/cars");
-      } catch (_) {
-        try {
-          if (window.ZimmerOffline && ZimmerOffline.cars) list = await ZimmerOffline.cars();
-        } catch (_) {}
-      }
-      S.cars = useCars(list);
+         ketardi). Endi FIREBASE BIRINCHI (admin mashinani shu yerga
+         yozadi), keyin server, keyin ichki ro'yxat — oyna har holda
+         ishlaydi va yangi qo'shilgan mashina darhol ko'rinadi. */
+      S.cars = useCars(await fetchCarList());
     }
     renderCars();
     if (!S.tuning) await loadTuning();
@@ -8750,14 +8783,14 @@
 
     // Mashinalar ro'yxati kutib turmaydi — bosh menyu bilan BIR VAQTDA
     // yuklanadi. Ilgari ketma-ket kutilardi va kirishda qotish sezilardi.
-    carsReady = (S.offline ? ZimmerOffline.cars() : api("/api/cars"))
+    carsReady = fetchCarList()
       .then((list) => {
         const real = Array.isArray(list) ? list.filter(Boolean) : [];
         S.cars = useCars(real);
-        /* Keshga FAQAT serverdan kelgan ro'yxat yoziladi. Ichki ro'yxatni
-           keshlash xato bo'lardi: sun'iy (manfiy) id'lar keshda qolib,
-           keyinchalik haqiqiy ro'yxat kelganda ham ular «server ma'lumoti»
-           bo'lib ko'rinardi. */
+        /* Keshga FAQAT haqiqiy (Firebase/server) ro'yxat yoziladi. Ichki
+           ro'yxatni keshlash xato bo'lardi: sun'iy (manfiy) id'lar keshda
+           qolib, keyinchalik haqiqiy ro'yxat kelganda ham ular «server
+           ma'lumoti» bo'lib ko'rinardi. */
         if (real.length && !S.offline && window.ZimmerOffline) {
           ZimmerOffline.saveCars(real);
         }
