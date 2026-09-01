@@ -386,6 +386,14 @@ img, video { display: block; max-width: 100%; }
 }
 .car-card.selected .car-go { background: var(--red); color: #fff; }
 
+/* Katalog → Mashinalar (admin) — mijoz kartochkasini qayta ishlatadi.
+   Menyu plitkasining ko'k urg'usi va qatordagi amal tugmalari. */
+.shop-hero-cars .shop-hero-ic { color: #7db8ff; }
+.car-card.is-off { opacity: 0.5; }
+.car-adm-acts { margin-left: auto; display: flex; gap: 6px; flex: none; align-items: center; }
+.car-form-live .car-card { cursor: default; }
+.car-form-live .car-card:active { transform: none; }
+
 /* =================================================================
    IXCHAM VARIANT QATORLARI (Apple-uslub ro'yxat)
    ================================================================= */

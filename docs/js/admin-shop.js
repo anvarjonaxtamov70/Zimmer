@@ -37,6 +37,7 @@ window.ZimmerShop = (function () {
   const ask = (m) => (app().ask ? app().ask(m) : Promise.resolve(window.confirm(m)));
 
   const P = "catalog/products";
+  const CARS_P = "catalog/cars";
   const MAX_PHOTOS = 3;
 
   /* ==================================================================
@@ -102,6 +103,15 @@ window.ZimmerShop = (function () {
     // Bosh sahifa boshqaruvi: fon musiqasi va bannerlar ro'yxati
     music: [], // [{key, id, title, sort, is_active, ...}]
     banners: [], // [{key, id, title, subtitle, tag, photo_url, sort, ...}]
+    // Mashinalar boshqaruvi (Katalog -> Mashinalar). `S.cars` dan ATAYLAB
+    // alohida: u tovarga biriktirish uchun ixcham ro'yxat, bu esa panel
+    // uchun to'liq xom ro'yxat (yashirinlar va tartib bilan).
+    carRows: [], // [{key, id, name, years, note, photo_url, sort, is_active}]
+    carEdit: null, // tahrirlanayotgan mashina yozuvi (yoki null — yangi)
+    carPhoto: "", // formadagi rasm havolasi (yagona manba)
+    carBusy: false, // rasm yuklanyaptimi
+    carPct: 0,
+    carPhase: "",
     busy: false,
   };
 
@@ -279,6 +289,15 @@ window.ZimmerShop = (function () {
       tile("shop-add", "shop-hero-add", "＋", "Yangi tovar", "Mahsulot qo'shish") +
       tile("shop-inv", "shop-hero-inv", "📦", "Ombor", "Zaxira nazorati") +
       "</div>" +
+      /* --- katalog: mashinalar
+         Ilgari mashina qo'shish/tahrirlashning YAKKA yo'li Telegram boti
+         (`/admin` -> Mashinalar) edi va Mini App admin bu bo'limni umuman
+         ko'rsatmasdi: bu yerda mashinalar FAQAT tovarga biriktirish uchun
+         O'QILARDI. Endi Avto_A1 modeli — panel bazaga to'g'ridan yozadi. */
+      '<div class="apx-sub">Katalog</div>' +
+      '<div class="shop-hero shop-hero-1">' +
+      tile("shop-cars", "shop-hero-cars", "🚗", "Mashinalar", "Marka va rusum qo'shish") +
+      "</div>" +
       // --- buyurtmalar
       '<div class="apx-sub">Buyurtmalar</div>' +
       '<div class="shop-hero">' +
@@ -358,6 +377,7 @@ window.ZimmerShop = (function () {
     };
     bind("shop-add", openAdd);
     bind("shop-inv", openInventory);
+    bind("shop-cars", openCars);
     bind("shop-ord", openOrders);
     bind("shop-biled", openBiled);
     bind("shop-book", openBookings);
@@ -4281,6 +4301,484 @@ window.ZimmerShop = (function () {
     if (stories()) stories().close();
     if (adm() && adm().close) adm().close();
   }
+
+  /* ==================================================================
+     KATALOG → MASHINALAR  (Avto_A1 modeli: brauzer to'g'ridan Firebase'ga)
+
+     NEGA BU BO'LIM
+     Zimmer'da "kategoriya" = do'kon bo'limi (Lampalar/DRL/...); "mashina"
+     esa ALOHIDA o'q — u tovarga biriktiriladi («Damas'ga mos») va Bi-LED
+     konfiguratorida mijoz o'z mashinasini shu ro'yxatdan tanlaydi. Ilgari
+     bu ro'yxatni FAQAT bot (`/admin` → Mashinalar) yoki uxlamaydigan
+     Render orqali boshqarish mumkin edi; Mini App admin mashinalarni faqat
+     O'QIRDI (tovarga biriktirish uchun, `loadCatalogMeta`). Endi Avto_A1
+     dagidek — panel bazaga TO'G'RIDAN yozadi (`catalog/cars`), Render kerak
+     emas.
+
+     MANBA — Firebase `catalog/cars`. Yozuv maydonlari
+     `database/queries.py: EDITABLE["cars"]` va Worker'ning
+     `CATALOG_WRITE_FIELDS.cars` bilan MOS. `slug` bulutda SAQLANMAYDI — u
+     Render tomonida nomdan yasaladi (`queries.py: catalog_upsert`), Mini
+     App'da esa siluet uchun nomdan taxmin qilinadi (`offline.js: cars`).
+
+     DIZAYN: ro'yxat va jonli ko'rinish mijoz ko'radigan AYNI `.car-card`
+     kartochkasini qayta ishlatadi — admin natijani taxmin qilmaydi, KO'RADI.
+     ================================================================== */
+
+  /** Bosh sahifa VA mashinalar keshi eskirdi — konfigurator/filtr yangilansin. */
+  function freshenCars() {
+    if (app().state) app().state.home = null;
+    try {
+      const off = window.ZimmerOffline;
+      if (off && off.clearCarsCache) off.clearCarsCache();
+      if (off && off.clearCache) off.clearCache();
+    } catch (_) {}
+  }
+
+  async function loadCarRows() {
+    const node = await fb().get(CARS_P);
+    const out = [];
+    if (node && typeof node === "object") {
+      Object.keys(node).forEach((k) => {
+        const r = node[k];
+        if (!r || typeof r !== "object" || r.deleted) return;
+        out.push({
+          key: k, // RTDB kaliti — yozish yo'li shu bo'yicha quriladi
+          id: r.id == null ? k : r.id,
+          name: String(r.name || ""),
+          years: String(r.years || ""),
+          note: String(r.note || ""),
+          photo_url: String(r.photo_url || ""),
+          photo_id: String(r.photo_id || ""),
+          sort: Number(r.sort) || 0,
+          is_active: r.is_active !== 0 && r.is_active !== false,
+        });
+      });
+    }
+    // Ekrandagi tartib mijoz ko'radigan tartib bilan BIR XIL (`sort`).
+    out.sort((a, b) => a.sort - b.sort || Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  /** Rasm bo'lsa — surat, bo'lmasa nomdan taxmin qilingan SVG siluet
+   *  (Damas→van, Matiz→hatch, Tracker→suv...). `app.js: renderCars` bilan
+   *  bir xil ko'rinish. */
+  function carArt(c) {
+    const raw = c && c.photo_url;
+    const pic = raw ? (app().abs ? app().abs(raw) : raw) : "";
+    if (pic) {
+      return '<img class="car-thumb" src="' + esc(pic) + '" alt="" ' +
+        "onerror=\"this.style.display='none'\">";
+    }
+    const zc = window.ZimmerCars;
+    return zc && zc.art ? zc.art(String((c && c.name) || "").toLowerCase()) : "";
+  }
+
+  async function openCars() {
+    S.view = "cars";
+    setHead("🚗 Mashinalar", "Yuklanmoqda...");
+    body().innerHTML = '<div class="inv-skel"></div><div class="inv-skel"></div>';
+    try {
+      S.carRows = await loadCarRows();
+      renderCarList();
+    } catch (err) {
+      fail(err, openCars);
+    }
+  }
+
+  function renderCarList() {
+    const list = S.carRows || [];
+    S.view = "cars";
+    setHead("🚗 Mashinalar", list.length ? list.length + " ta mashina" : "Mashina yo'q");
+
+    body().innerHTML =
+      '<div class="adm-hint-block">' +
+      "Bu mashinalar Bi-LED konfiguratorida va tovarni «mashinaga mos» " +
+      "belgilashda ko'rinadi. Rasm qo'shilmasa — nomi bo'yicha avtomatik " +
+      "siluet chiziladi." +
+      "</div>" +
+      '<button class="apx-voice" id="car-add">＋ Yangi mashina</button>' +
+      '<div class="cars" id="car-list">' +
+      (list.length
+        ? list.map(carCard).join("")
+        : '<div class="adm-hint">Hali mashina yo\'q — «＋ Yangi mashina» ni bosing.</div>') +
+      "</div>";
+
+    $("car-add").onclick = () => {
+      haptic();
+      openCarForm(null);
+    };
+    bindCarList();
+  }
+
+  function carCard(c, i) {
+    const list = S.carRows || [];
+    return (
+      '<div class="car-card' + (c.is_active ? "" : " is-off") + '">' +
+      '<div class="car-art">' + carArt(c) + "</div>" +
+      '<div class="car-info">' +
+      '<div class="car-name">' + esc(c.name || "Nomsiz") + "</div>" +
+      (c.years ? '<div class="car-years">' + esc(c.years) + "</div>" : "") +
+      (c.note ? '<div class="car-note">' + esc(c.note) + "</div>" : "") +
+      (c.is_active ? "" : '<div class="car-note">🙈 yashirilgan</div>') +
+      "</div>" +
+      '<div class="car-adm-acts">' +
+      '<button class="mus-btn" data-cmv="up" data-key="' + esc(c.key) + '"' +
+      (i === 0 ? " disabled" : "") + ' aria-label="Yuqoriga">↑</button>' +
+      '<button class="mus-btn" data-cmv="down" data-key="' + esc(c.key) + '"' +
+      (i === list.length - 1 ? " disabled" : "") + ' aria-label="Pastga">↓</button>' +
+      '<button class="mus-btn" data-ceye="' + esc(c.key) + '" aria-label="Yashirish">' +
+      (c.is_active ? "👁" : "🙈") + "</button>" +
+      '<button class="mus-btn" data-cedit="' + esc(c.key) + '" aria-label="Tahrirlash">✏️</button>' +
+      '<button class="mus-btn mus-del" data-cdel="' + esc(c.key) + '" aria-label="O\'chirish">🗑</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function bindCarList() {
+    document.querySelectorAll("#car-list [data-cmv]").forEach((btn) => {
+      btn.onclick = () => moveCar(btn.dataset.key, btn.dataset.cmv === "up" ? -1 : 1);
+    });
+    document.querySelectorAll("#car-list [data-ceye]").forEach((btn) => {
+      btn.onclick = () => toggleCar(btn.dataset.ceye);
+    });
+    document.querySelectorAll("#car-list [data-cedit]").forEach((btn) => {
+      btn.onclick = () => {
+        haptic();
+        openCarForm((S.carRows || []).find((x) => x.key === btn.dataset.cedit) || null);
+      };
+    });
+    document.querySelectorAll("#car-list [data-cdel]").forEach((btn) => {
+      btn.onclick = () => deleteCar(btn.dataset.cdel);
+    });
+  }
+
+  /* ---- tartib / yashirish / o'chirish (banner bilan bir xil mantiq) ---- */
+
+  async function moveCar(key, delta) {
+    if (S.busy) return;
+    const list = S.carRows || [];
+    const at = list.findIndex((c) => c.key === key);
+    const to = at + delta;
+    if (at === -1 || to < 0 || to >= list.length) return;
+
+    haptic("light");
+    const before = list.slice();
+    const next = list.slice();
+    next[at] = list[to];
+    next[to] = list[at];
+    next.forEach((c, i) => (c.sort = i * 10));
+    S.carRows = next;
+    renderCarList();
+
+    S.busy = true;
+    try {
+      const writes = next
+        .map((c, i) => ({ c: c, sort: i * 10 }))
+        .filter((w) => {
+          const old = before.find((x) => x.key === w.c.key);
+          return !old || old.sort !== w.sort;
+        });
+      for (const w of writes) {
+        await fb().patch(CARS_P + "/" + w.c.key, { sort: w.sort, updatedAt: Date.now() });
+      }
+      freshenCars();
+    } catch (err) {
+      S.carRows = before;
+      renderCarList();
+      toast((err && err.message) || "Tartib saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function toggleCar(key) {
+    const c = (S.carRows || []).find((x) => x.key === key);
+    if (!c || S.busy) return;
+    const next = !c.is_active;
+    haptic();
+    S.busy = true;
+    try {
+      await fb().patch(CARS_P + "/" + key, { is_active: next ? 1 : 0, updatedAt: Date.now() });
+      c.is_active = next;
+      renderCarList();
+      freshenCars();
+      toast(next ? "✅ Ko'rsatiladi" : "🙈 Yashirildi");
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function deleteCar(key) {
+    const c = (S.carRows || []).find((x) => x.key === key);
+    if (!c || S.busy) return;
+    const ok = await ask(
+      "«" + (c.name || "Mashina") + "» o'chirilsinmi?\n\n" +
+        "Bu mashinaga biriktirilgan tovarlar «Universal» bo'lib qoladi."
+    );
+    if (!ok) return;
+    S.busy = true;
+    try {
+      /* Banner/musiqa bilan bir xil YUMSHOQ o'chirish (`deleted:true`):
+         Render uyg'onganda `sync.restore_catalog` uni ko'rib SQLite'dan
+         ham olib tashlaydi (`catalog_delete_by_key`). To'g'ridan o'chirsak,
+         keyingi `push_all_catalog` mashina yozuvini bulutga qaytarardi. */
+      await fb().patch(CARS_P + "/" + key, { deleted: true, updatedAt: Date.now() });
+      S.carRows = (S.carRows || []).filter((x) => x.key !== key);
+      haptic("success");
+      renderCarList();
+      freshenCars();
+      toast("🗑 O'chirildi");
+    } catch (err) {
+      toast((err && err.message) || "O'chirilmadi");
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  /* ---------------------------------- mashina formasi (qo'shish / tahrirlash) */
+
+  function openCarForm(c) {
+    S.view = "car-form";
+    const editing = !!c;
+    S.carEdit = c || null;
+    S.carPhoto = (c && c.photo_url) || ""; // yagona manba
+    S.carBusy = false;
+    setHead(editing ? "Mashinani tahrirlash" : "Yangi mashina", editing ? c.name || "" : "Marka va rusum");
+
+    body().innerHTML =
+      '<div class="adm-form">' +
+      /* ---- jonli ko'rinish (mijoz ko'radigan kartochka bilan BIR XIL) */
+      '<div class="admin-form-group"><div class="apx-sub" style="margin-top:0;">' +
+      "Mijozga qanday ko'rinadi</div>" +
+      '<div class="cars car-form-live" id="car-live"></div></div>' +
+      /* ---- asosiy ma'lumot */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-blue">🚗</div>' +
+      '<div class="apx-tx"><b>Mashina</b><span>Nomi · yillari · izoh</span></div></div>' +
+      '<input type="text" class="admin-input" id="car-name" maxlength="60" ' +
+      'placeholder="Nomi (mas: Malibu 2)" value="' + esc((c && c.name) || "") + '">' +
+      '<input type="text" class="admin-input" id="car-years" maxlength="60" ' +
+      'placeholder="Yillari (mas: 2018 – hozir)" value="' + esc((c && c.years) || "") + '">' +
+      '<input type="text" class="admin-input" id="car-note" maxlength="120" ' +
+      'placeholder="Izoh (mas: Chevrolet Malibu 2)" value="' + esc((c && c.note) || "") + '">' +
+      "</div>" +
+      /* ---- rasm (ixtiyoriy) */
+      '<div class="admin-form-group"><div class="apx-head">' +
+      '<div class="apx-ic apx-ic-gold">🖼</div>' +
+      '<div class="apx-tx"><b>Rasm</b><span>Ixtiyoriy — bo\'lmasa siluet chiziladi</span></div></div>' +
+      '<div class="ban-drop" id="car-drop"></div>' +
+      '<input type="file" id="car-file" accept="image/*" class="hidden">' +
+      '<div class="apx-sale-note">Rasm bo\'lmasa mijoz nomiga mos avtomatik ' +
+      "siluetni ko'radi — bo'sh kvadrat qolmaydi.</div>" +
+      "</div>" +
+      "</div>" +
+      '<div class="shop-footer">' +
+      '<button class="btn btn-primary" id="car-save">💾 ' +
+      (editing ? "Yangilash" : "Saqlash") + "</button>" +
+      '<button class="btn btn-ghost" id="car-cancel">Bekor qilish</button>' +
+      "</div>";
+
+    bindCarForm();
+  }
+
+  function bindCarForm() {
+    ["car-name", "car-years", "car-note"].forEach((id) => {
+      if ($(id)) $(id).oninput = renderCarLive;
+    });
+
+    $("car-file").onchange = async (e) => {
+      const file = (e.target.files || [])[0];
+      e.target.value = ""; // ayni faylni qayta tanlash imkoni qolsin
+      if (!file) return;
+      await uploadCarPhoto(file);
+    };
+
+    $("car-save").onclick = saveCar;
+    $("car-cancel").onclick = () => {
+      haptic();
+      renderCarList();
+    };
+
+    renderCarDrop();
+    renderCarLive();
+  }
+
+  function renderCarLive() {
+    const box = $("car-live");
+    if (!box) return;
+    const name = (($("car-name") && $("car-name").value) || "").trim();
+    const years = (($("car-years") && $("car-years").value) || "").trim();
+    const note = (($("car-note") && $("car-note").value) || "").trim();
+    const preview = { name: name, years: years, note: note, photo_url: S.carPhoto };
+    box.innerHTML =
+      '<div class="car-card">' +
+      '<div class="car-art">' + carArt(preview) + "</div>" +
+      '<div class="car-info">' +
+      '<div class="car-name">' + esc(name || "Mashina nomi") + "</div>" +
+      '<div class="car-years">' + esc(years) + "</div>" +
+      '<div class="car-note">' + esc(note) + "</div>" +
+      "</div>" +
+      '<span class="car-go">›</span>' +
+      "</div>";
+  }
+
+  function renderCarDrop() {
+    const box = $("car-drop");
+    if (!box) return;
+    if (S.carBusy) {
+      box.className = "ban-drop is-busy";
+      box.innerHTML =
+        '<div class="ban-prog"><b>' + (S.carPct || 0) + "%</b><span>" +
+        esc(S.carPhase || "yuklanmoqda") + "</span></div>";
+      return;
+    }
+    if (S.carPhoto) {
+      box.className = "ban-drop has-img";
+      box.innerHTML =
+        '<img src="' + esc(S.carPhoto) + '" alt="">' +
+        '<button type="button" class="ban-drop-x" id="car-x" aria-label="Rasmni o\'chirish">✕</button>' +
+        '<button type="button" class="ban-drop-swap" id="car-swap">🔄 Boshqa rasm</button>';
+      $("car-x").onclick = () => {
+        haptic("light");
+        S.carPhoto = "";
+        renderCarDrop();
+        renderCarLive();
+      };
+      $("car-swap").onclick = () => $("car-file").click();
+      return;
+    }
+    box.className = "ban-drop";
+    box.innerHTML =
+      '<span class="ban-drop-ic">🖼</span><b>Rasm tanlash</b><i>ixtiyoriy</i>';
+    box.onclick = () => $("car-file").click();
+  }
+
+  async function uploadCarPhoto(file) {
+    if (!up() || !up().available()) {
+      return toast("Rasm yuklash sozlanmagan (IMGBB_KEY yo'q)");
+    }
+    S.carBusy = true;
+    S.carPct = 0;
+    S.carPhase = "siqish";
+    renderCarDrop();
+    try {
+      const res = await up().uploadFile(
+        file,
+        (pct, phase) => {
+          S.carPct = Math.round(pct);
+          S.carPhase = phase;
+          renderCarDrop();
+        },
+        "product"
+      );
+      S.carPhoto = res.url;
+      haptic("success");
+      const kb = Math.round((res.bytes || 0) / 1024);
+      toast("✅ Rasm yuklandi" + (res.width ? " · " + res.width + "×" + res.height : "") +
+        (kb ? " · " + kb + " KB" : ""));
+    } catch (err) {
+      haptic("err");
+      toast((err && err.message) || "Rasm yuklanmadi");
+    } finally {
+      S.carBusy = false;
+      renderCarDrop();
+      renderCarLive();
+    }
+  }
+
+  /** Worker eski bo'lib id bermasa (`nextCarId` null qaytarsa) — mavjud
+   *  ro'yxatdan xavfsiz id: `ID_BASE` dan yuqori, eng katta id + 1.
+   *  SQLite'ning avto-inkrementi bu diapazonga hech qachon yetmaydi. */
+  function nextLocalCarId() {
+    const base = (fb() && fb().ID_BASE) || 900000;
+    let max = base;
+    (S.carRows || []).forEach((c) => {
+      const n = Number(c.id);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return max + 1;
+  }
+
+  async function saveCar() {
+    if (S.busy) return;
+    if (S.carBusy) return toast("⏳ Rasm yuklanmoqda — bir lahza kuting");
+
+    const name = ($("car-name").value || "").trim();
+    const years = ($("car-years").value || "").trim();
+    const note = ($("car-note").value || "").trim();
+
+    if (name.length < 2) return toast("Mashina nomini kiriting");
+    if (name.length > 60) return toast("Nom juda uzun (60 belgigacha)");
+    if (S.carPhoto && !/^https:\/\/[^\s]+$/i.test(S.carPhoto)) {
+      return toast("Rasm havolasi https bo'lishi kerak");
+    }
+    /* Bir xil nomli mashina ikki marta bo'lmasin: bulutda `_key` = nom,
+       ikkita bir xil nom Render'ga tiklanganda bittasi ustiga yozilardi. */
+    const dup = (S.carRows || []).find(
+      (c) =>
+        c.name.trim().toLowerCase() === name.toLowerCase() &&
+        (!S.carEdit || c.key !== S.carEdit.key)
+    );
+    if (dup) return toast("«" + name + "» allaqachon ro'yxatda");
+
+    const editing = S.carEdit;
+    // Maydonlar Worker `CATALOG_WRITE_FIELDS.cars` bilan MOS. Bo'sh matn
+    // EMAS, `null`: tahrirlashda `patch` uni ustiga yozib O'CHIRA oladi.
+    const rec = {
+      _key: name,
+      name: name,
+      years: years || null,
+      note: note || null,
+      photo_url: S.carPhoto || null,
+      photo_id: null,
+      is_active: 1,
+      deleted: false,
+      updatedAt: Date.now(),
+      source: "miniapp",
+    };
+
+    S.busy = true;
+    const btn = $("car-save");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Saqlanmoqda...";
+    }
+    try {
+      if (editing) {
+        rec.id = Number(editing.id) || editing.id;
+        rec.sort = editing.sort;
+        rec.is_active = editing.is_active ? 1 : 0;
+        await fb().patch(CARS_P + "/" + editing.key, rec);
+      } else {
+        let id = await fb().nextCarId();
+        if (id == null) id = nextLocalCarId(); // Worker eski — mahalliy id
+        rec.id = id;
+        rec.createdAt = Date.now();
+        // Yangi mashina OXIRIGA tushadi — mavjud tartib buzilmaydi.
+        const last = (S.carRows || []).reduce((m, c) => Math.max(m, c.sort), -10);
+        rec.sort = last + 10;
+        await fb().put(CARS_P + "/" + id, rec);
+      }
+      haptic("ok");
+      freshenCars();
+      toast(editing ? "✅ Saqlandi" : "✅ Mashina qo'shildi");
+      S.carRows = await loadCarRows();
+      renderCarList();
+    } catch (err) {
+      toast((err && err.message) || "Saqlanmadi");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = editing ? "💾 Yangilash" : "💾 Saqlash";
+      }
+    } finally {
+      S.busy = false;
+    }
+  }
+
   function back() {
     /* Xizmatlar oynasi ochiq bo'lsa — avval uning ichki qadami
        (forma -> ro'yxat), keyin ZimmerShop menyusiga. */
@@ -4314,7 +4812,9 @@ window.ZimmerShop = (function () {
       S.view === "board" ||
       S.view === "music" ||
       S.view === "banners" ||
-      S.view === "banner-form"
+      S.view === "banner-form" ||
+      S.view === "cars" ||
+      S.view === "car-form"
     ) {
       renderMenu();
       return true;
@@ -4333,6 +4833,7 @@ window.ZimmerShop = (function () {
     if (S.view === "board") return openBookingsBoard();
     if (S.view === "music") return openMusic();
     if (S.view === "banners" || S.view === "banner-form") return openBanners();
+    if (S.view === "cars" || S.view === "car-form") return openCars();
     if (S.view === "add") return openAdd();
     return open();
   }

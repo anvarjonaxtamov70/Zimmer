@@ -248,6 +248,7 @@ window.ZimmerFB = (function () {
       products_counter: "products",
       stories_counter: "stories",
       banners_counter: "banners",
+      cars_counter: "cars",
     }[counter];
     if (!table) throw new Error("Noma'lum sanoqchi");
     var out = await secureCatalogWrite("allocate", null, null, table);
@@ -271,6 +272,28 @@ window.ZimmerFB = (function () {
     return nextId("banners_counter");
   }
 
+  /** Mashina uchun id (`cars_counter`).
+   *
+   *  MUHIM — GRATSIOZ TUSHISH. Mashina sanoqchisi Worker'ga keyin qo'shildi
+   *  (`CATALOG_COUNTERS`). Cloudflare GitHub'dan O'ZI yangilanmagani uchun
+   *  eski Worker turgan bo'lsa `allocate` ni «Sanoqchi ruxsat etilmagan»
+   *  (400) bilan rad etadi. Bunday holatda `null` qaytaramiz — chaqiruvchi
+   *  (admin-shop.js: saveCar) mavjud ro'yxatdan `max+1` hisoblab, baribir
+   *  ishlaydi. Mashina kamdan-kam qo'shilgani uchun bu xavfsiz. Worker
+   *  yangilangach — avtomatik ravishda ishonchli sanoqchiga o'tadi. */
+  async function nextCarId() {
+    try {
+      return await nextId("cars_counter");
+    } catch (err) {
+      var code = String((err && err.code) || "");
+      var msg = String((err && err.message) || "");
+      if (code.indexOf("http_4") === 0 || /sanoqchi|counter|ruxsat/i.test(msg)) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
   return {
     available: available,
     get: get,
@@ -283,6 +306,7 @@ window.ZimmerFB = (function () {
     nextProductId: nextProductId,
     nextStoryId: nextStoryId,
     nextBannerId: nextBannerId,
+    nextCarId: nextCarId,
     ID_BASE: ID_BASE,
     _url: url,
   };
