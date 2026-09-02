@@ -1,6 +1,6 @@
 {
  "car_id": null,
- "_generated_at": "2026-09-02T14:08:46Z",
+ "_generated_at": "2026-09-02T19:15:12Z",
  "banners": [
   {
    "id": 1,
@@ -198,7 +198,7 @@
      "price": 280000,
      "old_price": 320000,
      "badge": "Bmw dizayn",
-     "stock": 10,
+     "stock": 9,
      "car_id": null,
      "product_type": "oddiy",
      "sizes": [],
