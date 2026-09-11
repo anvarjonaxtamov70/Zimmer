@@ -1,6 +1,6 @@
 {
  "car_id": null,
- "_generated_at": "2026-09-11T08:40:00Z",
+ "_generated_at": "2026-09-11T14:06:22Z",
  "banners": [
   {
    "id": 1,
@@ -36,19 +36,6 @@
    "color_from": "#c1121f",
    "color_to": "#101215",
    "photo_url": "https://i.ibb.co/fGLRdjr0/5d1822981012.jpg",
-   "photo_external": true,
-   "video_url": null,
-   "video_external": true,
-   "has_media": true
-  },
-  {
-   "id": 4,
-   "title": "Registon",
-   "subtitle": "Samarqand",
-   "tag": "Kechga chiroyli",
-   "color_from": "#3a3f4b",
-   "color_to": "#0c0d11",
-   "photo_url": "https://i.ibb.co/TBnhht72/c7ff791c1c09.jpg",
    "photo_external": true,
    "video_url": null,
    "video_external": true,
@@ -137,42 +124,17 @@
  ],
  "catalog": [
   {
-   "id": 3,
-   "name": "Aksesuarlar",
-   "icon": "🧰",
+   "id": 1,
+   "name": "BI-ledlar",
+   "icon": "🔵",
    "products": [
     {
-     "id": 18,
-     "name": "RGB maska .transformerrr",
-     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
-     "price": 280000,
-     "old_price": 310000,
-     "badge": "Transformer",
-     "stock": 9,
-     "car_id": null,
-     "product_type": "oddiy",
-     "sizes": [],
-     "warranty": null,
-     "car_names": [],
-     "car_name": null,
-     "price_label": "280 000 so'm",
-     "old_price_label": "310 000 so'm",
-     "photo_url": "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg"
-     ]
-    },
-    {
-     "id": 17,
-     "name": "Masska bi led.",
-     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
-     "price": 85000,
-     "old_price": 95000,
-     "badge": "Black",
+     "id": 900016,
+     "name": "Fara uchun maxsus lentali germetika",
+     "description": null,
+     "price": 60000,
+     "old_price": 80000,
+     "badge": null,
      "stock": 10,
      "car_id": null,
      "product_type": "oddiy",
@@ -180,50 +142,17 @@
      "warranty": null,
      "car_names": [],
      "car_name": null,
-     "price_label": "85 000 so'm",
-     "old_price_label": "95 000 so'm",
-     "photo_url": "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg",
+     "price_label": "60 000 so'm",
+     "old_price_label": "80 000 so'm",
+     "photo_url": "https://i.ibb.co/wZXhNJ3V/0175af57bd6f.jpg",
      "photo_external": true,
      "video_url": null,
      "video_external": true,
      "has_media": true,
      "images": [
-      "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg"
+      "https://i.ibb.co/wZXhNJ3V/0175af57bd6f.jpg"
      ]
     },
-    {
-     "id": 11,
-     "name": "RGB maska. BMW dizaynda",
-     "description": null,
-     "price": 280000,
-     "old_price": 320000,
-     "badge": "Bmw dizayn",
-     "stock": 9,
-     "car_id": null,
-     "product_type": "oddiy",
-     "sizes": [],
-     "warranty": null,
-     "car_names": [],
-     "car_name": null,
-     "price_label": "280 000 so'm",
-     "old_price_label": "320 000 so'm",
-     "photo_url": "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
-     "photo_external": true,
-     "video_url": null,
-     "video_external": true,
-     "has_media": true,
-     "images": [
-      "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
-      "https://i.ibb.co/LhxP0J6s/c297be27206b.jpg"
-     ]
-    }
-   ]
-  },
-  {
-   "id": 1,
-   "name": "BI-ledlar",
-   "icon": "🔵",
-   "products": [
     {
      "id": 16,
      "name": "Zimmer r50 max",
@@ -322,6 +251,89 @@
      "has_media": true,
      "images": [
       "https://i.ibb.co/VWpDNtbT/3cdbd269254c.jpg"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "Aksesuarlar",
+   "icon": "🧰",
+   "products": [
+    {
+     "id": 18,
+     "name": "RGB maska .transformerrr",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 280000,
+     "old_price": 310000,
+     "badge": "Transformer",
+     "stock": 9,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "310 000 so'm",
+     "photo_url": "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fzMbvWwv/d78c50b28f3b.jpg"
+     ]
+    },
+    {
+     "id": 17,
+     "name": "Masska bi led.",
+     "description": "✅ Original mahsulot, sifat kafolatlanadi.",
+     "price": 85000,
+     "old_price": 95000,
+     "badge": "Black",
+     "stock": 10,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "85 000 so'm",
+     "old_price_label": "95 000 so'm",
+     "photo_url": "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/fYnW0Nnw/fe5a4c78ea1d.jpg"
+     ]
+    },
+    {
+     "id": 11,
+     "name": "RGB maska. BMW dizaynda",
+     "description": null,
+     "price": 280000,
+     "old_price": 320000,
+     "badge": "Bmw dizayn",
+     "stock": 9,
+     "car_id": null,
+     "product_type": "oddiy",
+     "sizes": [],
+     "warranty": null,
+     "car_names": [],
+     "car_name": null,
+     "price_label": "280 000 so'm",
+     "old_price_label": "320 000 so'm",
+     "photo_url": "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+     "photo_external": true,
+     "video_url": null,
+     "video_external": true,
+     "has_media": true,
+     "images": [
+      "https://i.ibb.co/Jw6FxDmK/0d12b1b1ad8d.jpg",
+      "https://i.ibb.co/LhxP0J6s/c297be27206b.jpg"
      ]
     }
    ]
