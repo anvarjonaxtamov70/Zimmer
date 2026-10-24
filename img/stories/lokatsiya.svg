@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Uzbrovv stories muqovasi: lokatsiya. Har bo'lim o'z rangida (dizayn rangiga bog'liq emas).
+       Almashtirish: shu faylni boshqa rasm bilan almashtiring. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#4a0e0b"/>
+      <stop offset="1" stop-color="#130302"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff453a" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#ff453a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="4" y1="2" x2="20" y2="22">
+      <stop offset="0" stop-color="#ff9b93"/>
+      <stop offset=".5" stop-color="#ff3b30"/>
+      <stop offset="1" stop-color="#b3120c"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="url(#bg)"/>
+  <circle cx="64" cy="66" r="50" fill="url(#glow)"/>
+  <g transform="translate(26 25) scale(3.15)">
+    <ellipse cx="12" cy="21.6" rx="4.6" ry="1.1" fill="#000" opacity=".45"/><path d="M12 21s-7.2-6.4-7.2-11.8a7.2 7.2 0 0 1 14.4 0C19.2 14.6 12 21 12 21z" fill="url(#g)"/><circle cx="12" cy="9.3" r="2.9" fill="#fff"/><path d="M7.4 6.4A5.4 5.4 0 0 1 12 3.6" stroke="#fff" stroke-width="1.1" stroke-linecap="round" fill="none" opacity=".45"/>
+  </g>
+</svg>

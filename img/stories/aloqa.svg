@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Uzbrovv stories muqovasi: aloqa. Har bo'lim o'z rangida (dizayn rangiga bog'liq emas).
+       Almashtirish: shu faylni boshqa rasm bilan almashtiring. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#0d3d1c"/>
+      <stop offset="1" stop-color="#04120a"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#30d158" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#30d158" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="4" y1="2" x2="20" y2="22">
+      <stop offset="0" stop-color="#a6f7b8"/>
+      <stop offset=".5" stop-color="#34d65c"/>
+      <stop offset="1" stop-color="#16963a"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="url(#bg)"/>
+  <circle cx="64" cy="66" r="50" fill="url(#glow)"/>
+  <g transform="translate(26 25) scale(3.15)">
+    <path d="M6.3 2.6h3.2l1.9 4.9-2.4 1.6a12.6 12.6 0 0 0 5.9 5.9l1.6-2.4 4.9 1.9v3.2a2.4 2.4 0 0 1-2.6 2.4C10.3 19.4 4.6 13.7 3.9 5.2a2.4 2.4 0 0 1 2.4-2.6z" fill="url(#g)"/><path d="M6.3 2.6h3.2l.7 1.8H6.6a1.6 1.6 0 0 0-1.6 1.7l-.6.1A2.4 2.4 0 0 1 6.3 2.6z" fill="#fff" opacity=".4"/>
+  </g>
+</svg>

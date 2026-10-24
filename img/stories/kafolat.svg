@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Uzbrovv stories muqovasi: kafolat. Har bo'lim o'z rangida (dizayn rangiga bog'liq emas).
+       Almashtirish: shu faylni boshqa rasm bilan almashtiring. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#06393a"/>
+      <stop offset="1" stop-color="#021212"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#30d6c8" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#30d6c8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="4" y1="2" x2="20" y2="22">
+      <stop offset="0" stop-color="#a5fff4"/>
+      <stop offset=".5" stop-color="#2fd4c4"/>
+      <stop offset="1" stop-color="#0b8f86"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="url(#bg)"/>
+  <circle cx="64" cy="66" r="50" fill="url(#glow)"/>
+  <g transform="translate(26 25) scale(3.15)">
+    <path d="M12 2 4.2 5.1v6.2c0 5 3.4 8.6 7.8 10.2 4.4-1.6 7.8-5.2 7.8-10.2V5.1z" fill="url(#g)"/><path d="m8.4 11.9 2.6 2.6 4.8-5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 3.6 5.8 6.1v2" stroke="#fff" stroke-width="1.1" stroke-linecap="round" fill="none" opacity=".45"/>
+  </g>
+</svg>
